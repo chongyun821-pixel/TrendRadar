@@ -32,13 +32,13 @@ npm run dev          # → http://localhost:62356  (Vite 개발 서버 + /api)
 | `npm run mcp:check` | MCP 서버 기동·도구 목록·호출 점검 |
 | `npm run shots` | Playwright 스크린샷 → `shots/` (서버 실행 중일 때, Chrome 필요. 경로 지정: `CHROME_PATH`) |
 
-### AI 키 (.dev.vars)
+### AI 키 (.secrets)
 
 ```bash
-copy .dev.vars.example .dev.vars    # Windows (macOS/Linux: cp)
+copy .secrets.example .secrets    # Windows (macOS/Linux: cp)
 ```
 
-`.dev.vars` 에 `GOOGLE_API_KEY=` (Google AI Studio 키)를 넣습니다. `npm run dev`·`npm start`·`npm run cf:dev` 모두 이 파일을 읽으며, 개발 서버는 요청마다 다시 읽으므로 재시작이 필요 없습니다. `.dev.vars` 는 `.gitignore` 에 포함돼 있습니다.
+`.secrets` 에 `GOOGLE_API_KEY=` (Google AI Studio 키)를 넣습니다. `npm run dev`·`npm start`·`npm run cf:dev` 모두 이 파일을 읽으며, 개발 서버는 요청마다 다시 읽으므로 재시작이 필요 없습니다. `.secrets` 는 `.gitignore` 에 포함돼 있습니다.
 
 - 모델 변경: `GEMMA_MODEL=` (기본 `gemma-4-26b-a4b-it`)
 - 호출 방식: `POST https://generativelanguage.googleapis.com/v1beta/models/{모델}:generateContent`, 헤더 `x-goog-api-key`, `tools.functionDeclarations`
@@ -148,7 +148,7 @@ Streamable HTTP를 받는 클라이언트는 `npm run mcp:http` 후 URL `http://
 ```
 index.html, src/            프런트엔드 (globe.ts 렌더러·지도 모드, main.ts UI·툴팁, chat.ts, commands.ts, md.ts, style.css)
 shared/                     공용 TS: types, data(이름 해석), forecast(예측), tools(도구·보고서)
-server/                     Hono API(app.ts), Gemma 에이전트(gemma.ts), Node 서버(node.ts), .dev.vars 로더
+server/                     Hono API(app.ts), Gemma 에이전트(gemma.ts), Node 서버(node.ts), .secrets 로더
 functions/api/[[path]].ts   Cloudflare Pages Functions 진입점
 worker.ts                   (선택) Workers 진입점
 mcp/server.ts               MCP 서버 (stdio / Streamable HTTP)

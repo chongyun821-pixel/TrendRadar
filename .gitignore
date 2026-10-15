@@ -1,6 +1,7 @@
 node_modules/
 dist/
-.dev.vars
+.secrets
 .wrangler/
 *.log
 .env
+.dev.vars

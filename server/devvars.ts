@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-/** .dev.vars (KEY=VALUE) 읽기. 없으면 빈 객체 */
-export function loadDevVars(file = resolve(process.cwd(), '.dev.vars')): Record<string, string> {
+/** .secrets (KEY=VALUE) 읽기. 없으면 빈 객체 */
+export function loadDevVars(file = resolve(process.cwd(), '.secrets')): Record<string, string> {
   const out: Record<string, string> = {};
   let text = '';
   try { text = readFileSync(file, 'utf8').replace(/^\uFEFF/, ''); } catch { return out; }

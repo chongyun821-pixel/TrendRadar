@@ -9,7 +9,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "vite build && tsx server/node.ts",
     "serve": "tsx server/node.ts",
-    "cf:dev": "vite build && wrangler pages dev dist --port 62356",
+    "cf:dev": "vite build && wrangler pages dev dist --port 62356 --env-file .secrets",
     "deploy": "vite build && wrangler pages deploy dist",
     "mcp": "tsx mcp/server.ts",
     "mcp:http": "tsx mcp/server.ts --http",
