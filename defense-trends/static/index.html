@@ -1,0 +1,104 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>글로벌 방산 동향 검색</title>
+<link rel="stylesheet" href="/static/chat.css">
+<style>
+body{font-family:system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:0;background:#f4f6f9;color:#222}
+header{background:#1f2d3d;color:#fff;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+h1{font-size:20px;margin:0}
+main{max-width:1100px;margin:auto;padding:16px}
+.tabs{display:flex;gap:4px;border-bottom:2px solid #d5dbe3;margin-bottom:14px}
+.tab{background:none;color:#555;border:none;padding:10px 22px;font-size:15px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;margin-bottom:-2px;border-radius:0}
+.tab.on{color:#1a4fb5;border-bottom-color:#2d6cdf}
+form{display:flex;flex-direction:column;gap:8px;background:#fff;padding:12px;border-radius:8px;box-shadow:0 1px 3px #0001}
+input,select,button{padding:7px 9px;border:1px solid #ccc;border-radius:5px;font-size:14px}
+.srow{display:flex;gap:8px;flex-wrap:wrap}.srow button{padding:7px 20px}#q{flex:1;min-width:160px}#source{max-width:200px}button{background:#2d6cdf;color:#fff;border:none;cursor:pointer}button:disabled{opacity:.6}
+button.sec{background:#5a6b7d}
+.group{margin-top:18px}.ghead{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;padding:6px 4px;border-bottom:1px solid #d5dbe3;color:#1f2d3d}
+.item{background:#fff;margin:8px 0;padding:12px 16px;border-radius:8px;box-shadow:0 1px 3px #0001}
+.item a{font-size:16px;font-weight:600;color:#1a4fb5;text-decoration:none}.meta{font-size:12px;color:#666;margin:4px 0}
+.tag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;color:#fff;font-weight:500}
+.company{background:#d9822b}.media{background:#2d6cdf}.military{background:#3c7d3c}.academic{background:#8a4fbf}
+.sum{font-size:14px;color:#333}.item a.read{font-size:12px;font-weight:600;color:#fff;background:#3c7d3c;padding:1px 8px;border-radius:9px;margin-left:8px;vertical-align:2px;white-space:nowrap}#info{display:none}#list{margin-top:6px}#pager{text-align:center;margin:12px}
+/* 뉴스레터 */
+.nl{max-width:760px;margin:auto;background:#fff;border-radius:10px;box-shadow:0 2px 8px #0002;overflow:hidden}
+.nlhead{background:linear-gradient(135deg,#1f2d3d,#2d4a6d);color:#fff;padding:24px 28px}
+.nlhead .date{font-size:13px;opacity:.85}.nlhead .gen{font-size:11.5px;opacity:.7;margin-top:2px}
+.warn{background:#fff6e0;color:#8a5a00;font-size:12.5px;padding:8px 28px;border-bottom:1px solid #f0e0b0}.nlhead h2{margin:6px 0 0;font-size:22px}
+.nlbar{display:flex;justify-content:space-between;align-items:center;padding:10px 28px;background:#eef2f7;font-size:13px;color:#555;flex-wrap:wrap;gap:6px}
+.topic{display:flex;gap:16px;padding:22px 28px;border-bottom:1px solid #eef0f3}.topic:last-child{border-bottom:none}
+.num{flex:none;width:34px;height:34px;border-radius:50%;background:#2d6cdf;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:16px}
+.topic h3{margin:4px 0 8px;font-size:18px;line-height:1.4}.topic .en{font-size:12px;color:#888;margin:-4px 0 8px}
+.topic p{margin:0 0 10px;line-height:1.65;font-size:14.5px}
+.links{margin:0;padding-left:18px;font-size:13px}.links li{margin:3px 0}.links a{color:#1a4fb5;text-decoration:none}.links span{color:#888}
+.empty{padding:40px;text-align:center;color:#888}
+</style></head><body>
+<header><h1>🛡️ 글로벌 방산 동향 검색</h1></header>
+<main>
+<div class="tabs"><button class="tab on" data-t="raw">원문</button><button class="tab" data-t="digest">요약</button></div>
+<section id="raw">
+<form id="f">
+<div class="srow"><input id="q" placeholder="검색"><select id="category"><option value="">전체 분류</option><option value="company">기업</option><option value="media">언론</option><option value="military">군/국방부</option><option value="academic">학술/연구</option></select>
+<select id="source"><option value="">전체 출처</option></select><button>검색</button></div></form>
+<div id="info"></div><div id="list"></div><div id="pager"><button class="sec" id="more" style="display:none">더 보기</button></div>
+</section>
+<section id="digest" style="display:none">
+<div class="nl"><div class="nlhead"><div class="date" id="nldate"></div><div class="gen" id="nlgen"></div><h2>방산 동향 브리핑 · 핵심 이슈 4선</h2></div>
+<div class="nlbar"><label>기간 <select id="days"><option value="1">최근 1일</option><option value="3">최근 3일</option><option value="7" selected>최근 7일</option><option value="14">최근 14일</option><option value="30">최근 30일</option></select></label>
+<span id="nlmeta"></span><button class="sec" id="regen">요약 다시 만들기</button></div><div id="nlwarn"></div><div id="topics"><div class="empty">불러오는 중…</div></div></div>
+</section>
+</main>
+<script>
+const CAT={company:"기업",media:"언론",military:"군/국방부",academic:"학술/연구"};
+const $=id=>document.getElementById(id);let offset=0,lastGroup=null,digestLoaded=false;
+window.DT_FILTER={date_from:"",date_to:"",sort:"source"};  // 화면에 없는 조건(기간·정렬): 챗봇 명령으로 설정
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=d=>d?new Date(d).toLocaleString("ko-KR",{dateStyle:"medium",timeStyle:"short"}):"-";
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===b));
+ $("raw").style.display=b.dataset.t==="raw"?"":"none";$("digest").style.display=b.dataset.t==="digest"?"":"none";
+ if(b.dataset.t==="digest"&&!digestLoaded)loadDigest();});
+async function loadSources(){const s=await (await fetch("/api/sources")).json();const sel=$("source"),cur=sel.value;
+ sel.innerHTML='<option value="">전체 출처</option>'+s.map(x=>`<option value="${esc(x.source)}">${esc(x.source)} (${x.n})</option>`).join("");sel.value=cur;}
+async function search(append){if(!append){offset=0;lastGroup=null;$("list").innerHTML="";}
+ const F=window.DT_FILTER,p=new URLSearchParams({limit:200,offset,sort:F.sort||"source"});
+ for(const k of["q","category","source"])if($(k).value)p.set(k,$(k).value);
+ if(F.date_from)p.set("date_from",F.date_from);if(F.date_to)p.set("date_to",F.date_to);
+ const r=await (await fetch("/api/search?"+p)).json();let html="";
+ for(const i of r.items){if(i.source!==lastGroup){if(lastGroup!==null)html+="</div>";lastGroup=i.source;
+   html+=`<div class="group"><div class="ghead"><span class="tag ${i.category}">${CAT[i.category]||i.category}</span>${esc(i.source)}</div>`;}
+  html+=`<div class="item" data-id="${i.id}" data-source="${esc(i.source)}" data-date="${esc(i.published||"")}"><a class="ttl" href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a><a class="read" href="/article/${i.id}" title="앱 안에서 본문 읽기">읽기</a>
+ <div class="meta">${esc(i.source)} · ${fmt(i.published)}</div>
+ <div class="sum">${esc((i.summary||"").slice(0,300))}${(i.summary||"").length>300?"…":""}</div></div>`;}
+ if(r.items.length)html+="</div>";
+ // 이어 붙일 때 같은 출처 그룹이 이어지면 마지막 그룹 안에 넣기
+ const tmp=document.createElement("div");tmp.innerHTML=html;const list=$("list");
+ [...tmp.childNodes].forEach(n=>list.appendChild(n));
+ offset+=r.items.length;$("info").textContent=`검색 결과 ${r.total.toLocaleString()}건`+(F.date_from||F.date_to?` · 기간 ${F.date_from||"…"}~${F.date_to||"…"}`:"")+(F.sort==="date"?" · 최신순":" · 출처별 그룹 (각 그룹 최신순)");
+ $("more").style.display=offset<r.total?"":"none";}
+let digestTimer=null;
+const GEN={"codex":"Codex","openai":"OpenAI API","heuristic+translate":"자동 묶기(번역)","heuristic(en-fallback)":"자동 묶기(번역 불가·영문)"};
+async function loadDigest(refresh){clearTimeout(digestTimer);const days=$("days").value;
+ const d=await (await fetch(`/api/digest?days=${days}${refresh?"&refresh=true":""}`)).json();digestLoaded=true;
+ if(days!==$("days").value)return;
+ $("nldate").textContent=new Date().toLocaleDateString("ko-KR",{year:"numeric",month:"long",day:"numeric",weekday:"long"})+` · 최근 ${d.days}일`;
+ const busy=d.status==="generating";$("regen").disabled=busy;$("regen").textContent=busy?"요약 생성 중...":"요약 다시 만들기";
+ if(busy)digestTimer=setTimeout(()=>loadDigest(),5000);
+ if(!d.method){$("nlgen").textContent="";$("nlmeta").textContent="";$("nlwarn").innerHTML="";
+  $("topics").innerHTML='<div class="empty">요약 생성 중... (Codex 사용 시 수 분 걸릴 수 있음)</div>';return;}
+ $("nlgen").textContent="생성: "+(GEN[d.method]||d.method)+(busy?" · 새 요약 생성 중...":"");
+ $("nlmeta").textContent=`분석 기사 ${d.item_pool||0}건 · 생성 ${fmt(d.generated_at)}`;
+ $("nlwarn").innerHTML=d.error?`<div class="warn">⚠️ ${d.provider==="codex"?"Codex":"요약기"} 실패로 대체 방식 사용: ${esc(d.error)}</div>`:"";
+ if(!d.topics.length){$("topics").innerHTML='<div class="empty">해당 기간에 기사가 없습니다.</div>';return;}
+ $("topics").innerHTML=d.topics.map(t=>`<div class="topic"><div class="num">${t.no}</div><div>
+ <h3>${esc(t.headline)}</h3>${t.headline_en&&t.headline_en!==t.headline?`<div class="en">${esc(t.headline_en)}</div>`:""}
+ <p>${esc(t.summary)}</p><ul class="links">${t.links.map(l=>`<li><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a> <span>— ${esc(l.source)}</span></li>`).join("")}</ul></div></div>`).join("");}
+$("regen").onclick=()=>loadDigest(true);
+$("days").onchange=()=>loadDigest();
+$("f").onsubmit=e=>{e.preventDefault();search();};$("category").onchange=()=>search();$("source").onchange=()=>search();$("more").onclick=()=>search(true);
+// URL 파라미터(?q=&category=&source=)와 #digest 지원 (기사 페이지·챗봇에서 이동할 때)
+const P=new URLSearchParams(location.search);if(P.get("q"))$("q").value=P.get("q");
+if(P.get("category"))$("category").value=P.get("category");
+for(const k of["date_from","date_to","sort"])if(P.get(k))window.DT_FILTER[k]=P.get(k);
+loadSources().then(()=>{if(P.get("source")){$("source").value=P.get("source");search();}});if(!P.get("source"))search();
+if(location.hash==="#digest")document.querySelector('.tab[data-t="digest"]').click();
+</script>
+<script src="/static/chat.js"></script></body></html>

@@ -1,0 +1,35 @@
+{
+ "type": "object",
+ "additionalProperties": false,
+ "required": [
+  "topics"
+ ],
+ "properties": {
+  "topics": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+     "headline",
+     "summary",
+     "link_ids"
+    ],
+    "properties": {
+     "headline": {
+      "type": "string"
+     },
+     "summary": {
+      "type": "string"
+     },
+     "link_ids": {
+      "type": "array",
+      "items": {
+       "type": "integer"
+      }
+     }
+    }
+   }
+  }
+ }
+}

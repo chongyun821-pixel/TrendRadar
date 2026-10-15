@@ -1,0 +1,42 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>기사 읽기 · 글로벌 방산 동향 검색</title>
+<link rel="stylesheet" href="/static/chat.css">
+<style>
+body{font-family:system-ui,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;margin:0;background:#f4f6f9;color:#222}
+header{background:#1f2d3d;color:#fff;padding:14px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header h1{font-size:20px;margin:0}header a{color:#fff;text-decoration:none}header .back{font-size:14px;opacity:.85}
+main{max-width:800px;margin:auto;padding:16px}
+.card{background:#fff;border-radius:10px;box-shadow:0 2px 8px #0002;padding:24px 28px}
+.tag{display:inline-block;padding:1px 7px;border-radius:9px;font-size:11px;color:#fff;font-weight:500}
+.company{background:#d9822b}.media{background:#2d6cdf}.military{background:#3c7d3c}.academic{background:#8a4fbf}
+h2{font-size:23px;line-height:1.4;margin:10px 0 6px}.meta{font-size:13px;color:#666}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.bar a,.bar button{padding:7px 12px;border-radius:5px;font-size:13.5px;border:none;cursor:pointer;text-decoration:none}
+.bar a{background:#2d6cdf;color:#fff}.bar button{background:#5a6b7d;color:#fff}.bar button:disabled{opacity:.6}
+.note{background:#fff6e0;color:#8a5a00;font-size:12.5px;padding:8px 12px;border-radius:6px;margin:8px 0}
+.body p{line-height:1.75;font-size:15.5px;margin:0 0 14px}.empty{padding:40px;text-align:center;color:#888}
+</style></head><body data-page="article">
+<header><a class="back" href="/">← 목록으로</a><h1><a href="/">🛡️ 글로벌 방산 동향 검색</a></h1></header>
+<main><div class="card" id="card"><div class="empty">불러오는 중… (원문 본문을 가져오는 데 몇 초 걸릴 수 있습니다)</div></div></main>
+<script>
+const CAT={company:"기업",media:"언론",military:"군/국방부",academic:"학술/연구"};
+const esc=s=>String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=d=>d?new Date(d).toLocaleString("ko-KR",{dateStyle:"medium",timeStyle:"short"}):"-";
+const safeUrl=u=>/^https?:\/\//i.test(u||"")?u:"#";
+const ID=location.pathname.split("/").filter(Boolean).pop();
+window.DT_ARTICLE={id:ID};
+async function load(refresh){
+ const card=document.getElementById("card");
+ const r=await fetch(`/api/article/${encodeURIComponent(ID)}${refresh?"?refresh=true":""}`);
+ if(!r.ok){card.innerHTML='<div class="empty">기사를 찾을 수 없습니다.</div>';return;}
+ const a=await r.json();window.DT_ARTICLE=a;document.title=a.title+" · 글로벌 방산 동향 검색";
+ const paras=String(a.text||"").split(/\n\s*\n/).filter(x=>x.trim());
+ card.innerHTML=`<span class="tag ${esc(a.category)}">${CAT[a.category]||esc(a.category)}</span>
+ <h2>${esc(a.title)}</h2><div class="meta">${esc(a.source)} · ${fmt(a.published)}</div>
+ <div class="bar"><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener">원문 사이트에서 보기 ↗</a><button id="re">본문 다시 가져오기</button></div>
+ ${a.text_source==="original"?"":`<div class="note">⚠️ 원문 본문을 가져오지 못해 수집 시 저장된 요약만 표시합니다.${a.fetch_error?" ("+esc(a.fetch_error)+")":""}</div>`}
+ <div class="body">${paras.length?paras.map(p=>`<p>${esc(p)}</p>`).join(""):'<div class="empty">표시할 내용이 없습니다.</div>'}</div>`;
+ document.getElementById("re").onclick=e=>{e.target.disabled=true;e.target.textContent="가져오는 중…";load(true);};
+}
+load();
+</script>
+<script src="/static/chat.js"></script></body></html>
