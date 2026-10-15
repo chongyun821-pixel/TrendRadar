@@ -29,7 +29,7 @@ export function initChat(o: ChatOpts) {
   const sel = root.querySelector('#model') as HTMLSelectElement;
   const history: Msg[] = [];
   let busy = false;
-  let models: ModelInfo[] = [{ id: 'gemma', name: '제마', available: true }];
+  let models: ModelInfo[] = [{ id: 'gemma', name: '젬마', available: true }];
   let model = 'gemma';
   const KEY = 'pr.model';
   function setModel(id: string) {

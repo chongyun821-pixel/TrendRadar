@@ -6,7 +6,7 @@ import { localAvailability, chatGrok, chatCodex } from './cli';
 export const MODELS: { id: ModelId; name: string; local?: boolean }[] = [
   { id: 'grok', name: '그록 빌드', local: true },
   { id: 'codex', name: '코덱스', local: true },
-  { id: 'gemma', name: '제마' },
+  { id: 'gemma', name: '젬마' },
   { id: 'nemotron', name: '네모트론' },
 ];
 export const DEFAULT_MODEL: ModelId = 'gemma';

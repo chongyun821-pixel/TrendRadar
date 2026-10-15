@@ -218,11 +218,11 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
 });
 
 describe('모델 API', () => {
-  it('GET /api/models: 4개, 기본 제마, LOCAL_CLI=0 이면 로컬 모델 숨김', async () => {
+  it('GET /api/models: 4개, 기본 젬마, LOCAL_CLI=0 이면 로컬 모델 숨김', async () => {
     const r = await app.request('/api/models', {}, { LOCAL_CLI: '0' });
     const j = await r.json();
     expect(j.default).toBe('gemma');
-    expect(j.models.map((m: any) => m.name)).toEqual(['그록 빌드', '코덱스', '제마', '네모트론']);
+    expect(j.models.map((m: any) => m.name)).toEqual(['그록 빌드', '코덱스', '젬마', '네모트론']);
     expect(j.models.filter((m: any) => m.available).map((m: any) => m.id)).toEqual(['gemma', 'nemotron']);
   });
   it('POST /api/chat model=nemotron 키 없음, 모르는 모델', async () => {
@@ -233,7 +233,7 @@ describe('모델 API', () => {
     expect((await (await post({ model: 'grok', ...user('hi') })).json()).error).toBeTruthy();
   });
   it('!모델 이름 해석', () => {
-    const ms = [{ id: 'grok', name: '그록 빌드', available: true }, { id: 'gemma', name: '제마', available: true }];
+    const ms = [{ id: 'grok', name: '그록 빌드', available: true }, { id: 'gemma', name: '젬마', available: true }];
     expect(pickModel('그록 빌드', ms)).toBe('grok'); expect(pickModel('코덱스', ms)).toBe('codex'); expect(pickModel('Gemma', ms)).toBe('gemma'); expect(pickModel('네모트론', ms)).toBe('nemotron'); expect(pickModel('foo', ms)).toBeNull();
   });
 });

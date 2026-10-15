@@ -7,7 +7,7 @@
 - 모드 7개: 일반 · 자주포 · 장갑차 · 대공미사일 · 다연장로켓 · 호위함 · 재래식 잠수함
 - 색 = 임박도(🔴 2년 이내 · 🟠 3~5년 · 🟡 6~10년 · 🔵 10년 이후 · ⚪ 데이터 부족), 막대 높이·진하기 = 예상 금액(억 원, 로그)
 - 마우스 오버 툴팁(현재 주력·도입 연도·수량, 설계 수명, 교체 예상, 최근 MRO, 예상 수량·금액, 신뢰도, 출처), 클릭 = 카메라 이동 + 툴팁 고정(출처 링크 클릭 가능) + 채팅에 「보고서」 제안
-- 하단 채팅: 모델 4개 선택(그록 빌드 · 코덱스 · 제마 · 네모트론). 도구로 화면을 조작하고 보고서 작성. 키가 없어도 `!명령`은 동작
+- 하단 채팅: 모델 4개 선택(그록 빌드 · 코덱스 · 젬마 · 네모트론). 도구로 화면을 조작하고 보고서 작성. 키가 없어도 `!명령`은 동작
 - 같은 도구를 MCP 서버로 제공(MCP 지원 클라이언트에서 사용)
 
 기획 원문은 [`docs/기획안.md`](docs/기획안.md)에 있습니다.
@@ -27,23 +27,23 @@ npm run dev          # → http://localhost:62356  (Vite 개발 서버 + /api)
 | `npm start` | 빌드 후 Node 서버로 `dist` + `/api` 실행 (포트 62356) |
 | `npm run cf:dev` | 빌드 후 `wrangler pages dev` 로 Cloudflare 환경 그대로 로컬 실행 (포트 62356) |
 | `npm run build` | 타입 검사 + `dist/` 정적 빌드 |
-| `npm test` | 예측 모듈·모델별 채팅 루프(제마·네모트론 전환·CLI 출력 파싱·세션 정리)·API 단위 테스트 (vitest) |
+| `npm test` | 예측 모듈·모델별 채팅 루프(젬마·네모트론 전환·CLI 출력 파싱·세션 정리)·API 단위 테스트 (vitest) |
 | `npm run mcp` / `npm run mcp:http` | MCP 서버 (stdio / Streamable HTTP :62357) |
 | `npm run mcp:check` | MCP 서버 기동·도구 목록·호출 점검 |
 | `npm run shots` | Playwright 스크린샷 → `shots/` (서버 실행 중일 때, Chrome 필요. 경로 지정: `CHROME_PATH`) |
 
 ### 채팅 모델
 
-입력창 왼쪽 선택 상자 또는 `!모델 <이름>` 으로 바꿉니다. 선택은 브라우저(localStorage)에 저장되고 기본은 제마입니다.
+입력창 왼쪽 선택 상자 또는 `!모델 <이름>` 으로 바꿉니다. 선택은 브라우저(localStorage)에 저장되고 기본은 젬마입니다.
 
 | 이름 | 모델 | 도구 연결 | 실행 위치 |
 |---|---|---|---|
 | 그록 빌드 | 로컬 Grok Build CLI `grok-4.7`, `--reasoning-effort xhigh` | `~/.grok/config.toml` 에 등록된 `procurement` MCP 서버 + 답 끝 JSON 액션 블록 | 로컬 전용 |
 | 코덱스 | 로컬 Codex CLI `gpt-6.1-sol`, `model_reasoning_effort="xhigh"` | 호출마다 `-c mcp_servers.procurement.*` 로 MCP 서버 연결 + JSON 액션 블록 | 로컬 전용 |
-| 제마 | Google AI Studio `gemma-4-26b-a4b-it` | `functionDeclarations` (공유 도구 정의) | 로컬 · Cloudflare |
+| 젬마 | Google AI Studio `gemma-4-26b-a4b-it` | `functionDeclarations` (공유 도구 정의) | 로컬 · Cloudflare |
 | 네모트론 | OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free` → 실패 시 `nvidia/nemotron-3-super-120b-a12b:free` | OpenAI `tools` (같은 공유 도구 정의). 도구 미지원이면 텍스트 JSON 블록 | 로컬 · Cloudflare |
 
-- 제마·네모트론은 `server/agent.ts` 의 도구 정의 하나를 Gemini/OpenAI 형식으로 바꿔 쓰고, 실행은 MCP 서버와 같은 `shared/tools.ts` 입니다. 에이전트 루프 최대 3회
+- 젬마·네모트론은 `server/agent.ts` 의 도구 정의 하나를 Gemini/OpenAI 형식으로 바꿔 쓰고, 실행은 MCP 서버와 같은 `shared/tools.ts` 입니다. 에이전트 루프 최대 3회
 - 그록 빌드: `grok --prompt-file … -m grok-4.7 --reasoning-effort xhigh --output-format streaming-json -s <새 uuid> --tools web_search,web_fetch --no-plan --no-subagents --system-prompt-override <짧은 프롬프트> --permission-mode dontAsk --allow "MCPTool(procurement__*)" --allow WebFetch`. 환경 변수 `GROK_MEMORY=0`, `GROK_{CLAUDE,CURSOR}_{AGENTS,HOOKS,MCPS,RULES,SKILLS}_ENABLED=false` 로 메모리·호환 스캔을 끄고, 저장소 밖 빈 폴더(`%TEMP%\procurement-radar-cli\grok`)에서 실행해 AGENTS.md 등이 로드되지 않게 함. 남는 도구: MCP 메타 도구(`search_tool`/`use_tool`) + 웹(`web_search`, `open_page`, `web_fetch`). 기록을 남기지 않도록 실행이 끝나면(성공·오류·시간 초과 모두) `grok sessions delete <uuid>` 후 `~/.grok/sessions/*/<uuid>` 폴더까지 삭제하고, 서버 시작 시 남은 세션도 지웁니다. 로그인 안 돼 있으면 "그록 로그인 필요"
 - 코덱스: `codex exec --ephemeral --ignore-user-config --skip-git-repo-check --sandbox read-only --json` + 호출별 `-c`(`web_search="live"`, `mcp_servers.procurement.default_tools_approval_mode="approve"`, `include_*_instructions=false`, `include_environment_context=false`, `project_doc_max_bytes=0`, 짧은 `model_instructions_file`)와 `--disable`(셸·unified_exec·view_image·멀티 에이전트·플러그인·앱·이미지 생성·브라우저/컴퓨터 사용·스킬 등). 사용자 `~/.codex/config.toml` 은 읽지도 고치지도 않고, 저장소 밖 빈 폴더에서 실행. 웹 검색은 유지
 - 두 CLI 모두 시간 제한 5분, 모델별 동시 실행 1개. 화면 조작은 답 끝의 `{"actions":[…]}` 블록을 서버가 읽어 실행
@@ -58,14 +58,14 @@ copy .secrets.example .secrets    # Windows (macOS/Linux: cp)
 
 | 키 | 용도 |
 |---|---|
-| `GOOGLE_API_KEY` | 제마 (Google AI Studio 키) |
+| `GOOGLE_API_KEY` | 젬마 (Google AI Studio 키) |
 | `OPENROUTER_API_KEY` | 네모트론 (OpenRouter 키) |
 | `GEMMA_MODEL`, `OPENROUTER_MODEL`, `OPENROUTER_FALLBACK_MODEL`, `GROK_MODEL`, `GROK_EFFORT`, `CODEX_MODEL`, `CODEX_EFFORT` | (선택) 모델 변경 |
 | `LOCAL_CLI=0` | (선택) 그록 빌드·코덱스 끄기 |
 
 `npm run dev`·`npm start`·`npm run cf:dev` 모두 이 파일을 읽으며, 개발 서버는 요청마다 다시 읽으므로 재시작이 필요 없습니다. `.secrets` 는 `.gitignore` 에 포함돼 있습니다. 그록 빌드·코덱스는 키 대신 각 CLI 로그인(`grok login`, `codex login`)을 씁니다.
 
-- 제마 호출: `POST https://generativelanguage.googleapis.com/v1beta/models/{모델}:generateContent`, 헤더 `x-goog-api-key`, 5xx는 2회 재시도
+- 젬마 호출: `POST https://generativelanguage.googleapis.com/v1beta/models/{모델}:generateContent`, 헤더 `x-goog-api-key`, 5xx는 2회 재시도
 - 네모트론 호출: `POST https://openrouter.ai/api/v1/chat/completions`. 429·402·404·408·5xx·시간 초과면 Super로 전환, 401은 "OpenRouter 키 오류"
 - 키가 없으면 "Google 키 없음"/"OpenRouter 키 없음"으로 짧게 답하고, `!명령`과 "폴란드 자주포 보고서" 같은 간단한 요청은 브라우저에서 바로 처리
 
@@ -80,7 +80,7 @@ copy .secrets.example .secrets    # Windows (macOS/Linux: cp)
 | `!예측 폴란드 자주포` | 예측 요약 |
 | `!보고서 폴란드 자주포` | 보고서 (체계 생략 시 그 나라 전체) |
 | `!목록 호위함` | 임박 순 목록 |
-| `!모델 코덱스` | 채팅 모델 변경 (그록 빌드 · 코덱스 · 제마 · 네모트론) |
+| `!모델 코덱스` | 채팅 모델 변경 (그록 빌드 · 코덱스 · 젬마 · 네모트론) |
 
 AI가 쓰는 도구: `set_mode`, `toggle_map_mode`, `focus_country`(화면 조작, 브라우저에서 실행), `get_forecast`, `list_forecasts`, `search_programs`, `get_lifespan`, `search_mro`, `write_report`.
 
