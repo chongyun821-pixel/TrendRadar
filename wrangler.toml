@@ -1,0 +1,15 @@
+# Cloudflare Pages: `npm run deploy` (wrangler pages deploy dist)
+# 정적 파일 = dist, API = functions/api/[[path]].ts (Pages Functions)
+name = "procurement-radar"
+compatibility_date = "2025-09-01"
+pages_build_output_dir = "./dist"
+
+[vars]
+GEMMA_MODEL = "gemma-4-26b-a4b-it"
+
+# 비밀값: wrangler pages secret put GOOGLE_API_KEY  (로컬은 .dev.vars)
+# D1 (선택, 나중에): db/schema.sql
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "procurement-radar"
+# database_id = "<your-id>"

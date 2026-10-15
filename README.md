@@ -1,197 +1,161 @@
 # 무기조달사업예상 · Global Procurement Radar
 
-> 과제: 한화그룹 '글로벌 트렌드 레이더' 구축 (ASSIGNMENT 02 / 05). 과제 안내는 `origin` 브랜치를 보세요.
-> 이 브랜치는 **방산** 분야 아이디어 기획안입니다. 아직 구현 전 단계입니다.
+세계 주요국이 **언제, 어떤 무기를, 얼마나 큰 규모로** 새로 살지 지구본 히트맵으로 보여 주는 웹앱입니다.
+보유 장비의 도입 연도·설계 수명·MRO(수명 연장) 기록으로 다음 교체 사업 시점과 규모를 **예측 범위**로 계산합니다.
 
-전 세계 주요 국가가 **언제, 어떤 무기를, 얼마나 큰 규모로 새로 사게 될지** 지구본 위에 히트맵으로 보여 주는 서비스입니다.
-과거 대규모 수주 실적과 무기체계 수명, 정비(MRO) 기록을 바탕으로 다음 교체 사업 시점과 규모를 예측합니다.
-아래 채팅창에서 AI 에이전트에게 국가별 조사 보고서를 맡길 수 있습니다.
+- 화면 전체 3D 지구본(드래그 회전·휠 확대) ↔ **지도 모드** 2D 세계지도(펼침 전환), 히트맵은 두 모드 공통
+- 모드 7개: 일반 · 자주포 · 장갑차 · 대공미사일 · 다연장로켓 · 호위함 · 재래식 잠수함
+- 색 = 임박도(🔴 2년 이내 · 🟠 3~5년 · 🟡 6~10년 · 🔵 10년 이후 · ⚪ 데이터 부족), 막대 높이·진하기 = 예상 금액(억 원, 로그)
+- 마우스 오버 툴팁(현재 주력·도입 연도·수량, 설계 수명, 교체 예상, 최근 MRO, 예상 수량·금액, 신뢰도, 출처), 클릭 = 카메라 이동 + 툴팁 고정(출처 링크 클릭 가능) + 채팅에 「보고서」 제안
+- 하단 채팅: Gemma 4(`gemma-4-26b-a4b-it`)가 도구로 화면을 조작하고 보고서 작성. 키가 없어도 `!명령`은 동작
+- 같은 도구를 MCP 서버로 제공(MCP 지원 클라이언트에서 사용)
 
----
+기획 원문은 [`docs/기획안.md`](docs/기획안.md)에 있습니다.
 
-## 1. 화면 구성
+## 실행 (Windows / macOS / Linux 공통)
 
-```
-┌──────────────────────────────────────────────┐
-│ [일반][자주포][장갑차][대공미사일][다연장로켓][호위함][재래식 잠수함]   [지구 모드 ⟳] │
-│                                              │
-│                 🌍 3D 지구본                  │
-│          (드래그 회전 · 휠 확대 · 히트맵)          │
-│                                              │
-│   범례: 임박도(색) · 사업 규모(크기/진하기)        │
-├──────────────────────────────────────────────┤
-│ 💬 채팅창  "폴란드 자주포 교체 사업 예측해줘"          │
-└──────────────────────────────────────────────┘
+Node.js 20.3 이상.
+
+```bash
+npm install
+npm run dev          # → http://localhost:62356  (Vite 개발 서버 + /api)
 ```
 
-- 화면 위쪽 대부분은 지구본, 아래쪽은 채팅창입니다.
-- 위쪽 버튼 7개로 모드를 바꿉니다.
-  - **일반**: 히트맵이 없는 기본 지구본
-  - **자주포 · 장갑차 · 대공미사일 · 다연장로켓 · 호위함 · 재래식 잠수함**: 해당 무기체계의 예상 사업 히트맵
-- **지구 모드** 버튼으로 지구본 표현을 바꿉니다. 실사 위성 지도 ↔ 국경선 위주 단순 지도, 밤/낮 전환을 후보로 둡니다.
-- 지구본에서 나라를 누르면 그 나라에 카메라가 맞춰지고 채팅창에 "○○ 보고서 만들기"가 제안됩니다.
-
-## 2. 지구본 (Three.js)
-
-| 항목 | 구현 방법 |
+| 명령 | 내용 |
 |---|---|
-| 지구본 | Three.js `SphereGeometry` + 지구 텍스처, `OrbitControls`로 마우스 드래그 회전과 휠 확대 |
-| 국가 경계 | Natural Earth GeoJSON → 구면 좌표 변환, 국가별 폴리곤 메시 |
-| 히트맵 | 국가 폴리곤 색칠(choropleth) + 사업 규모에 비례한 막대(spike) 또는 발광 점 |
-| 마우스 오버 | `Raycaster`로 국가를 찾아 툴팁 표시 |
-| 전환 효과 | 모드를 바꿀 때 색이 0.5초 동안 부드럽게 바뀜 |
+| `npm run dev` | 개발 서버 (포트 62356, 프런트 + API 같은 포트) |
+| `npm start` | 빌드 후 Node 서버로 `dist` + `/api` 실행 (포트 62356) |
+| `npm run cf:dev` | 빌드 후 `wrangler pages dev` 로 Cloudflare 환경 그대로 로컬 실행 (포트 62356) |
+| `npm run build` | 타입 검사 + `dist/` 정적 빌드 |
+| `npm test` | 예측 모듈·채팅 루프·API 단위 테스트 (vitest) |
+| `npm run mcp` / `npm run mcp:http` | MCP 서버 (stdio / Streamable HTTP :62357) |
+| `npm run mcp:check` | MCP 서버 기동·도구 목록·호출 점검 |
+| `npm run shots` | Playwright 스크린샷 → `shots/` (서버 실행 중일 때, Chrome 필요. 경로 지정: `CHROME_PATH`) |
 
-빠르게 만들려면 Three.js 기반 라이브러리 `three-globe`(또는 `globe.gl`)를 쓰고, 세부 연출이 필요해지면 순수 Three.js로 옮깁니다.
+### AI 키 (.dev.vars)
 
-### 히트맵 읽는 법
-
-- **색 = 임박도**. 예상 사업 시작까지 남은 기간입니다.
-  - 🔴 빨강: 2년 이내
-  - 🟠 주황: 3~5년
-  - 🟡 노랑: 6~10년
-  - 🔵 파랑: 10년 이후
-  - ⚪ 회색: 데이터 부족
-- **진하기 또는 막대 높이 = 사업 규모**. 예상 금액(억 원)의 로그 스케일입니다.
-- 한눈에 "빨갛고 높은 곳"이 곧 열릴 큰 시장입니다.
-
-### 툴팁 (커서를 올렸을 때)
-
-```
-🇵🇱 폴란드 · 자주포                 임박도 🔴 높음
-현재 주력: ○○ (도입 19xx년, ○○대)
-설계 수명: 약 ○○년 → 교체 예상 20xx~20xx년
-최근 MRO: 20xx년 성능개량 (수명 +○년 반영)
-예상 사업: ○○~○○대 · 약 ○○억~○○억 원
-신뢰도: 중 (근거 3건)   [보고서 만들기]
+```bash
+copy .dev.vars.example .dev.vars    # Windows (macOS/Linux: cp)
 ```
 
-※ 위 툴팁은 화면 예시이며 숫자는 실제 데이터가 아닙니다.
+`.dev.vars` 에 `GOOGLE_API_KEY=` (Google AI Studio 키)를 넣습니다. `npm run dev`·`npm start`·`npm run cf:dev` 모두 이 파일을 읽으며, 개발 서버는 요청마다 다시 읽으므로 재시작이 필요 없습니다. `.dev.vars` 는 `.gitignore` 에 포함돼 있습니다.
 
-## 3. 예측 방법
+- 모델 변경: `GEMMA_MODEL=` (기본 `gemma-4-26b-a4b-it`)
+- 호출 방식: `POST https://generativelanguage.googleapis.com/v1beta/models/{모델}:generateContent`, 헤더 `x-goog-api-key`, `tools.functionDeclarations`
+- 에이전트 루프 최대 3회 도구 호출, 5xx는 2회 재시도, 무료 등급용으로 프롬프트·기록 최소화(최근 6개 메시지)
+- 키가 없으면 채팅은 "AI 키 없음"으로 짧게 답하고, `!명령`과 "폴란드 자주포 보고서" 같은 간단한 요청은 브라우저에서 바로 처리
 
-무기는 정해진 수명이 다가오면 교체나 성능개량 사업이 열린다는 점을 이용합니다.
+### 채팅 명령
 
-```mermaid
-flowchart LR
-  A[역대 도입 사업<br/>국가·체계·연도·수량·금액] --> D[예상 사업 시점]
-  B[무기체계 수명<br/>설계 수명·운용 연한] --> D
-  C[MRO·성능개량 기록<br/>수명 연장 반영] --> D
-  D --> E[예상 사업 규모<br/>대수 × 단가]
-  E --> F[히트맵 · 보고서]
-```
-
-1. **예상 교체 시점**
-   - 기본식: `교체 시점 = 도입 연도 + 설계 수명 + MRO로 늘어난 수명`
-   - 여러 차례 나눠 도입했다면 도입 단위(배치)마다 따로 계산합니다.
-2. **임박도**
-   - `남은 기간 = 교체 시점 − 올해`
-   - 노후 장비 비율이 높을수록, 최근 국방비 증가나 언론 보도 같은 신호가 있을수록 점수를 올립니다.
-3. **사업 규모**
-   - `예상 대수 = 현재 보유 대수 × 교체 비율`. 교체 비율은 그 나라의 과거 교체 사업에서 구합니다.
-   - `예상 금액 = 예상 대수 × 최근 비슷한 사업의 대당 단가`
-   - 결과는 하나의 숫자가 아니라 **범위(최소~최대)**로 냅니다.
-4. **신뢰도**
-   - 근거 자료의 수, 자료의 최신성, 출처의 신뢰도로 상·중·하를 매깁니다.
-5. **검증**
-   - 과거 시점으로 되돌려 실제로 열린 사업을 맞히는지 확인합니다(백테스트).
-   - 예: 2015년 자료만으로 2016~2025년 사업을 예측해 비교합니다.
-
-## 4. 데이터
-
-| 구분 | 후보 출처 |
+| 명령 | 동작 |
 |---|---|
-| 역대 도입·수출 사업 | SIPRI Arms Transfers Database, UN 재래식무기 등록제도, 각국 국방 조달기관 발표(한국 방위사업청, 미국 DSCA 판매 승인 공지 등) |
-| 보유 현황 | 각국 국방백서, 공개 연감 자료 |
-| 수명·MRO | 제조사 보도자료, 방산 전문 매체, 정부 계약 공고 |
-| 최신 신호 | `방산` 브랜치의 **글로벌 방산 동향 검색**이 모은 뉴스 (재사용) |
-| 환율·국방비 | 공개 환율 데이터, 각국 국방예산 |
+| `!help` | 명령 목록 |
+| `!모드 자주포` · `!모드 일반` | 히트맵 모드 |
+| `!지도` | 3D ↔ 2D |
+| `!국가 폴란드` | 카메라 이동 |
+| `!예측 폴란드 자주포` | 예측 요약 |
+| `!보고서 폴란드 자주포` | 보고서 (체계 생략 시 그 나라 전체) |
+| `!목록 호위함` | 임박 순 목록 |
 
-### 저장 구조 (SQLite)
+AI가 쓰는 도구: `set_mode`, `toggle_map_mode`, `focus_country`(화면 조작, 브라우저에서 실행), `get_forecast`, `list_forecasts`, `search_programs`, `get_lifespan`, `search_mro`, `write_report`.
 
-- `programs`: 국가, 무기체계 종류, 모델, 계약 연도, 수량, 금액, 출처 URL
-- `inventory`: 국가, 모델, 보유 대수, 도입 연도
-- `lifespan`: 모델, 설계 수명, 출처
-- `mro_events`: 국가, 모델, 연도, 내용, 늘어난 수명
-- `forecasts`: 국가, 무기체계, 예상 시작 연도 범위, 대수 범위, 금액 범위, 신뢰도, 근거 목록
-- 모든 숫자에 **출처 URL과 수집 날짜**를 함께 남깁니다. 출처 없는 숫자는 히트맵에 회색으로 표시합니다.
+## Cloudflare 배포
 
-## 5. 채팅창과 MCP 서버
+정적 파일(`dist/`)은 Cloudflare Pages, API는 Pages Functions(`functions/api/[[path]].ts` → `server/app.ts` Hono 앱)입니다.
 
-채팅창 뒤에는 자체 **MCP 서버**를 둡니다. MCP는 AI 에이전트가 외부 도구를 호출하는 표준 방식입니다.
-그래서 같은 도구를 웹앱 채팅창은 물론 여러 AI 에이전트에서도 그대로 쓸 수 있습니다.
-
-```mermaid
-flowchart TB
-  U[웹앱 채팅창] --> M
-  subgraph Agents[MCP 클라이언트]
-    C1[Codex CLI]
-    C2[Hermes Agent]
-    C3[Antigravity]
-    C4[Grok Build]
-    C5[Grok Bot]
-  end
-  Agents --> M[procurement-mcp 서버]
-  M --> DB[(SQLite)]
-  M --> W[웹 검색·뉴스 DB]
+```bash
+npx wrangler login
+npx wrangler pages project create procurement-radar     # 최초 1회
+npm run deploy                                            # vite build + wrangler pages deploy dist
+npx wrangler pages secret put GOOGLE_API_KEY --project-name procurement-radar
 ```
 
-### MCP 도구
+- 설정: `wrangler.toml` (`pages_build_output_dir = "./dist"`, `GEMMA_MODEL` 변수)
+- Git 연동 배포 시: 빌드 명령 `npm run build`, 출력 폴더 `dist`, 환경 변수/비밀값 `GOOGLE_API_KEY`
+- Workers 단독 배포가 필요하면 `worker.ts`(같은 Hono 앱)를 진입점으로 쓰고 정적 파일은 `[assets]` 로 지정
+- D1(선택): `db/schema.sql` 스키마. 현재 앱은 `data/seed.json` 을 번들에 포함해 사용
+- `wrangler` 는 Node 20에서도 동작하는 4.86.0 으로 고정
 
-| 도구 | 하는 일 |
+## MCP 서버
+
+`mcp/server.ts` (공식 `@modelcontextprotocol/sdk`). 웹앱과 같은 데이터·예측 모듈(`shared/`)을 씁니다.
+
+| 도구 | 내용 |
 |---|---|
-| `search_programs(country, system)` | 역대 도입 사업 조회 (DB → 없으면 웹 조사 후 저장) |
-| `get_lifespan(model)` | 무기체계 설계 수명과 운용 연한 검색 |
-| `search_mro(country, model)` | 정비·성능개량·수명연장 기록 검색 |
-| `get_inventory(country, system)` | 현재 보유 대수와 도입 연도 |
-| `forecast(country, system)` | 3장 방법으로 예상 시점·대수·금액 계산 |
-| `write_report(country, system)` | 위 결과를 묶어 보고서(Markdown/PDF) 작성 |
-| `update_heatmap(system)` | 새 예측을 지구본에 반영 |
+| `search_programs(country?, system?)` | 보유 장비, 최근 계약, 사업 계획, 동향 + 출처 |
+| `get_lifespan(system?, model?)` | 설계 수명(추정 기본값), 모델별 교체 시점 |
+| `search_mro(country?, model?, system?)` | MRO·성능개량·수명연장 기록 |
+| `get_inventory(country?, system?)` | 보유 대수·도입 연도(추정 표시) |
+| `forecast(country, system?)` | 예상 시기·수량·금액 범위와 계산 과정 |
+| `list_forecasts(system?, limit?)` | 히트맵용 예측 목록(임박 순) — 기획안의 `update_heatmap` 대체 |
+| `write_report(country, system?)` | Markdown 보고서 |
 
-### 에이전트 역할 분담 (안)
+실행: stdio `npx tsx mcp/server.ts`, HTTP `npx tsx mcp/server.ts --http --port 62357` → `http://localhost:62357/mcp`
 
-| 에이전트 | 맡을 일 |
-|---|---|
-| Codex CLI | 보고서 요약과 정리 (기존 뉴스레터 요약 경험 재사용) |
-| Hermes Agent | 국가별 사업 이력 장시간 조사, 반복 작업 |
-| Antigravity | 웹 브라우징이 필요한 조달 공고 수집 |
-| Grok Build / Grok Bot | 최신 뉴스·X 동향 확인, 결과 교차 검증 |
+MCP 지원 클라이언트 설정 예시 (경로는 실제 폴더로 바꾸세요. Windows는 `C:/Users/me/procurement-radar` 처럼 슬래시 사용 가능):
 
-각 에이전트가 MCP를 어떤 방식으로 지원하는지는 구현할 때 하나씩 확인합니다.
-웹앱 채팅창 기본 모델은 지금처럼 Gemma 4를 씁니다.
+Codex CLI `~/.codex/config.toml`:
 
-### 채팅 예시
+```toml
+[mcp_servers.procurement]
+command = "npx"
+args = ["-y", "tsx", "C:/path/to/procurement-radar/mcp/server.ts"]
+```
 
-> 사용자: 폴란드 자주포 다음 사업 예측해줘
-> 챗봇: `search_programs` → `get_lifespan` → `search_mro` → `forecast` 순서로 도구를 실행하고, 지구본을 폴란드로 돌린 뒤 보고서를 띄웁니다.
+일반 JSON(`mcpServers`) 형식:
 
-### 보고서 양식 (1~2쪽)
+```json
+{
+  "mcpServers": {
+    "procurement": {
+      "command": "npx",
+      "args": ["-y", "tsx", "C:/path/to/procurement-radar/mcp/server.ts"]
+    }
+  }
+}
+```
 
-1. 요약: 예상 시기, 대수, 금액 범위, 신뢰도
-2. 현재 보유 장비와 도입 이력
-3. 수명과 MRO 이력
-4. 예측 근거와 계산 과정
-5. 경쟁 구도와 한화 제품의 기회 (예: K9, 천무, 레드백 등 해당 체계)
-6. 출처 목록
+Windows에서 클라이언트가 `npx` 를 실행하지 못하면 `command` 를 `node`, `args` 를 `["C:/path/to/procurement-radar/node_modules/tsx/dist/cli.mjs", "C:/path/to/procurement-radar/mcp/server.ts"]` 로 지정합니다.
 
-## 6. 기술 스택
+Streamable HTTP를 받는 클라이언트는 `npm run mcp:http` 후 URL `http://localhost:62357/mcp` 를 등록합니다. 클라이언트마다 설정 키 이름이 다를 수 있으니 각 클라이언트 문서를 확인하세요.
 
-- **프론트엔드**: Three.js (`three-globe`), 바닐라 JS 또는 Vite
-- **백엔드**: Python FastAPI, SQLite (방산 앱 구조 재사용)
-- **MCP 서버**: Python MCP SDK, stdio와 HTTP 둘 다 지원
-- **AI**: 채팅은 Gemma 4 (Google AI Studio), 보고서는 Codex CLI
+## 예측 방법 (`shared/forecast.ts`)
 
-## 7. 진행 계획
+1. 배치별 교체 시점 = 도입 연도 + 설계 수명 + MRO 연장
+2. 다음 사업 = 가장 이른 교체 시점부터 8년 안에 몰린 배치. 교체 창 = 배치 교체 시점 −2 ~ +3년(기준 연도 2026 이전이면 2026부터)
+3. 이미 교체 계약이 끝났으면(`covers=1`) 후속 주기 = 인도 완료 + 수명. 공개 사업 계획(`plan`)이 있으면 계획을 우선
+4. 남은 기간 = 창 시작 − 2026 (최근 1년 내 동향 신호가 있으면 1년 앞당김) → 임박도 색. 점수 = 100·e^(−남은기간/7) + 노후 비율·신호 가산
+5. 수량 = 미교체 보유 × 교체 비율(기본 0.6~1.0, 추정) · 금액 = 수량 × 최근 유사 사업 대당 단가(억 원, 체계별 범위)
+6. 신뢰도 상/중/하 = 근거 수(최대 4) + 최신성(2025년 이후 +2, 2022년 이후 +1) − 추정 항목 수/3
 
-| 단계 | 내용 | 결과물 |
-|---|---|---|
-| 1 | 지구본과 모드 버튼 7개, 툴팁 (예시 데이터) | 돌아가는 지구본 화면 |
-| 2 | 데이터 수집 스키마와 주요 10개국 시드 데이터 | SQLite DB |
-| 3 | 예측 계산과 백테스트 | 히트맵 실데이터 반영 |
-| 4 | MCP 서버와 도구 7개 | 에이전트 연결 |
-| 5 | 채팅창과 보고서 생성 | 국가별 보고서 |
+## 데이터와 주의점
 
-## 8. 주의할 점
+`data/seed.json`: 15개국, 59개 레코드(자주포 12 · 장갑차 12 · 대공미사일 8 · 다연장로켓 10 · 호위함 9 · 재래식 잠수함 8), 출처 61건. 수집 2026-10-15.
 
-- 공개 자료만 씁니다. 보유 대수나 계약 금액은 나라마다 공개 정도가 달라 빈칸이 생깁니다.
-- 예측은 범위와 신뢰도로 보여 주고, 확정된 사실처럼 표시하지 않습니다.
-- AI가 조사한 숫자는 출처 URL이 있을 때만 DB에 저장합니다.
+- 모든 레코드에 출처 URL이 있습니다(Wikipedia 장비 목록·함급 문서, 각국 정부·제조사 발표, Reuters·Defense News·연합뉴스 등). 지어낸 출처는 없습니다.
+- 출처에서 확인하지 못한 값은 `est`(추정)로 표시하고 툴팁·보고서에 **추정**으로 나옵니다.
+  - 보유 수량: 61개 배치 중 54개 출처 확인, 7개 추정
+  - 도입 연도: 61개 중 45개 추정(대부분 모델의 최초 배치 연도로 대체) — 가장 약한 부분
+  - 최근 계약 34건 중 25건은 인도 완료 연도 등 일부 항목이 추정
+  - 설계 수명(체계별 30~35년)과 기본 교체 비율(0.6~1.0)은 전부 추정값
+  - 단가: 최근 계약(베트남·이집트 K9, 루마니아 Lynx, 호주 레드백, 사우디·UAE 천궁-II, 노르웨이 Type 26, 호주 Mogami, 폴란드 A26, 필리핀 잠수함 사업 규모)으로 산출. 다연장로켓 하한은 추정. 환율은 고정 가정값(USD 1,400 등)
+- 예측은 모두 **범위**이며 확정 정보가 아닙니다. 대공미사일 일부 수량은 발사대 수를 포대로 환산한 추정입니다.
+- 공개 자료 위주라 국가별로 빈칸이 있습니다(예: 호주 재래식 잠수함은 AUKUS 핵잠으로 대체되어 후속 없음 → 회색).
+- 국경: Natural Earth 1:110m (`data/ne_110m_admin_0_countries.geojson`, public domain) → `public/countries.json` (`npm run data:countries`)
+
+## 파일 구성
+
+```
+index.html, src/            프런트엔드 (globe.ts 렌더러·지도 모드, main.ts UI·툴팁, chat.ts, commands.ts, md.ts, style.css)
+shared/                     공용 TS: types, data(이름 해석), forecast(예측), tools(도구·보고서)
+server/                     Hono API(app.ts), Gemma 에이전트(gemma.ts), Node 서버(node.ts), .dev.vars 로더
+functions/api/[[path]].ts   Cloudflare Pages Functions 진입점
+worker.ts                   (선택) Workers 진입점
+mcp/server.ts               MCP 서버 (stdio / Streamable HTTP)
+data/seed.json              시드 데이터 + 출처
+db/schema.sql               (선택) D1 스키마
+public/countries.json       국가 경계
+tests/                      vitest
+scripts/                    shots.mjs, mcp-check.mjs, slim-countries.mjs
+docs/기획안.md              기획안
+```
