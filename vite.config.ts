@@ -12,6 +12,8 @@ function api(): Plugin {
         return app.fetch(req, { ...process.env, ...loadDevVars() });
       });
       server.middlewares.use((req, res, next) => (req.url?.startsWith('/api/') ? listener(req, res) : next()));
+      // 시작 시 앱이 남긴 그록 세션 정리
+      server.httpServer?.once('listening', () => { server.ssrLoadModule('/server/cli.ts').then(m => m.cleanupLeftovers({ ...process.env, ...loadDevVars() })).catch(() => {}); });
     },
   };
 }

@@ -7,7 +7,8 @@ pages_build_output_dir = "./dist"
 [vars]
 GEMMA_MODEL = "gemma-4-26b-a4b-it"
 
-# 비밀값: wrangler pages secret put GOOGLE_API_KEY  (로컬은 .secrets)
+# 비밀값: wrangler pages secret put GOOGLE_API_KEY / OPENROUTER_API_KEY  (로컬은 .secrets)
+# 그록 빌드·코덱스는 로컬 전용(Workers에는 child_process 없음) → 자동으로 숨김
 # D1 (선택, 나중에): db/schema.sql
 # [[d1_databases]]
 # binding = "DB"

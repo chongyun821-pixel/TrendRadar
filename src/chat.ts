@@ -10,6 +10,15 @@ interface ChatOpts {
   modeKo(): string | null;
 }
 type Msg = { role: 'user' | 'model'; text: string };
+export type ModelInfo = { id: string; name: string; available: boolean };
+
+const MODEL_ALIAS: Record<string, string> = { 그록: 'grok', 그록빌드: 'grok', grok: 'grok', 코덱스: 'codex', codex: 'codex', gpt: 'codex', 제마: 'gemma', gemma: 'gemma', 젬마: 'gemma', 네모트론: 'nemotron', nemotron: 'nemotron' };
+/** `!모델 <이름>` → 모델 id */
+export function pickModel(name: string, models: ModelInfo[]): string | null {
+  const k = name.replace(/\s+/g, '').toLowerCase();
+  if (MODEL_ALIAS[k]) return MODEL_ALIAS[k];
+  return models.find(m => m.name.replace(/\s+/g, '') === k || m.id === k)?.id ?? null;
+}
 
 export function initChat(o: ChatOpts) {
   const root = document.querySelector('#chat') as HTMLElement;
@@ -17,8 +26,27 @@ export function initChat(o: ChatOpts) {
   const form = root.querySelector('form') as HTMLFormElement;
   const input = root.querySelector('#q') as HTMLInputElement;
   const sug = root.querySelector('#suggest') as HTMLElement;
+  const sel = root.querySelector('#model') as HTMLSelectElement;
   const history: Msg[] = [];
   let busy = false;
+  let models: ModelInfo[] = [{ id: 'gemma', name: '제마', available: true }];
+  let model = 'gemma';
+  const KEY = 'pr.model';
+  function setModel(id: string) {
+    if (!models.some(m => m.id === id && m.available)) return false;
+    model = id; sel.value = id; try { localStorage.setItem(KEY, id); } catch { /* 무시 */ }
+    return true;
+  }
+  function renderModels(def: string) {
+    const av = models.filter(m => m.available);
+    sel.innerHTML = av.map(m => `<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    sel.hidden = av.length < 2;
+    let saved: string | null = null; try { saved = localStorage.getItem(KEY); } catch { /* 무시 */ }
+    if (!(saved && setModel(saved)) && !setModel(def)) setModel(av[0]?.id ?? 'gemma');
+  }
+  sel.addEventListener('change', () => setModel(sel.value));
+  renderModels('gemma');
+  fetch('/api/models').then(r => r.json()).then(j => { if (Array.isArray(j?.models)) { models = j.models; renderModels(j.default || 'gemma'); } }).catch(() => {});
 
   const open = () => root.classList.add('open');
   const collapse = () => { root.classList.remove('open'); input.blur(); };
@@ -41,6 +69,15 @@ export function initChat(o: ChatOpts) {
   async function send(text: string) {
     text = text.trim(); if (!text || busy) return;
     open(); add('user', esc(text)); input.value = '';
+    const mm = /^[!！]\s*(?:모델|model)\s*(.*)$/i.exec(text);
+    if (mm) {
+      const want = mm[1].trim();
+      if (!want) { add('bot', esc(models.find(m => m.id === model)?.name ?? model)); return; }
+      const id = pickModel(want, models);
+      if (id && setModel(id)) add('bot', esc(models.find(m => m.id === id)!.name));
+      else add('bot', esc(id ? '사용 불가' : models.filter(m => m.available).map(m => m.name).join(' · ')));
+      return;
+    }
     const local = runCommand(text, o.names);
     if (local) {
       exec(local.actions);
@@ -54,20 +91,20 @@ export function initChat(o: ChatOpts) {
       const st = o.getState();
       const r = await fetch('/api/chat', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ messages: [...history.slice(-6), { role: 'user', text }], state: { mode: st.mode, flat: st.flat, focus: st.focus ? o.names[st.focus] ?? st.focus : null } }),
+        body: JSON.stringify({ model, messages: [...history.slice(-6), { role: 'user', text }], state: { mode: st.mode, flat: st.flat, focus: st.focus ? o.names[st.focus] ?? st.focus : null } }),
       });
       const j = await r.json().catch(() => ({}));
       w.remove();
       if (j.nokey) {
         const n = naiveIntent(text, o.names);
         if (n) { exec(n.actions); if (n.text) add('bot', md(n.text)); if (n.report) add('report', md(n.report)); }
-        add('bot', md('AI 키 없음 · `!help`'));
+        add('bot', md(`${String(j.reply || 'AI 키 없음')} · \`!help\``));
         return;
       }
-      if (!r.ok || j.error) { add('bot', esc(j.error || `오류 ${r.status}`)); return; }
+      if (!r.ok || j.error) { const e = add('bot', esc(j.error || `오류 ${r.status}`)); if (j.model) e.title = j.model; return; }
       exec(j.actions);
       for (const rep of j.reports ?? []) add('report', md(rep));
-      if (j.reply) add('bot', md(j.reply));
+      if (j.reply) { const b = add('bot', md(j.reply)); if (j.model) { b.title = j.model; b.dataset.model = j.model; } }
       history.push({ role: 'user', text }, { role: 'model', text: String(j.reply ?? '').slice(0, 600) });
     } catch {
       w.remove();
@@ -89,5 +126,5 @@ export function initChat(o: ChatOpts) {
     sug.classList.add('show');
     (sug.firstElementChild as HTMLButtonElement).onclick = () => send(`!보고서 ${name}${mk ? ' ' + mk : ''}`);
   }
-  return { send, suggest, collapse, open, HELP };
+  return { send, suggest, collapse, open, HELP, getModel: () => model };
 }

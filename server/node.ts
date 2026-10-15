@@ -5,9 +5,11 @@ import { Hono } from 'hono';
 import { existsSync } from 'node:fs';
 import { app as api } from './app';
 import { loadDevVars } from './devvars';
+import { cleanupLeftovers } from './cli';
 
 const env = { ...process.env, ...loadDevVars() } as Record<string, string>;
 const port = Number(env.PORT || 62356);
+void cleanupLeftovers(env);
 if (!existsSync('dist/index.html')) { console.error('dist 없음: 먼저 npm run build'); process.exit(1); }
 
 const root = new Hono();
