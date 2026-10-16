@@ -1,0 +1,92 @@
+import { chromium } from 'playwright-core';
+import { mkdirSync } from 'node:fs';
+import assert from 'node:assert/strict';
+
+const launch = { headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] };
+if (process.env.CHROME_PATH) launch.executablePath = process.env.CHROME_PATH; else launch.channel = 'chrome';
+const browser = await chromium.launch(launch);
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const errors = [], ids = [];
+page.on('pageerror', e => errors.push(String(e)));
+const base = process.env.BASE_URL || 'http://localhost:62356';
+mkdirSync('shots', { recursive: true });
+try {
+  await page.goto(base); await page.waitForSelector('body.ready');
+  await page.fill('#q', '!보고서 폴란드 자주포'); await page.press('#q', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
+  const first = await page.evaluate(() => localStorage.getItem('pr.conversation')); ids.push(first);
+  assert.equal(await page.locator('.m.report').count(), 1);
+  const historyBounds = await page.locator('#historyToggle').boundingBox(), toggleBounds = await page.locator('#chatToggle').boundingBox(), modelBounds = await page.locator('#model').boundingBox();
+  assert.ok(historyBounds.x < toggleBounds.x && toggleBounds.x < modelBounds.x);
+  assert.equal(await page.locator('.panel #chatStatus').count(), 1);
+  assert.equal(await page.locator('#stopButton').textContent(), '');
+  assert.equal(await page.locator('#stopButton svg rect').count(), 1);
+  await page.click('#attachButton');
+  await page.locator('#workspace:not([hidden]) #addFiles').waitFor();
+  await page.setInputFiles('#fileInput', { name: '검증-첨부.txt', mimeType: 'text/plain', buffer: Buffer.from('검증용 첨부 원문입니다.') });
+  await page.waitForFunction(() => document.querySelector('#uploadStatus').textContent.includes('추가됨'));
+  await page.locator('#workspaceFiles a').filter({hasText:'검증-첨부.txt'}).waitFor();
+  const drop = await page.evaluateHandle(() => {
+    const data = new DataTransfer(); data.items.add(new File(['드롭한 파일 원문'], '드롭-첨부.txt', { type: 'text/plain' })); return data;
+  });
+  await page.dispatchEvent('body', 'dragenter', { dataTransfer: drop });
+  assert.equal(await page.locator('#dropOverlay').isVisible(), true);
+  await page.dispatchEvent('body', 'drop', { dataTransfer: drop });
+  await page.locator('#workspaceFiles a').filter({hasText:'드롭-첨부.txt'}).waitFor();
+  assert.equal(await page.locator('#dropOverlay').isVisible(), false);
+  await page.fill('#q', '!help'); await page.press('#q', 'Enter');
+  await page.waitForFunction(() => document.querySelectorAll('.m.user').length === 2 && document.querySelector('#chatStatus').textContent === '완료');
+  await page.selectOption('#model', 'nemotron');
+  await page.reload(); await page.waitForSelector('body.ready'); await page.waitForSelector('.m.report');
+  await page.click('#q');
+  await page.waitForFunction(() => document.querySelector('#chat.open .panel')?.clientHeight > 200);
+  assert.equal(await page.inputValue('#model'), 'nemotron');
+  assert.equal(await page.locator('.m.user').count(), 2);
+  await page.click('#attachButton');
+  assert.ok(await page.locator('#workspaceFiles a').count() >= 3);
+  assert.ok((await page.locator('.panel').boundingBox()).height > 200);
+  await page.screenshot({ path: 'shots/7-history-attachments-desktop.png' });
+  await page.click('#historyToggle'); await page.click('#chatReset'); assert.equal(await page.locator('.m').count(), 0);
+  await page.fill('#q', '!예측 베트남 자주포'); await page.press('#q', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
+  const second = await page.evaluate(() => localStorage.getItem('pr.conversation')); ids.push(second);
+  assert.notEqual(first, second);
+  await page.click('#historyToggle');
+  await page.getByRole('button', { name: '!보고서 폴란드 자주포', exact: true }).click();
+  await page.waitForSelector('.m.report');
+  assert.equal(await page.evaluate(() => localStorage.getItem('pr.conversation')), first);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('#historyToggle');
+  await page.screenshot({ path: 'shots/8-history-attachments-mobile.png' });
+  const bounds = await page.locator('#chat').boundingBox();
+  assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= 391 && bounds.y >= 0 && bounds.y + bounds.height <= 845);
+  await page.getByRole('button', { name: '!예측 베트남 자주포 대화 삭제', exact: true }).click();
+  await page.waitForFunction(id => !Array.from(document.querySelectorAll('.conversation-row button')).some(x => x.textContent === id), '!예측 베트남 자주포');
+  assert.equal((await page.request.get(`${base}/api/conversations/${second}`)).status(), 404);
+  assert.equal((await page.request.get(`${base}/api/conversations/${first}`)).status(), 200);
+  await page.click('#q');
+  // 진행 상태만 가상으로 유지해 중지·자료 메뉴가 실제 실행 중에도 배치되는지 확인한다.
+  let holdRunning = true;
+  await page.route('**/api/runs/*', async route => {
+    const response = await route.fetch(), data = await response.json();
+    if (holdRunning) { data.status = 'running'; data.events = [{ id: 1, name: 'tool.start', data: { name: 'web_search' } }]; }
+    await route.fulfill({ response, json: data });
+  });
+  await page.fill('#q', '!help'); await page.press('#q', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent.includes('web_search'));
+  assert.equal(await page.locator('#stopButton').isVisible(), true);
+  await page.click('#attachButton');
+  assert.equal(await page.locator('#workspace').isVisible(), true);
+  assert.equal(await page.locator('#addFiles').isDisabled(), true);
+  const resources = await page.locator('#workspace').boundingBox(), bar = await page.locator('.bar').boundingBox();
+  assert.ok(resources.y + resources.height < bar.y);
+  await page.screenshot({ path: 'shots/11-busy-resources-mobile.png' });
+  holdRunning = false;
+  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
+  await page.unroute('**/api/runs/*');
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', errors }));
+} finally {
+  for (const id of ids) await page.request.delete(`${base}/api/conversations/${id}`);
+  await browser.close();
+}

@@ -2,7 +2,7 @@ export type SystemKey = 'sph' | 'ifv' | 'sam' | 'mrl' | 'frigate' | 'ssk';
 export const SYSTEM_KEYS: SystemKey[] = ['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk'];
 export type Category = 'red' | 'orange' | 'yellow' | 'blue' | 'gray';
 
-export interface Source { t: string; u: string; y: number }
+export interface Source { t: string; u: string; y: number; publishedAt?: string | null; collectedAt?: string; filePath?: string; hash?: string; kind?: 'original' | 'search' | 'attachment'; excerpt?: string }
 export interface Batch { model: string; introYear: number; qty: number; lifeExt?: number; covered?: boolean; est?: string[]; note?: string; src: string[] }
 export interface Awarded { year: number; text: string; qty: number; deliveryEnd: number; covers: number; est?: string[]; src: string[] }
 export interface Plan { start: number; end: number; qty: [number, number]; text: string; est?: string[]; src: string[] }
@@ -12,6 +12,8 @@ export interface ProgramRecord {
   id: string; country: string; system: SystemKey;
   batches: Batch[]; awarded?: Awarded; plan?: Plan; mro?: Mro[]; signals?: Signal[];
   ratio?: [number, number]; ratioEst?: boolean; src: string[];
+  projects?: { id: string; buyer: string; supplier: string; stage: 'consideration' | 'plan' | 'tender' | 'contract' | 'delivery' | 'cancelled'; text: string; qty?: number; amount?: number; currency?: string; src: string[] }[];
+  analysis?: { facts: string[]; estimates: string[]; conflicts: string[]; unknowns: string[]; opportunity?: string };
 }
 export interface SystemMeta { ko: string; unit: string; designLife: number; unitCost: [number, number]; unitCostEst: boolean; unitCostBasis: string; costSrc: string[]; hanwha: string[] }
 export interface CountryMeta { ko: string; flag: string; lat: number; lon: number }

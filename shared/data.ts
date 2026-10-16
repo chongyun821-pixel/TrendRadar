@@ -1,8 +1,19 @@
-import seedJson from '../data/seed.json';
 import type { Seed, SystemKey, ProgramRecord } from './types';
 import { SYSTEM_KEYS } from './types';
 
-export const seed = seedJson as unknown as Seed;
+export let seed: Seed = { meta: { baseYear: new Date().getFullYear(), collected: '', fx: {}, note: '' }, systems: {} as Seed['systems'], countries: {}, sources: {}, records: [] };
+export function setData(data: Seed) { seed = data; }
+export function useDataProvider(read: () => Seed) {
+  seed = new Proxy({} as Seed, {
+    get: (_target, key) => Reflect.get(read(), key),
+    ownKeys: () => Reflect.ownKeys(read()),
+    has: (_target, key) => key in read(),
+    getOwnPropertyDescriptor: (_target, key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(read(), key);
+      return descriptor ? { ...descriptor, configurable: true } : undefined;
+    },
+  });
+}
 
 const SYS_ALIASES: Record<string, SystemKey> = {
   sph: 'sph', '자주포': 'sph', '포병': 'sph', howitzer: 'sph', artillery: 'sph',

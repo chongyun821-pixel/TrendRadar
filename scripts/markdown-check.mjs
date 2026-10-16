@@ -1,0 +1,75 @@
+import { chromium } from 'playwright-core';
+import { mkdirSync } from 'node:fs';
+import assert from 'node:assert/strict';
+
+const launch = { headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] };
+if (process.env.CHROME_PATH) launch.executablePath = process.env.CHROME_PATH; else launch.channel = 'chrome';
+const browser = await chromium.launch(launch);
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const base = process.env.BASE_URL || 'http://localhost:62356';
+const errors = [];
+page.on('pageerror', e => errors.push(String(e)));
+mkdirSync('shots', { recursive: true });
+let conversationId;
+let release;
+try {
+  await page.goto(base); await page.waitForSelector('body.ready');
+  await page.fill('#q', '줄바꿈 확인');
+  await page.press('#q', 'Shift+Enter');
+  assert.equal(await page.inputValue('#q'), '줄바꿈 확인\n');
+  assert.equal(await page.locator('.m.user').count(), 0);
+  await page.dispatchEvent('#q', 'keydown', { key: 'Enter', code: 'Enter', keyCode: 229, isComposing: true });
+  assert.equal(await page.locator('.m.user').count(), 0);
+  const text = ['!help', '', '## 사용자 Markdown', '', '**굵게**와 ~~취소선~~', '', '| 장비 | 수량 |', '| :--- | ---: |', '| K9 | 12 |', '', '```ts', 'if (a < b) {', '  console.log("코드 <그대로>");', '}', '```', '', '3. 상위', '   - 하위', '     1. 세부', '', '4. 다음', '', '<img src=x onerror="window.__markdownUnsafe = true">'].join('\n');
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/api/chat', async route => { await gate; await route.continue(); });
+  await page.fill('#q', text); await page.press('#q', 'Enter');
+  const user = page.locator('.m.user').last();
+  await user.locator('table').waitFor();
+  assert.equal(await user.locator('h2').innerText(), '사용자 Markdown');
+  assert.equal(await user.locator('tbody td').first().innerText(), 'K9');
+  assert.equal(await user.locator('pre code.language-ts').textContent(), 'if (a < b) {\n  console.log("코드 <그대로>");\n}\n');
+  assert.equal(await user.locator('ol[start="3"] > li > ul > li > ol > li').innerText(), '세부');
+  assert.equal(await user.locator('img, script').count(), 0);
+  assert.equal(await page.evaluate(() => window.__markdownUnsafe), undefined);
+  assert.equal(await page.inputValue('#q'), '');
+  release();
+  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
+  conversationId = await page.evaluate(() => localStorage.getItem('pr.conversation'));
+  const stored = await (await page.request.get(`${base}/api/conversations/${conversationId}`)).json();
+  assert.equal(stored.messages[0].text, text);
+  await page.unroute('**/api/chat');
+  await page.reload(); await page.waitForSelector('body.ready');
+  await page.click('#q'); await page.waitForSelector('.m.user table');
+  assert.equal(await page.locator('.m.user pre code').textContent(), 'if (a < b) {\n  console.log("코드 <그대로>");\n}\n');
+  // 모델의 복잡한 응답도 같은 경로로 렌더링되는지 네트워크 응답만 가상으로 구성한다.
+  await page.route(`**/api/conversations/${conversationId}`, async route => {
+    const response = await route.fetch(); const data = await response.json();
+    data.messages.at(-1).text = text.replace('!help\n\n', '').replace('사용자 Markdown', '모델 Markdown');
+    await route.fulfill({ response, json: data });
+  });
+  await page.reload(); await page.waitForSelector('body.ready'); await page.click('#q');
+  await page.locator('.m.bot table').waitFor();
+  assert.equal(await page.locator('.m.bot ol[start="3"] > li > ul > li > ol > li').innerText(), '세부');
+  assert.equal(await page.locator('.m.bot pre code.language-ts').count(), 1);
+  await page.locator('#msgs').evaluate(node => { node.scrollTop = 0; });
+  await page.waitForFunction(() => document.querySelector('#chat.open .panel')?.clientHeight > 200);
+  await page.screenshot({ path: 'shots/9-markdown-desktop.png' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.fill('#q', '여러 줄 입력\n두 번째 줄');
+  assert.ok((await page.locator('#q').boundingBox()).height > 34);
+  assert.ok((await page.locator('#q').boundingBox()).height <= 150);
+  await page.screenshot({ path: 'shots/10-markdown-mobile.png' });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  const wide = ['!help', '', '| A | B | C | D | E | F | G | H |', '| --- | --- | --- | --- | --- | --- | --- | --- |', '| 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |', '', '```text', 'long_code_line_'.repeat(70), '```'].join('\n');
+  await page.fill('#q', wide); await page.press('#q', 'Enter');
+  await page.waitForFunction(() => document.querySelectorAll('.m.user').length === 2 && document.querySelector('#chatStatus').textContent === '완료');
+  const overflow = await page.locator('.m.user').last().evaluate(node => ({ message: node.scrollWidth > node.clientWidth + 1, table: node.querySelector('.md-table').scrollWidth > node.querySelector('.md-table').clientWidth, code: node.querySelector('pre').scrollWidth > node.querySelector('pre').clientWidth }));
+  assert.deepEqual(overflow, { message: false, table: true, code: true });
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ userImmediate: 'pass', userReload: 'pass', bot: 'pass', rawStorage: 'pass', shiftEnter: 'pass', ime: 'pass', mobileOverflow: 'pass', errors }));
+} finally {
+  release?.();
+  if (conversationId) await page.request.delete(`${base}/api/conversations/${conversationId}`);
+  await browser.close();
+}

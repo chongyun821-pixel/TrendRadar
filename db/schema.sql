@@ -1,13 +1,20 @@
--- (선택) Cloudflare D1 / SQLite 스키마. 현재 앱은 data/seed.json 을 직접 사용합니다.
--- wrangler d1 create procurement-radar && wrangler d1 execute procurement-radar --file db/schema.sql
-CREATE TABLE IF NOT EXISTS sources   (id TEXT PRIMARY KEY, title TEXT NOT NULL, url TEXT NOT NULL, year INTEGER, collected TEXT);
-CREATE TABLE IF NOT EXISTS countries (iso3 TEXT PRIMARY KEY, name_ko TEXT NOT NULL, lat REAL, lon REAL);
-CREATE TABLE IF NOT EXISTS lifespan  (system TEXT PRIMARY KEY, design_life INTEGER NOT NULL, estimate INTEGER NOT NULL DEFAULT 1, source_id TEXT REFERENCES sources(id));
-CREATE TABLE IF NOT EXISTS inventory (id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL, system TEXT NOT NULL, model TEXT NOT NULL,
-  qty INTEGER, intro_year INTEGER, covered INTEGER DEFAULT 0, est_fields TEXT, source_ids TEXT);
-CREATE TABLE IF NOT EXISTS programs  (id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL, system TEXT NOT NULL, model TEXT, contract_year INTEGER,
-  qty INTEGER, amount_krw_eok REAL, delivery_end INTEGER, covers REAL, description TEXT, est_fields TEXT, source_ids TEXT);
-CREATE TABLE IF NOT EXISTS mro_events(id INTEGER PRIMARY KEY AUTOINCREMENT, country TEXT NOT NULL, system TEXT NOT NULL, model TEXT, year INTEGER,
-  description TEXT, life_ext INTEGER DEFAULT 0, est_fields TEXT, source_ids TEXT);
-CREATE TABLE IF NOT EXISTS forecasts (country TEXT NOT NULL, system TEXT NOT NULL, start_year INTEGER, end_year INTEGER, qty_min INTEGER, qty_max INTEGER,
-  krw_min REAL, krw_max REAL, confidence TEXT, evidence TEXT, computed_at TEXT, PRIMARY KEY (country, system));
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS countries (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE IF NOT EXISTS systems (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE IF NOT EXISTS sources (id TEXT PRIMARY KEY, data TEXT NOT NULL CHECK(json_valid(data)));
+CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, country TEXT NOT NULL REFERENCES countries(id), system TEXT NOT NULL REFERENCES systems(id), data TEXT NOT NULL CHECK(json_valid(data)), version INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, UNIQUE(country, system));
+CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role TEXT NOT NULL, text TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS messages_conversation ON messages(conversation_id, created_at);
+CREATE TABLE IF NOT EXISTS context_summaries(conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, covered INTEGER NOT NULL, summary TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, conversation_id TEXT, model TEXT NOT NULL, status TEXT NOT NULL, error TEXT, started_at TEXT NOT NULL, ended_at TEXT);
+CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), name TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS artifacts (id TEXT PRIMARY KEY, conversation_id TEXT, run_id TEXT, name TEXT NOT NULL, path TEXT NOT NULL UNIQUE, mime TEXT NOT NULL, hash TEXT NOT NULL, kind TEXT NOT NULL, status TEXT NOT NULL, url TEXT, published_at TEXT, collected_at TEXT NOT NULL, error TEXT);
+CREATE TABLE IF NOT EXISTS research (id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), record_id TEXT NOT NULL, template_version TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS changes (id INTEGER PRIMARY KEY, record_id TEXT NOT NULL, run_id TEXT NOT NULL, before_data TEXT, after_data TEXT NOT NULL, reason TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS forecasts (id INTEGER PRIMARY KEY, record_id TEXT NOT NULL, run_id TEXT, data_version INTEGER NOT NULL, data TEXT NOT NULL, computed_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, conversation_id TEXT, run_id TEXT, data_version INTEGER NOT NULL, basis_date TEXT NOT NULL, markdown TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL);
+INSERT OR IGNORE INTO metadata VALUES ('revision', '1');
+INSERT OR IGNORE INTO schema_migrations VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

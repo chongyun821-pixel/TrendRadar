@@ -1,0 +1,225 @@
+{
+  "migratedAt": "2026-10-16T10:33:29.008Z",
+  "sourceSha256": "98c86dbb0308fe1b594fbb16534757dea34289c4ad2b3205375aea94f73412ac",
+  "countries": 15,
+  "systems": 6,
+  "sources": 61,
+  "records": 59,
+  "verification": "전체 객체 deepEqual 및 PRAGMA integrity_check 통과. JSON 원본과 일회용 이관 스크립트 삭제.",
+  "forecastComparison": {
+    "baseYear": 2026,
+    "totalRecords": 59,
+    "changedFields": {
+      "confidence": 33,
+      "remaining": 1,
+      "score": 1
+    },
+    "records": [
+      {
+        "id": "ARE-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "ARE-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "AUS-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "AUS-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "AUS-sam",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "CAN-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "CAN-ssk",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "EGY-ifv",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "EST-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "EST-sam",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "EST-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "FIN-sam",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "FIN-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "GBR-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "GBR-ifv",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "IDN-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "IND-mrl",
+        "fields": [
+          "remaining",
+          "score",
+          "confidence"
+        ]
+      },
+      {
+        "id": "IND-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "NOR-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "NOR-sam",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "NOR-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "POL-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "POL-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "POL-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "POL-ssk",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "ROU-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "ROU-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "ROU-sph",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "SAU-ifv",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "VNM-frigate",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "VNM-ifv",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "VNM-mrl",
+        "fields": [
+          "confidence"
+        ]
+      },
+      {
+        "id": "VNM-sph",
+        "fields": [
+          "confidence"
+        ]
+      }
+    ],
+    "reasons": [
+      "Removed the one-year timeline advance based solely on recent signals.",
+      "Confidence now includes base lifespan, replacement ratio and unit cost estimates, plus conflicts/unknowns.",
+      "Duplicate URLs or identical content no longer count as separate sources."
+    ]
+  }
+}

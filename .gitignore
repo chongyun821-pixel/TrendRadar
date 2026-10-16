@@ -5,3 +5,7 @@ dist/
 *.log
 .env
 .dev.vars
+.local/
+shots/
+*.sqlite-wal
+*.sqlite-shm

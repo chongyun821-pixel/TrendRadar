@@ -1,6 +1,6 @@
 import './style.css';
 import { Globe, type CountryFeature } from './globe';
-import { seed, findRecord } from '../shared/data';
+import { seed, findRecord, setData } from '../shared/data';
 import { allForecasts, computeForecast, CATEGORY_KO, fmtKrwRange } from '../shared/forecast';
 import type { Forecast, SystemKey, Category } from '../shared/types';
 import { SYSTEM_KEYS } from '../shared/types';
@@ -14,6 +14,16 @@ const state = { mode: null as SystemKey | null, flat: false, focus: null as stri
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 
 async function boot() {
+  let dataVersion = '';
+  async function refreshData() {
+    const response = await fetch('/api/data', { cache: 'no-store' });
+    if (!response.ok) throw new Error('조달 데이터 로드 실패');
+    setData(await response.json());
+    dataVersion = response.headers.get('x-data-version') || '';
+    const status = document.querySelector('#dataUpdated');
+    if (status) status.textContent = `자료 갱신 ${seed.meta.collected ? new Date(seed.meta.collected).toLocaleString('ko-KR') : '미확인'}`;
+  }
+  await refreshData();
   const features: CountryFeature[] = await (await fetch('/countries.json')).json();
   const names: Record<string, string> = {};
   for (const f of features) names[f.id] = seed.countries[f.id]?.ko ?? f.ko;
@@ -77,7 +87,7 @@ async function boot() {
   // 상단 버튼
   const modes = $('#modes');
   const items: [string, string][] = [['', '일반'], ...SYSTEM_KEYS.map(k => [k, seed.systems[k].ko] as [string, string])];
-  modes.innerHTML = items.map(([k, ko]) => `<button data-sys="${k}">${ko}</button>`).join('');
+  modes.innerHTML = items.map(([k, ko]) => `<button data-sys="${esc(k)}">${esc(ko)}</button>`).join('');
   modes.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b) setMode((b.dataset.sys || null) as SystemKey | null); });
   $('#mapBtn').addEventListener('click', () => toggleMap());
   $('#legend').innerHTML = (['red', 'orange', 'yellow', 'blue', 'gray'] as Category[]).map(c => `<span><i style="background:${CAT_COLOR[c]}"></i>${CATEGORY_KO[c]}</span>`).join('') + '<span class="sz"><b></b>규모</span>';
@@ -91,46 +101,63 @@ async function boot() {
       focus_country: (id: string) => focusCountry(id),
     },
     modeKo: () => (state.mode ? seed.systems[state.mode].ko : null),
+    refreshData: async () => {
+      await refreshData();
+      for (const [iso, c] of Object.entries(seed.countries)) names[iso] = c.ko;
+      applyMode();
+      if (state.focus) { tip.innerHTML = tipHtml(state.focus, names); chat.suggest(state.focus); }
+    },
   });
   addEventListener('keydown', e => { if (e.key === 'Escape') { unpin(); chat.collapse(); } });
   applyMode();
   (window as any).__app = { setMode, toggleMap, focusCountry, state };
   document.body.classList.add('ready');
+  const checkData = async () => {
+    if (document.hidden) return;
+    try {
+      const result = await fetch('/api/data/version', { cache: 'no-store' });
+      const version = await result.json();
+      if (String(version.revision) !== dataVersion) { await refreshData(); for (const [id, c] of Object.entries(seed.countries)) names[id] = c.ko; applyMode(); }
+    } catch { /* 다음 활성화·주기 확인에서 재시도 */ }
+  };
+  setInterval(checkData, 5000);
+  addEventListener('focus', checkData);
 }
 
 function fmtWin(f: Forecast) { return f.window ? `${f.window[0]}~${f.window[1]}년` : '—'; }
 const est = (on: boolean) => (on ? ' <em>추정</em>' : '');
 function host(u: string) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
+function safeHref(u: string) { try { const url = new URL(u); return ['http:', 'https:'].includes(url.protocol) ? esc(url.href) : '#'; } catch { return '#'; } }
 
 function tipHtml(id: string, names: Record<string, string>) {
   const meta = seed.countries[id]; const name = esc(names[id] ?? id);
   const mode = state.mode;
   if (!mode) {
     const recs = seed.records.filter(r => r.country === id);
-    if (!recs.length) return `<div class="th">${meta?.flag ?? ''} ${name}</div>`;
-    const chips = recs.map(r => { const f = computeForecast(r); return `<span class="chip"><i style="background:${CAT_COLOR[f.category]}"></i>${f.systemKo}</span>`; }).join('');
-    return `<div class="th">${meta.flag} ${name}</div><div class="chips">${chips}</div>`;
+    if (!recs.length) return `<div class="th">${esc(meta?.flag ?? '')} ${name}</div>`;
+    const chips = recs.map(r => { const f = computeForecast(r); return `<span class="chip"><i style="background:${CAT_COLOR[f.category]}"></i>${esc(f.systemKo)}</span>`; }).join('');
+    return `<div class="th">${esc(meta.flag)} ${name}</div><div class="chips">${chips}</div>`;
   }
   const rec = findRecord(id, mode);
-  const sysKo = seed.systems[mode].ko;
-  if (!rec) return `<div class="th">${meta?.flag ?? ''} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR.gray}">데이터 없음</span></div>`;
+  const sysKo = esc(seed.systems[mode].ko);
+  if (!rec) return `<div class="th">${esc(meta?.flag ?? '')} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR.gray}">데이터 없음</span></div>`;
   const f = computeForecast(rec);
   const cur = f.current;
   const be = (b: { est: string[] }, k: string) => b.est.includes(k);
   const rows: [string, string][] = [];
-  rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear}${est(be(cur, 'introYear'))} · ${cur.qty.toLocaleString()}${f.unit}${est(be(cur, 'qty'))}` : rec.awarded ? esc(rec.awarded.text) : '—']);
+  rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear}${est(be(cur, 'introYear'))} · ${cur.qty.toLocaleString()}${esc(f.unit)}${est(be(cur, 'qty'))}` : rec.awarded ? esc(rec.awarded.text) : '—']);
   if (cur) rows.push(['설계 수명', `${cur.life}년${est(true)}${cur.ext ? ` + MRO ${cur.ext}년` : ''} → ${cur.year}년`]);
   rows.push(['교체 예상', `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' · 후속 주기' : f.status === 'plan' ? ' · 사업 계획' : ''}`]);
   const mro = rec.mro?.[rec.mro.length - 1];
   if (mro) rows.push(['최근 MRO', `${mro.year}${est(!!mro.est?.includes('year'))} ${esc(mro.text)}`]);
   if (rec.awarded && cur) rows.push(['최근 계약', `${rec.awarded.year} ${esc(rec.awarded.text)}`]);
   if (rec.plan) rows.push(['사업 계획', esc(rec.plan.text)]);
-  if (f.status !== 'none') rows.push(['예상 사업', `${f.qty[0].toLocaleString()}~${f.qty[1].toLocaleString()}${f.unit} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
+  if (f.status !== 'none') rows.push(['예상 사업', `${f.qty[0].toLocaleString()}~${f.qty[1].toLocaleString()}${esc(f.unit)} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
-  const links = f.sources.slice(0, 4).map((s, i) => `<a href="${s.u}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
-  return `<div class="th">${meta.flag} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR[f.category]}">${CATEGORY_KO[f.category]}</span></div>
+  const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
+  return `<div class="th">${esc(meta.flag)} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR[f.category]}">${CATEGORY_KO[f.category]}</span></div>
     <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>
     <div class="src">${links}${f.sources.length > 4 ? `<span>+${f.sources.length - 4}</span>` : ''}</div>`;
 }
 
-boot().catch(e => { console.error(e); document.body.insertAdjacentHTML('beforeend', `<div class="fatal">로드 실패</div>`); });
+boot().catch(e => { console.error(e); document.body.classList.add('ready'); document.body.insertAdjacentHTML('beforeend', `<div class="fatal">${esc(String(e))}</div>`); });

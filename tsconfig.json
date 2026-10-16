@@ -4,5 +4,5 @@
     "strict": true, "resolveJsonModule": true, "esModuleInterop": true, "skipLibCheck": true, "noEmit": true,
     "allowImportingTsExtensions": false, "isolatedModules": true, "types": ["node"]
   },
-  "include": ["src", "shared", "server", "functions", "mcp", "tests", "vite.config.ts"]
+  "include": ["src", "shared", "server", "mcp", "tests", "scripts/*.ts", "vite.config.ts", "vitest.config.ts"]
 }

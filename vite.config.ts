@@ -14,13 +14,14 @@ function api(): Plugin {
       server.middlewares.use((req, res, next) => (req.url?.startsWith('/api/') ? listener(req, res) : next()));
       // 시작 시 앱이 남긴 그록 세션 정리
       server.httpServer?.once('listening', () => { server.ssrLoadModule('/server/cli.ts').then(m => m.cleanupLeftovers({ ...process.env, ...loadDevVars() })).catch(() => {}); });
+      server.httpServer?.once('listening', () => { server.ssrLoadModule('/server/runs.ts').then(m => m.recoverRuns()).catch(console.error); });
     },
   };
 }
 
 export default defineConfig({
   plugins: [api()],
-  server: { port: 62356, strictPort: true, host: true },
+  server: { port: 62356, strictPort: true, host: '127.0.0.1' },
   preview: { port: 62356, strictPort: true },
   build: { outDir: 'dist', chunkSizeWarningLimit: 1200 },
 });

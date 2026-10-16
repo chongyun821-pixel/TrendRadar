@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { replacementYear, categoryOf, imminenceScore, confidenceOf, sizeNorm, computeForecast, allForecasts } from '../shared/forecast';
 import { seed, resolveCountry, resolveSystem } from '../shared/data';
 import { writeReport } from '../shared/tools';
@@ -34,6 +34,26 @@ describe('computeForecast', () => {
   it('공개 계획이 있으면 계획을 따른다', () => {
     const f = computeForecast({ ...rec, plan: { start: 2027, end: 2028, qty: [8, 12], text: 'p', src: [] } });
     expect(f.status).toBe('plan'); expect(f.qty).toEqual([8, 12]); expect(f.remaining).toBe(1);
+  });
+  it('서버를 재시작하지 않아도 연도가 바뀌면 새 기준 연도로 계산', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2027-01-01T12:00:00Z'));
+      expect(computeForecast(rec).window![0]).toBe(2027);
+      const report = writeReport({ country: '베트남', system: '자주포' });
+      expect('markdown' in report && report.markdown).toContain('기준 연도 2027');
+    } finally { vi.useRealTimers(); }
+  });
+  it('같은 URL의 새 수집 버전을 사용하고 중복 근거는 한 번만 셈', () => {
+    const data = JSON.parse(JSON.stringify(seed));
+    expect(data.records.length).toBe(seed.records.length);
+    data.sources = {
+      old: { t: '이전', u: 'https://example.org/test', y: 2020 },
+      fresh: { t: '새 자료', u: 'https://example.org/test', y: 2026, collectedAt: '2026-10-16T00:00:00Z', hash: 'test-hash' },
+      copied: { t: '복사본', u: 'https://example.org/copied', y: 2026, hash: 'test-hash' },
+    };
+    const f = computeForecast({ ...rec, src: ['old','fresh','copied'], batches: rec.batches.map(b => ({ ...b, src: [] })) }, data);
+    expect(f.nSources).toBe(1); expect(f.latestSource).toBe(2026); expect(f.sources[0].t).toBe('새 자료');
   });
   it('시드 데이터 전체가 계산되고 모든 출처 id가 존재', () => {
     const fs = allForecasts(); expect(fs.length).toBe(seed.records.length);

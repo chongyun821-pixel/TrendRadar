@@ -1,3 +1,2 @@
-// (선택) Workers 단독 배포용 진입점: 정적 파일은 [assets], API는 Hono
-import { app } from './server/app';
-export default { fetch: app.fetch };
+// 이전 Workers 진입점. 로컬 SQLite·작업 폴더는 Node 서버에서만 제공한다.
+export default { fetch: () => new Response('이 버전은 로컬 SQLite·작업 폴더를 사용하는 Node 서버가 필요합니다. npm start로 실행하세요.', { status: 503 }) };

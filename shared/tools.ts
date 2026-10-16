@@ -1,5 +1,5 @@
 import { seed, resolveCountry, resolveSystem, recordsBy, findRecord } from './data';
-import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange, BASE_YEAR } from './forecast';
+import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange } from './forecast';
 import type { Forecast, SystemKey, Batch } from './types';
 
 const est = (b: { est?: string[] }, f: string) => (b.est?.includes(f) ? ' (추정)' : '');
@@ -78,6 +78,7 @@ export function listForecasts(a?: { system?: string; limit?: number }) {
 const STATUS_KO: Record<Forecast['status'], string> = { open: '교체 수요(미계약)', plan: '공개 사업 계획', next: '현 사업 계약 완료 → 후속 주기', none: '데이터 부족' };
 
 export function writeReport(a?: { country?: string; system?: string }): { markdown: string; country?: string; system?: SystemKey } | { error: string } {
+  const baseYear = new Date().getFullYear();
   const { country, system } = args(a);
   if (!country) return { error: '국가를 찾지 못함' };
   const sysList: SystemKey[] = system ? [system] : recordsBy(country).map(r => r.system);
@@ -95,6 +96,7 @@ export function writeReport(a?: { country?: string; system?: string }): { markdo
     if (f.window) L.push(`- 예상 시기(예측): **${f.window[0]}~${f.window[1]}년** · 임박도 ${CATEGORY_KO[f.category]} (점수 ${f.score})`);
     if (f.status !== 'none') L.push(`- 예상 규모(예측): **${f.qty[0]}~${f.qty[1]}${f.unit}**, **${fmtKrwRange(f.krw)}**${f.krwEst ? ' (추정 포함)' : ''}`);
     L.push(`- 신뢰도: ${f.confidence} (근거 ${f.nSources}건, 추정 항목 ${f.estCount}개)`);
+    L.push(`- 자료 기준: ${seed.meta.collected || '미확인'}`);
     L.push(`### 2. 현재 보유와 도입 이력`);
     if (r.batches.length) for (const b of r.batches) L.push(`- ${b.model}: ${b.qty}${sys.unit}${est(b, 'qty')}, 도입 ${b.introYear}${est(b, 'introYear')}${b.covered ? ' — 교체 계약분' : ''}${b.note ? ` — ${b.note}` : ''}`);
     else L.push(`- 교체 대상 구형 장비 없음`);
@@ -107,11 +109,17 @@ export function writeReport(a?: { country?: string; system?: string }): { markdo
     else L.push(`- 확인된 MRO 기록 없음`);
     L.push(`### 4. 예측 근거와 계산`);
     for (const c of f.calc) L.push(`- ${c}`);
-    L.push(`- 기준 연도 ${BASE_YEAR}, 남은 기간 = 시작 연도 − ${BASE_YEAR}${(r.signals ?? []).some(x => x.year >= BASE_YEAR - 1) ? ' (최근 동향으로 1년 앞당김)' : ''}`);
+    L.push(`- 기준 연도 ${baseYear}, 남은 기간 = 시작 연도 − ${baseYear}. 동향 언급만으로 계약 수량·일정을 변경하지 않음`);
+    if (r.analysis) {
+      const labels: Record<string, string> = { facts: '확인 사실', estimates: '추정', conflicts: '상충·선택 근거', unknowns: '미확인' };
+      for (const [label, items] of Object.entries(r.analysis)) if (Array.isArray(items)) for (const item of items) L.push(`- ${labels[label] || label}: ${item}`);
+    }
     L.push(`### 5. 경쟁 구도와 한화 기회`);
     if (r.awarded) L.push(`- 기존 계약: ${r.awarded.text}`);
     if (r.plan) L.push(`- 경쟁 현황: ${r.plan.text}`);
     L.push(`- 해당 한화 제품: ${sys.hanwha.join(', ')}`);
+    for (const p of r.projects ?? []) L.push(`- ${p.id}: 구매국 ${p.buyer} · 공급자 ${p.supplier} · 단계 ${p.stage} · ${p.text}`);
+    if (r.analysis?.opportunity) L.push(`- 조사 분석: ${r.analysis.opportunity}`);
     L.push(f.status === 'next' ? `- 현 사업은 계약 완료. 후속·추가 물량, MRO·현지화 협력이 기회` : f.status === 'none' ? `- 데이터 보강 필요` : `- 교체 창 전 1~3년이 제안 시점`);
     L.push(`### 6. 출처`);
     for (const so of f.sources) L.push(`- [${so.t}](${so.u})`);

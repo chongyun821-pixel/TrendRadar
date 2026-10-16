@@ -20,8 +20,8 @@ describe('공유 도구 정의', () => {
     expect(FUNCTION_DECLARATIONS.map(f => f.name)).toEqual(names);
     expect(openaiTools().map(t => t.function.name)).toEqual(names);
     expect(names).toEqual(expect.arrayContaining(['set_mode', 'toggle_map_mode', 'focus_country', 'get_forecast', 'search_programs', 'get_lifespan', 'search_mro', 'write_report']));
-    expect((FUNCTION_DECLARATIONS[0].parameters.properties as any).system.type).toBe('STRING');
-    expect((openaiTools()[1].function.parameters.properties as any).flat.type).toBe('boolean');
+    expect((FUNCTION_DECLARATIONS.find(t => t.name === 'set_mode')!.parameters.properties as any).system.type).toBe('STRING');
+    expect((openaiTools().find(t => t.function.name === 'toggle_map_mode')!.function.parameters.properties as any).flat.type).toBe('boolean');
   });
 });
 
@@ -124,15 +124,16 @@ describe('액션 블록 파서', () => {
 });
 
 describe('CLI 모델 (그록 빌드·코덱스)', () => {
-  it('그록 인자: 최신 모델·xhigh·세션 uuid·읽기 전용 권한·MCP 허용', () => {
+  it('그록 인자: 기본 문서·셸 도구 실행·MCP 허용, 계획·서브에이전트 끔', () => {
     const a = grokArgs({ promptFile: 'p.txt', sid: '11111111-1111-4111-8111-111111111111', cwd: 'C:\\w\\.runtime\\grok' });
     const v = (f: string) => a[a.indexOf(f) + 1];
     expect(v('-m')).toBe('grok-4.7'); expect(v('--reasoning-effort')).toBe('xhigh'); expect(v('-s')).toBe('11111111-1111-4111-8111-111111111111');
-    expect(v('--permission-mode')).toBe('dontAsk'); expect(v('--allow')).toBe('MCPTool(procurement__*)'); expect(v('--output-format')).toBe('streaming-json');
+    expect(v('--permission-mode')).toBe('bypassPermissions'); expect(v('--allow')).toBe('MCPTool(procurement__*)'); expect(v('--output-format')).toBe('streaming-json');
     expect(a).toContain('--no-subagents'); expect(a).toContain('--no-plan');
-    expect(v('--tools')).toBe('web_search,web_fetch');
-    expect(v('--system-prompt-override').length).toBeLessThan(200);
-    expect(a.filter(x => x === '--allow')).toHaveLength(2); expect(a).toContain('WebFetch');
+    expect(a).not.toContain('--tools');
+    expect(a).not.toContain('--max-turns');
+    expect(a).not.toContain('--system-prompt-override');
+    expect(a).toContain('XSearch'); expect(a).toContain('WebFetch');
     expect(a).not.toContain('--disable-web-search');
   });
   it('그록 환경 변수: 메모리·Claude/Cursor 호환 스캔 끔', () => {
@@ -141,12 +142,12 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
   });
   it('코덱스 인자: ephemeral·read-only·xhigh·호출별 MCP 설정', () => {
     const a = codexArgs({ cwd: 'C:\\w\\.runtime\\codex', node: 'C:\\Program Files\\nodejs\\node.exe', tsx: 'C:\\w\\tsx.mjs', mcp: 'C:\\w\\mcp\\server.ts' });
-    expect(a.slice(0, 6)).toEqual(['exec', '--ephemeral', '--skip-git-repo-check', '--ignore-user-config', '--sandbox', 'read-only']);
-    expect(a).toContain('web_search="live"'); expect(a).toContain('mcp_servers.procurement.default_tools_approval_mode="approve"'); expect(a).toContain('project_doc_max_bytes=0');
+    expect(a.slice(0, 5)).toEqual(['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write']);
+    expect(a).toContain('web_search="live"'); expect(a).toContain('mcp_servers.procurement.default_tools_approval_mode="approve"'); expect(a).not.toContain('--ignore-user-config');
     const off = a.flatMap((x, i) => x === '--disable' ? [a[i + 1]] : []);
-    expect(off).toEqual(expect.arrayContaining(['shell_tool', 'unified_exec', 'view_image', 'multi_agent', 'plugins', 'apps', 'image_generation']));
+    expect(off).toEqual(['multi_agent']);
     expect(off).not.toContain('web_search');
-    expect(codexArgs({ cwd: 'x', node: 'n', tsx: 't', mcp: 'm', instructionsFile: 'C:\\t\\i.md' })).toContain('model_instructions_file="C:\\\\t\\\\i.md"');
+    expect(a).toContain('approval_policy="never"');
     expect(a[a.indexOf('-m') + 1]).toBe('gpt-6.1-sol');
     expect(a).toContain('model_reasoning_effort="xhigh"');
     expect(a).toContain('mcp_servers.procurement.command="C:\\\\Program Files\\\\nodejs\\\\node.exe"');
@@ -156,6 +157,9 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
   it('프롬프트: MCP 사용·액션 블록 안내·이전 대화', () => {
     const p = buildPrompt({ messages: [{ role: 'user', text: '안녕' }, { role: 'model', text: '네' }, { role: 'user', text: '폴란드 자주포' }], state: { mode: 'sph' } });
     expect(p).toContain('procurement MCP'); expect(p).toContain('"actions"'); expect(p).toContain('도우미: 네'); expect(p.trim().endsWith('사용자: 폴란드 자주포')).toBe(true);
+    expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'codex')).toContain('Documents 플러그인의 documents 스킬');
+    expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'grok')).toContain('Grok Build 기본 docx 스킬');
+    expect(p).toContain('publish_artifact(path)'); expect(p).toContain('기존 국가별 틀에 억지로 맞추지 않는다');
   });
   it('그록 streaming-json: 마지막 도구 호출 뒤 텍스트가 답, 도구 이름 추출', () => {
     const out = [

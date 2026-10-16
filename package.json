@@ -9,12 +9,14 @@
     "build": "tsc --noEmit && vite build",
     "start": "vite build && tsx server/node.ts",
     "serve": "tsx server/node.ts",
-    "cf:dev": "vite build && wrangler pages dev dist --port 62356 --env-file .secrets",
-    "deploy": "vite build && wrangler pages deploy dist",
+    "db:backup": "tsx scripts/database.ts backup",
+    "db:restore": "tsx scripts/database.ts restore",
     "mcp": "tsx mcp/server.ts",
     "mcp:http": "tsx mcp/server.ts --http",
     "test": "vitest run",
     "shots": "node scripts/shots.mjs",
+    "chat:check": "node scripts/chat-check.mjs",
+    "markdown:check": "node scripts/markdown-check.mjs",
     "mcp:check": "node scripts/mcp-check.mjs",
     "data:countries": "node scripts/slim-countries.mjs"
   },
@@ -22,7 +24,10 @@
     "@hono/node-server": "^1.13.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "earcut": "^3.0.1",
+    "fflate": "^0.8.3",
     "hono": "^4.6.0",
+    "markdown-it": "^15.0.3",
+    "pdf-parse": "^2.4.5",
     "three": "^0.170.0",
     "zod": "^3.25.0"
   },
@@ -38,7 +43,7 @@
     "wrangler": "4.86.0"
   },
   "engines": {
-    "node": ">=20.3"
+    "node": "^22.16.0 || >=24.0.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

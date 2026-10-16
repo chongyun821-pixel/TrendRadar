@@ -10,6 +10,11 @@ describe('chat (Gemma generateContent)', () => {
     const r = await chat({ messages: [{ role: 'user', text: '안녕' }] }, {});
     expect(r.nokey).toBe(true);
   });
+  it('Google 프로젝트 접근 거부와 잘못된 키를 구분', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok({ error: { code: 403, message: 'Your project has been denied access. Please contact support.' } }, 403)));
+    const r = await chat({ messages: [{ role: 'user', text: '안녕' }] }, { GOOGLE_API_KEY: 'fake' });
+    expect(r.error).toBe('Google 프로젝트 접근 거부');
+  });
   it('도구 호출 → 화면 동작·보고서 → 최종 답 (헤더·모델·5xx 재시도)', async () => {
     const calls: any[] = [];
     let n = 0;

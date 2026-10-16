@@ -18,7 +18,7 @@ export const HELP = [
 
 /** !명령 처리. names: 지도 국가명(id→한글) */
 export function runCommand(input: string, names: Record<string, string>): LocalResult | null {
-  const m = /^[!！]\s*(\S+)\s*(.*)$/.exec(input.trim());
+  const m = /^[!！]\s*(\S+)\s*([\s\S]*)$/.exec(input.trim());
   if (!m) return null;
   const cmd = m[1].toLowerCase(), rest = m[2].trim();
   const words = rest.split(/\s+/).filter(Boolean);

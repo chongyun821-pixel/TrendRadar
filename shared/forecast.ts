@@ -1,7 +1,7 @@
 import type { Category, Forecast, ProgramRecord, Seed, BatchCalc, Source, SystemKey } from './types';
 import { seed as defaultSeed } from './data';
 
-export const BASE_YEAR = 2026;
+export const BASE_YEAR = new Date().getFullYear();
 export const DEFAULT_RATIO: [number, number] = [0.6, 1.0];
 /** 사업 규모(억 원) 로그 스케일 범위: 100억 ~ 50만억 */
 export const SIZE_LOG_MIN = 2, SIZE_LOG_MAX = 5.7;
@@ -31,7 +31,7 @@ export function sizeNorm(krw: [number, number]): number {
 }
 
 /** 신뢰도: 근거 수, 최신성, 추정값 개수 */
-export function confidenceOf(nSources: number, latestYear: number, estCount: number, base = BASE_YEAR): '상' | '중' | '하' {
+export function confidenceOf(nSources: number, latestYear: number, estCount: number, base = new Date().getFullYear()): '상' | '중' | '하' {
   let p = Math.min(nSources, 4);
   p += latestYear >= base - 1 ? 2 : latestYear >= base - 4 ? 1 : 0;
   p -= Math.floor(estCount / 3); // estCount: 레코드 고유 추정 항목 수
@@ -40,7 +40,7 @@ export function confidenceOf(nSources: number, latestYear: number, estCount: num
 
 const r10 = (n: number) => Math.round(n);
 
-export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, base = BASE_YEAR): Forecast {
+export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, base = new Date().getFullYear()): Forecast {
   const sys = seed.systems[rec.system];
   const c = seed.countries[rec.country];
   const life = sys.designLife;
@@ -104,7 +104,6 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
 
   const signals = (rec.signals ?? []).filter(s => s.year >= base - 1).length;
   let remaining = window ? window[0] - base : null;
-  if (remaining != null && signals && remaining > 0) remaining = Math.max(0, remaining - 1);
   const category = categoryOf(remaining);
   const score = remaining == null ? 0 : imminenceScore(remaining, agedShare, signals);
 
@@ -115,9 +114,22 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
   rec.plan?.src.forEach(s => ids.add(s));
   rec.mro?.forEach(m => m.src.forEach(s => ids.add(s)));
   rec.signals?.forEach(m => m.src.forEach(s => ids.add(s)));
-  const sources: Source[] = [...ids].map(id => seed.sources[id]).filter(Boolean);
+  rec.projects?.forEach(p => p.src.forEach(s => ids.add(s)));
+  const byUrl = new Map<string, Source>();
+  const sourceTime = (s: Source) => Date.parse(s.collectedAt || '') || s.y;
+  for (const s of [...ids].map(id => seed.sources[id]).filter(Boolean)) {
+    const key = s.u.replace(/#.*$/, '').replace(/\/$/, '');
+    const previous = byUrl.get(key);
+    if (!previous || sourceTime(s) >= sourceTime(previous)) byUrl.set(key, s);
+  }
+  const contentHashes = new Set<string>();
+  const sources: Source[] = [...byUrl.values()].filter(s => {
+    if (s.hash && contentHashes.has(s.hash)) return false;
+    if (s.hash) contentHashes.add(s.hash); return true;
+  });
   const latest = Math.max(0, ...sources.map(s => s.y));
-  const confidence = confidenceOf(sources.length, latest, estCount, base);
+  const uncertainty = (rec.analysis?.conflicts.length || 0) + (rec.analysis?.unknowns.length || 0);
+  const confidence = confidenceOf(sources.length, latest, estCount + baseEst + uncertainty * 3, base);
   estCount += baseEst;
 
   const openCalc = open.map(x => x.c).sort((a, b) => b.qty - a.qty);
