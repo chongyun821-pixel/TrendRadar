@@ -29,6 +29,7 @@ export function initChat(o: ChatOpts) {
   const sel = root.querySelector('#model') as HTMLSelectElement;
   const history: Msg[] = [];
   let busy = false;
+  let activeRequest: AbortController | null = null;
   let models: ModelInfo[] = [{ id: 'gemma', name: '젬마', available: true }];
   let model = 'gemma';
   const KEY = 'pr.model';
@@ -50,6 +51,20 @@ export function initChat(o: ChatOpts) {
 
   const open = () => root.classList.add('open');
   const collapse = () => { root.classList.remove('open'); input.blur(); };
+  function reset() {
+    const request = activeRequest;
+    activeRequest = null;
+    request?.abort();
+    history.length = 0;
+    list.replaceChildren();
+    input.value = '';
+    sug.replaceChildren();
+    sug.classList.remove('show');
+    busy = false;
+    root.classList.remove('busy');
+    input.focus();
+  }
+  root.querySelector('#chatReset')!.addEventListener('click', reset);
   input.addEventListener('focus', open);
   root.querySelector('#chatToggle')!.addEventListener('click', () => root.classList.toggle('open'));
   document.querySelector('#globe')!.addEventListener('pointerdown', () => { if (!input.value) collapse(); });
@@ -86,14 +101,18 @@ export function initChat(o: ChatOpts) {
       return;
     }
     busy = true; root.classList.add('busy');
+    const request = new AbortController();
+    activeRequest = request;
     const w = add('wait', '<span class="dots"><i></i><i></i><i></i></span>');
     try {
       const st = o.getState();
       const r = await fetch('/api/chat', {
         method: 'POST', headers: { 'content-type': 'application/json' },
+        signal: request.signal,
         body: JSON.stringify({ model, messages: [...history.slice(-6), { role: 'user', text }], state: { mode: st.mode, flat: st.flat, focus: st.focus ? o.names[st.focus] ?? st.focus : null } }),
       });
       const j = await r.json().catch(() => ({}));
+      if (activeRequest !== request) return;
       w.remove();
       if (j.nokey) {
         const n = naiveIntent(text, o.names);
@@ -107,11 +126,18 @@ export function initChat(o: ChatOpts) {
       if (j.reply) { const b = add('bot', md(j.reply)); if (j.model) { b.title = j.model; b.dataset.model = j.model; } }
       history.push({ role: 'user', text }, { role: 'model', text: String(j.reply ?? '').slice(0, 600) });
     } catch {
+      if (activeRequest !== request) return;
       w.remove();
       const n = naiveIntent(text, o.names);
       if (n) { exec(n.actions); if (n.text) add('bot', md(n.text)); if (n.report) add('report', md(n.report)); }
       else add('bot', md('서버 연결 실패 · `!help`'));
-    } finally { busy = false; root.classList.remove('busy'); }
+    } finally {
+      if (activeRequest === request) {
+        activeRequest = null;
+        busy = false;
+        root.classList.remove('busy');
+      }
+    }
   }
   form.addEventListener('submit', e => { e.preventDefault(); send(input.value); });
 

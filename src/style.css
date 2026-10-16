@@ -76,6 +76,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .bar .model option { background: #0d1320; color: var(--tx); }
 .bar button { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--mut); transition: .2s; }
 .bar .send { background: var(--acc); color: #fff; } .bar .send:hover { filter: brightness(1.1); }
+.bar .reset { width: auto; padding: 0 9px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.bar .reset:hover, .bar .reset:focus-visible { background: rgba(255,255,255,.08); color: var(--tx); }
 .chat.busy .send { opacity: .5; }
 .bar .tgl svg { transition: transform .3s; } .chat.open .tgl svg { transform: rotate(180deg); }
 .fatal { position: fixed; inset: 0; display: grid; place-items: center; color: var(--mut); }
