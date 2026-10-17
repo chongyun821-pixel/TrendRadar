@@ -11,7 +11,7 @@ import { recoverRuns } from './runs';
 const env = { ...process.env, ...loadDevVars() } as Record<string, string>;
 const port = Number(env.PORT || 62356);
 void cleanupLeftovers(env);
-recoverRuns();
+await recoverRuns(env);
 if (!existsSync('dist/index.html')) { console.error('dist 없음: 먼저 npm run build'); process.exit(1); }
 
 const root = new Hono();

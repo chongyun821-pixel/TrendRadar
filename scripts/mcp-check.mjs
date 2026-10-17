@@ -12,6 +12,8 @@ const { tools } = await c.listTools();
 console.log('stdio tools:', tools.map(t => t.name).join(', '));
 const r = await c.callTool({ name: 'forecast', arguments: { country: '폴란드', system: '자주포' } });
 console.log('forecast(폴란드, 자주포):', r.content[0].text.slice(0, 160).replace(/\s+/g, ' '));
+const template = await c.callTool({ name: 'get_report_template', arguments: { format: 'pptx' } });
+if (JSON.parse(template.content[0].text).templates[0].id !== 'ppt-country-v1') throw new Error('파워포인트 양식 조회 실패');
 await c.close();
 
 const port = 62399;
@@ -20,6 +22,8 @@ await new Promise(res => p.stderr.on('data', d => String(d).includes('http') && 
 const h = new Client({ name: 'check-http', version: '0' });
 await h.connect(new StreamableHTTPClientTransport(new URL(`http://localhost:${port}/mcp`)));
 console.log('http tools:', (await h.listTools()).tools.length);
-const rep = await h.callTool({ name: 'write_report', arguments: { country: 'Canada', system: 'ssk' } });
-console.log('write_report(Canada, ssk):', rep.content[0].text.split('\n')[0]);
+const rep = await h.callTool({ name: 'forecast', arguments: { country: 'Canada', system: 'ssk' } });
+console.log('forecast(Canada, ssk):', rep.content[0].text.slice(0, 160).replace(/\s+/g, ' '));
+const query = await h.callTool({ name: 'query_procurement', arguments: { country: 'CAN', system: 'ssk' } });
+if (!JSON.parse(query.content[0].text).records.length) throw new Error('새 조달 조회 도구 연결 실패');
 await h.close(); p.kill();

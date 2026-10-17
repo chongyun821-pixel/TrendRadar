@@ -1,11 +1,10 @@
-/** 네모트론: OpenRouter(OpenAI 호환) + 같은 도구 정의. Ultra(무료) 실패 시 Super(무료)로 전환 */
+/** 네모트론 슈퍼: OpenRouter와 공통 도구 정의를 사용한다. */
 import { openaiTools, systemPrompt, recentMessages, runTool, trim, newOut, parseActionBlock, PAGE_TOOLS, TOOL_DEFS, type ChatIn, type ChatOut } from './agent';
 import type { Env } from './gemma';
 import { executions } from './execution';
 import { imageAttachments } from './attachments';
 import { contextMessages, SUMMARY_PROMPT } from './context';
 
-export const NEMOTRON_ULTRA = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 export const NEMOTRON_SUPER = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 const TEXT_PROTOCOL = [
@@ -18,20 +17,18 @@ const TEXT_PROTOCOL = [
 ].join('\n');
 
 class ReqError extends Error { constructor(public status: number, public body: string) { super(`HTTP ${status}`); } }
-/** 다음 모델로 넘어갈 실패: 한도·결제·없음·타임아웃·5xx·네트워크 */
-export const shouldFallback = (e: unknown) => !(e instanceof ReqError) || [402, 404, 408, 409, 429].includes(e.status) || e.status >= 500;
 const toolUnsupported = (e: unknown) => e instanceof ReqError && (e.status === 400 || e.status === 404) && /tool|function/i.test(e.body);
 
 export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> {
   const out = newOut();
   const key = env.OPENROUTER_API_KEY?.trim();
-  const models = [env.OPENROUTER_MODEL || NEMOTRON_ULTRA, env.OPENROUTER_FALLBACK_MODEL || NEMOTRON_SUPER].filter((m, i, a) => m && a.indexOf(m) === i);
-  out.model = models[0];
+  const model = NEMOTRON_SUPER;
+  out.model = model;
   if (!key) return { ...out, nokey: true, reply: 'OpenRouter 키 없음' };
   const url = `${(env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '')}/chat/completions`;
   const history = await contextMessages(input, async prompt => {
     input.signal?.throwIfAborted();
-    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify({ model: models[0], messages: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: prompt }] }), signal: input.signal });
+    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify({ model, messages: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: prompt }] }), signal: input.signal });
     if (!r.ok) throw new Error(`대화 요약 오류 ${r.status}`);
     const j: any = await r.json(); return String(j.choices?.[0]?.message?.content || '');
   });
@@ -40,22 +37,20 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
   const sys = systemPrompt(input.state);
   const msgs: any[] = hist.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.text }));
   if (executions.getStore()) {
-    const images = imageAttachments();
+    const images = await imageAttachments();
     if (images.length) msgs.at(-1).content = [{ type: 'text', text: msgs.at(-1).content }, ...images.map(image => ({ type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.base64}` } }))];
   }
-  let mi = 0;
-  const textMode = new Set<string>(); // 도구 미지원으로 확인된 모델
+  let textMode = false;
 
   async function call(withTools: boolean): Promise<any> {
     for (;;) {
-      const model = models[mi];
-      const text = textMode.has(model);
+      const text = textMode;
       input.signal?.throwIfAborted();
       const body: any = { model, temperature: 0.3, messages: [{ role: 'system', content: text ? `${sys}\n${TEXT_PROTOCOL}` : sys }, ...msgs] };
       if (withTools && !text) { body.tools = openaiTools(); body.tool_choice = 'auto'; }
       try {
         const ctx = executions.getStore();
-        ctx?.repo.event(ctx.runId, 'model.request', { model });
+        await ctx?.repo.event(ctx.runId, 'model.request', { model });
         const init: RequestInit = { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, 'x-title': 'procurement-radar' }, body: JSON.stringify(body) };
         init.signal = input.signal;
         const r = await fetch(url, init);
@@ -69,8 +64,7 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
       } catch (e) {
         input.signal?.throwIfAborted();
         if (e instanceof ReqError && e.status === 401) throw e;
-        if (withTools && !text && toolUnsupported(e)) { textMode.add(model); continue; }
-        if (shouldFallback(e) && mi < models.length - 1) { const ctx = executions.getStore(); ctx?.repo.event(ctx.runId, 'model.fallback', { from: model, to: models[mi + 1], status: e instanceof ReqError ? e.status : 'network' }); mi++; continue; }
+        if (withTools && !text && toolUnsupported(e)) { textMode = true; continue; }
         throw e;
       }
     }

@@ -5,7 +5,7 @@
 import { systemPrompt, recentMessages, newOut, parseActionBlock, applyPageCalls, ACTION_BLOCK_GUIDE, type ChatIn, type ChatOut } from './agent';
 import type { Env } from './gemma';
 import { executions } from './execution';
-import { PROJECT_ROOT, DB_PATH, STORAGE_ROOT } from './store';
+import { PROJECT_ROOT, DB_PATH, STORAGE_ROOT, DATABASE_KIND } from './store';
 
 export const GROK_MODEL = 'grok-4.7';
 export const GROK_EFFORT = 'xhigh';
@@ -51,11 +51,12 @@ export function buildPrompt(input: ChatIn, cli?: 'codex' | 'grok'): string {
   const last = hist.pop();
   return [
     systemPrompt(input.state),
-    '최신 자료는 기본 웹 검색·페이지 읽기·연결된 MCP로 직접 조사한다. 그록은 XSearch도 사용한다. 도구가 없거나 접근 실패하면 그 사실을 밝히고 내용을 지어내지 않는다. procurement MCP의 research_procurement 양식으로 조사하고 save_source·submit_research로 반영한다. 작업 폴더의 첨부·메모를 읽고 작성해도 된다.',
+    '최신 자료는 기본 웹 검색과 페이지 읽기 및 연결된 MCP로 조사한다. 그록은 XSearch도 사용한다. 접근 실패를 밝히고 내용을 지어내지 않는다. procurement MCP의 research_procurement로 조사 기준을 확인하고 search_sources/collect_source/save_source/read_source로 원문을 보존한다. normalize_procurement_data/validate_research/apply_research로 정제와 최종 반영을 한다. 기존 submit_research도 호환용으로 유지한다.',
     ACTION_BLOCK_GUIDE,
     '자유 양식 보고서·기업 관점의 사업기회 분석·여러 사업 비교 등은 write_report의 고정 6절로 대체하지 않는다. 사용자의 목적·독자·질문에 맞춰 논지와 목차를 설계하고 근거·비교·판단·권고·불확실성을 충분히 작성한다. 이 CLI에 원래 설치된 Word 문서 작성 도구·스킬을 먼저 찾아 사용하여 편집 가능한 .docx를 직접 작성한다. Markdown을 복사해 확장자나 포맷만 바꾸는 것으로 끝내지 않는다. 사용자가 다른 파일 형식을 명시하면 그 지시를 우선한다.',
     ...(cli ? [cli === 'codex' ? 'Word 작성에는 활성화된 Documents 플러그인의 documents 스킬을 호출하고 해당 스킬의 작성·레이아웃·렌더링 검증 절차를 따른다. 기본 플러그인·MCP·도구를 그대로 사용한다.' : 'Word 작성에는 Grok Build 기본 docx 스킬을 읽고 해당 스킬의 문서 작성·서식·검증 절차와 기본 파일·셸 도구를 사용한다.'] : []),
-    '완성된 Word 파일은 이 대화 작업 폴더의 reports/ 안에 의미 있는 파일명으로 저장한다. procurement MCP의 publish_artifact(path)로 등록한 뒤 실제 반환된 다운로드 URL을 답변에 넣는다. 생성·검증·등록에 실패하면 그 단계를 정확히 밝히고 성공한 것처럼 링크를 만들지 않는다. 문서 작성 도구가 없으면 사용할 수 없다고 설명하며 변환기로 몰래 대체하지 않는다.',
+    '워드와 파워포인트 작성 전 get_report_template으로 기본 양식을 확인하고 prepare_report로 대상과 데이터 및 양식 버전을 고정한다. 파워포인트는 기존 프레젠테이션 작성 도구로 편집 가능한 .pptx를 만들고 모든 슬라이드를 렌더링하여 검수한다. 이 보고서라고 요청하면 열린 문서의 보존 자료를 사용하고 최신 데이터 갱신과 구분한다.',
+    '완성 파일은 이 대화 작업 폴더의 reports/ 안에 저장한다. procurement MCP의 publish_artifact(path, preparationId, review)로 등록한다. review는 실제 수행한 검수 결과 JSON {"content":true,"layout":true,"notes":"검수 내용"}다. 실제 반환된 다운로드 URL만 답변에 넣는다. 생성과 검수 및 등록 실패를 정확히 밝힌다. 문서 작성 도구가 없으면 사용할 수 없다고 설명한다.',
     ...(hist.length ? ['', '이전 대화:', ...hist.map(m => `${m.role === 'user' ? '사용자' : '도우미'}: ${m.text}`)] : []),
     '', `사용자: ${last?.text ?? ''}`,
   ].join('\n');
@@ -80,7 +81,7 @@ export function codexArgs(o: { cwd: string; node: string; tsx: string; mcp: stri
 
 function mcpEnv(): Record<string, string> {
   const ctx = executions.getStore();
-  return { PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_DB_PATH: DB_PATH, RADAR_STORAGE_DIR: STORAGE_ROOT, ...(ctx ? { RADAR_CONVERSATION_ID: ctx.conversationId, RADAR_RUN_ID: ctx.runId } : {}) };
+  return { PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_STORAGE_DIR: STORAGE_ROOT, ...(DATABASE_KIND === 'sqlite' ? { NODE_ENV: 'test', RADAR_DATABASE: 'sqlite', RADAR_DB_PATH: DB_PATH } : {}), ...(process.env.RADAR_PG_SCHEMA ? { RADAR_PG_SCHEMA: process.env.RADAR_PG_SCHEMA } : {}), ...(ctx ? { RADAR_CONVERSATION_ID: ctx.conversationId, RADAR_RUN_ID: ctx.runId } : {}) };
 }
 function tomlEnv() { return `{ ${Object.entries(mcpEnv()).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join(', ')} }`; }
 
@@ -221,7 +222,7 @@ function documentEnv(m: Mods, env: Env): Record<string, string> {
   return dirs.length ? { PATH: [...dirs, process.env.PATH || process.env.Path || ''].join(m.path.delimiter) } : {};
 }
 
-function run(m: Mods, cmd: string, args: string[], o: { cwd: string; input?: string; timeoutMs: number; env?: Record<string, string>; signal?: AbortSignal; onData?: (line: string) => void }): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+function run(m: Mods, cmd: string, args: string[], o: { cwd: string; input?: string; timeoutMs: number; env?: Record<string, string>; signal?: AbortSignal; onData?: (line: string) => void | Promise<void> }): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise(resolve => {
     let stdout = '', stderr = '', timedOut = false, done = false;
     const p = m.cp.spawn(cmd, args, { cwd: o.cwd, env: childEnv(o.env), windowsHide: true, shell: false });
@@ -234,9 +235,10 @@ function run(m: Mods, cmd: string, args: string[], o: { cwd: string; input?: str
     o.signal?.addEventListener('abort', kill, { once: true });
     if (o.signal?.aborted) kill();
     p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
-    let pending = '';
-    p.stdout.on('data', d => { stdout += d; pending += d; const lines = pending.split(/\r?\n/); pending = lines.pop() || ''; for (const line of lines) o.onData?.(line); }); p.stderr.on('data', d => { stderr += d; });
-    const fin = (code: number | null) => { if (done) return; done = true; clearTimeout(t); o.signal?.removeEventListener('abort', kill); if (pending) o.onData?.(pending); resolve({ code, stdout, stderr, timedOut }); };
+    let pending = '', events = Promise.resolve();
+    const forward = (line: string) => { events = events.then(() => o.onData?.(line)); };
+    p.stdout.on('data', d => { stdout += d; pending += d; const lines = pending.split(/\r?\n/); pending = lines.pop() || ''; for (const line of lines) forward(line); }); p.stderr.on('data', d => { stderr += d; });
+    const fin = async (code: number | null) => { if (done) return; done = true; clearTimeout(t); o.signal?.removeEventListener('abort', kill); if (pending) forward(pending); await events; resolve({ code, stdout, stderr, timedOut }); };
     p.on('error', e => { stderr += String(e); fin(-1); });
     p.on('close', fin);
     p.stdin.on('error', () => {});
@@ -263,9 +265,9 @@ export async function cleanupLeftovers(env: Env = {}): Promise<number> {
   } catch { return 0; }
 }
 
-function finish(out: ChatOut, parsed: CliParsed): ChatOut {
+async function finish(out: ChatOut, parsed: CliParsed): Promise<ChatOut> {
   const b = parseActionBlock(parsed.text);
-  applyPageCalls(b.calls, out);
+  await applyPageCalls(b.calls, out);
   out.tools.unshift(...parsed.tools);
   if (parsed.usage) out.usage = parsed.usage;
   out.reply = b.text || (out.reports.length ? '보고서를 표시했습니다.' : '…');
@@ -289,18 +291,18 @@ export async function chatGrok(input: ChatIn, env: Env): Promise<ChatOut> {
     writeRegistry(p.registry, [...readRegistry(p.registry, m.fs), sid], m.fs);
     m.fs.writeFileSync(promptFile, buildPrompt(input, 'grok'), 'utf8');
     const r = await run(m, p.grokBin, grokArgs({ promptFile, sid, cwd, model: env.GROK_MODEL, effort: env.GROK_EFFORT }), { cwd, timeoutMs: CLI_TIMEOUT_MS, env: { ...GROK_ENV, ...mcpEnv(), ...documentEnv(m, env) }, signal: input.signal, onData: cliEvent });
-    input.signal?.throwIfAborted();
     if (ctx) {
-      ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-grok.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
-      if (r.stderr) ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-stderr.txt`, r.stderr, { runId: ctx.runId, kind: 'tool-log' });
+      await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-grok.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
+      if (r.stderr) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-stderr.txt`, r.stderr, { runId: ctx.runId, kind: 'tool-log' });
     }
+    input.signal?.throwIfAborted();
     const parsed = parseGrokStream(r.stdout, r.stderr);
     if (parsed.auth && !parsed.text) return { ...out, error: '그록 로그인 필요' };
     if (r.timedOut) return { ...out, error: '그록 시간 초과' };
-    if (parsed.error) return { ...finish(out, parsed), error: parsed.error };
-    if (r.code !== 0) return { ...finish(out, parsed), error: '그록 실행 실패', detail: `exit ${r.code}` };
+    if (parsed.error) return { ...(await finish(out, parsed)), error: parsed.error };
+    if (r.code !== 0) return { ...(await finish(out, parsed)), error: '그록 실행 실패', detail: `exit ${r.code}` };
     if (!parsed.text) return { ...out, error: '그록 오류', detail: (parsed.error ?? `exit ${r.code}`).slice(0, 300) };
-    return finish(out, parsed);
+    return await finish(out, parsed);
   } finally {
     try { m.fs.rmSync(promptFile, { force: true }); } catch { /* 무시 */ }
     await deleteGrokSession(m, p, sid);
@@ -321,23 +323,23 @@ export async function chatCodex(input: ChatIn, env: Env): Promise<ChatOut> {
     const ctx = executions.getStore(), cwd = ctx ? ctx.repo.workspace(ctx.conversationId) : p.codexDir;
     const args = codexArgs({ cwd, node: process.execPath, tsx: m.path.join(p.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), mcp: m.path.join(p.root, 'mcp', 'server.ts'), model: env.CODEX_MODEL, effort: env.CODEX_EFFORT });
     const r = await run(m, c.cmd, [...c.pre, ...args], { cwd, input: buildPrompt(input, 'codex'), timeoutMs: CLI_TIMEOUT_MS, signal: input.signal, env: { ...mcpEnv(), ...documentEnv(m, env) }, onData: cliEvent });
+    if (ctx) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-codex.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
     input.signal?.throwIfAborted();
-    if (ctx) ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-codex.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
     const parsed = parseCodexJsonl(r.stdout, r.stderr);
     if (parsed.auth && !parsed.text) return { ...out, error: '코덱스 로그인 필요' };
     if (r.timedOut) return { ...out, error: '코덱스 시간 초과' };
-    if (parsed.error || r.code !== 0) return { ...finish(out, parsed), error: '코덱스 실행 실패', detail: parsed.error || `exit ${r.code}` };
+    if (parsed.error || r.code !== 0) return { ...(await finish(out, parsed)), error: '코덱스 실행 실패', detail: parsed.error || `exit ${r.code}` };
     if (!parsed.text) return { ...out, error: '코덱스 오류', detail: (parsed.error ?? `exit ${r.code}`).slice(0, 300) };
-    return finish(out, parsed);
+    return await finish(out, parsed);
   } finally { S.busy.codex = false; }
 }
 
-function cliEvent(line: string) {
+async function cliEvent(line: string) {
   const ctx = executions.getStore();
   if (!ctx || ctx.signal.aborted) return;
   try {
     const e = JSON.parse(line);
     // 사고 과정은 UI에 보내지 않는다. 원본 실행 내역은 워크스페이스에 보존한다.
-    if (e.type === 'tool_call' || e.type === 'tool_call_update' || ['mcp_tool_call', 'web_search', 'command_execution', 'file_change'].includes(e.item?.type) || e.type === 'error' || e.type === 'turn.failed') ctx.repo.event(ctx.runId, 'cli.tool', e);
+    if (e.type === 'tool_call' || e.type === 'tool_call_update' || ['mcp_tool_call', 'web_search', 'command_execution', 'file_change'].includes(e.item?.type) || e.type === 'error' || e.type === 'turn.failed') await ctx.repo.event(ctx.runId, 'cli.tool', e);
   } catch { /* 비 JSON CLI 진단 메시지 */ }
 }

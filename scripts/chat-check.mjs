@@ -12,6 +12,8 @@ const base = process.env.BASE_URL || 'http://localhost:62356';
 mkdirSync('shots', { recursive: true });
 try {
   await page.goto(base); await page.waitForSelector('body.ready');
+  assert.equal(await page.locator('#q').getAttribute('placeholder'), '메시지');
+  assert.equal(await page.locator('#q').getAttribute('title'), null);
   await page.fill('#q', '!보고서 폴란드 자주포'); await page.press('#q', 'Enter');
   await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
   const first = await page.evaluate(() => localStorage.getItem('pr.conversation')); ids.push(first);
@@ -52,7 +54,7 @@ try {
   const second = await page.evaluate(() => localStorage.getItem('pr.conversation')); ids.push(second);
   assert.notEqual(first, second);
   await page.click('#historyToggle');
-  await page.getByRole('button', { name: '!보고서 폴란드 자주포', exact: true }).click();
+  await page.locator(`button[data-conversation-id="${first}"]`).click();
   await page.waitForSelector('.m.report');
   assert.equal(await page.evaluate(() => localStorage.getItem('pr.conversation')), first);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -65,15 +67,32 @@ try {
   assert.equal((await page.request.get(`${base}/api/conversations/${second}`)).status(), 404);
   assert.equal((await page.request.get(`${base}/api/conversations/${first}`)).status(), 200);
   await page.click('#q');
-  // 진행 상태만 가상으로 유지해 중지·자료 메뉴가 실제 실행 중에도 배치되는지 확인한다.
+  // 진행 이벤트만 모의 응답으로 바꾸며 모델 서비스는 호출하지 않는다.
   let holdRunning = true;
+  let progressEvent = { id: 1, name: 'model.request', data: { model: 'nvidia/nemotron-3-super-120b-a12b:free' } };
   await page.route('**/api/runs/*', async route => {
     const response = await route.fetch(), data = await response.json();
-    if (holdRunning) { data.status = 'running'; data.events = [{ id: 1, name: 'tool.start', data: { name: 'web_search' } }]; }
+    if (holdRunning) { data.status = 'running'; data.model = 'nemotron'; data.events = [progressEvent]; }
     await route.fulfill({ response, json: data });
   });
   await page.fill('#q', '!help'); await page.press('#q', 'Enter');
-  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent.includes('web_search'));
+  await page.waitForFunction(() => document.querySelector('.status-message')?.textContent === '답변 준비 중');
+  assert.equal(await page.locator('.status-model, .status-signal, .status-detail').count(), 0);
+  assert.ok(!(await page.locator('#chatStatus').textContent()).includes('nvidia/'));
+  assert.equal(await page.locator('#chatStatus').getAttribute('title'), null);
+  assert.equal(await page.locator('.status-clock').getAttribute('aria-hidden'), 'true');
+  await page.waitForFunction(() => document.querySelector('.status-clock').textContent !== '0초 경과');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: 'shots/12-response-status-desktop.png' });
+  const statusBounds = await page.locator('#chatStatus').boundingBox();
+  assert.ok(statusBounds.height < 40);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'shots/13-response-status-mobile.png' });
+  assert.ok((await page.locator('#chatStatus').boundingBox()).height < 40);
+  progressEvent = { id: 2, name: 'tool.start', data: { name: 'web_search' } };
+  await page.waitForFunction(() => document.querySelector('.status-message')?.textContent === '자료 검색 중');
+  assert.equal(await page.locator('.status-clock').count(), 1);
+  assert.equal(await page.locator('#chatStatus').getAttribute('title'), null);
   assert.equal(await page.locator('#stopButton').isVisible(), true);
   await page.click('#attachButton');
   assert.equal(await page.locator('#workspace').isVisible(), true);
@@ -83,9 +102,11 @@ try {
   await page.screenshot({ path: 'shots/11-busy-resources-mobile.png' });
   holdRunning = false;
   await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
+  assert.equal(await page.locator('#chatStatus.is-active').count(), 0);
+  assert.equal(await page.locator('.status-signal, .status-clock').count(), 0);
   await page.unroute('**/api/runs/*');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', errors }));
+  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', activityStages: 'pass', compactStatus: 'pass', minimalInput: 'pass', elapsedTime: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', errors }));
 } finally {
   for (const id of ids) await page.request.delete(`${base}/api/conversations/${id}`);
   await browser.close();

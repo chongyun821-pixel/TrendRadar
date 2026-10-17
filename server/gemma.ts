@@ -7,7 +7,7 @@ export type { ChatIn, ChatOut } from './agent';
 
 export interface Env {
   GOOGLE_API_KEY?: string; GEMMA_MODEL?: string; GOOGLE_BASE_URL?: string;
-  OPENROUTER_API_KEY?: string; OPENROUTER_MODEL?: string; OPENROUTER_FALLBACK_MODEL?: string; OPENROUTER_BASE_URL?: string;
+  OPENROUTER_API_KEY?: string; OPENROUTER_BASE_URL?: string;
   GROK_BIN?: string; GROK_MODEL?: string; GROK_EFFORT?: string; CODEX_BIN?: string; CODEX_MODEL?: string; CODEX_EFFORT?: string; LOCAL_CLI?: string; CLI_RUNTIME_DIR?: string; CLI_DOCUMENT_TOOLS_PATH?: string;
   FIRECRAWL_API_KEY?: string; FIRECRAWL_MCP_URL?: string;
 }
@@ -43,7 +43,7 @@ export async function chat(input: ChatIn, env: Env): Promise<ChatOut> {
   });
   const contents: any[] = recentMessages({ ...input, messages: history }).map(m => ({ role: m.role, parts: [{ text: m.text }] }));
   if (!contents.length || contents[contents.length - 1].role !== 'user') return { ...out, error: '메시지 없음' };
-  if (executions.getStore()) for (const image of imageAttachments()) contents.at(-1).parts.push({ inlineData: { mimeType: image.mime, data: image.base64 } });
+  if (executions.getStore()) for (const image of await imageAttachments()) contents.at(-1).parts.push({ inlineData: { mimeType: image.mime, data: image.base64 } });
   let fold = false;
 
   const body = (withTools: boolean) => {
@@ -57,7 +57,7 @@ export async function chat(input: ChatIn, env: Env): Promise<ChatOut> {
   for (;;) {
     input.signal?.throwIfAborted();
     const ctx = executions.getStore();
-    ctx?.repo.event(ctx.runId, 'model.request', { model });
+    await ctx?.repo.event(ctx.runId, 'model.request', { model });
     let r = await post(url, key, body(true), input.signal);
     if (r.status === 400 && !fold) { fold = true; r = await post(url, key, body(true), input.signal); }
     if (!r.ok) {

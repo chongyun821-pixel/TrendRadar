@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from '
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
-import { chatOpenRouter, NEMOTRON_ULTRA, NEMOTRON_SUPER } from '../server/openrouter';
+import { chatOpenRouter, NEMOTRON_SUPER } from '../server/openrouter';
 import { FUNCTION_DECLARATIONS } from '../server/gemma';
 import { parseActionBlock, TOOL_DEFS, openaiTools } from '../server/agent';
 import { parseGrokStream, parseCodexJsonl, grokArgs, codexArgs, buildPrompt, removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName, isNodeRuntime, isAuthError, GROK_ENV } from '../server/cli';
@@ -43,7 +43,7 @@ describe('네모트론 (OpenRouter)', () => {
     const r = await chatOpenRouter(user('폴란드 자주포 보고서'), { OPENROUTER_API_KEY: 'k' });
     expect(calls[0].url).toBe('https://openrouter.ai/api/v1/chat/completions');
     expect(calls[0].headers.authorization).toBe('Bearer k');
-    expect(calls[0].body.model).toBe(NEMOTRON_ULTRA);
+    expect(calls[0].body.model).toBe(NEMOTRON_SUPER);
     expect(calls[0].body.tools.map((t: any) => t.function.name)).toContain('write_report');
     const toolMsgs = calls[1].body.messages.filter((m: any) => m.role === 'tool');
     expect(toolMsgs.map((m: any) => m.tool_call_id)).toEqual(['a', 'b', 'c']);
@@ -52,31 +52,29 @@ describe('네모트론 (OpenRouter)', () => {
     expect(r.actions).toContainEqual({ type: 'focus_country', country: 'POL' });
     expect(r.reports[0]).toContain('폴란드');
     expect(r.tools).toEqual(['set_mode', 'get_forecast', 'write_report']);
-    expect(r.model).toBe(NEMOTRON_ULTRA);
+    expect(r.model).toBe(NEMOTRON_SUPER);
     expect(r.reply).toContain('보고서');
   });
-  it('Ultra 429 → Super 로 전환, 응답 모델 표시', async () => {
+  it('기존 모델 설정이 남아 있어도 슈퍼 하나만 요청한다', async () => {
     const models: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => {
       const b = JSON.parse(init.body); models.push(b.model);
-      if (b.model === NEMOTRON_ULTRA) return ok({ error: { message: 'rate limited', code: 429 } }, 429);
       return ok({ choices: [{ message: { role: 'assistant', content: '안녕하세요' } }] });
     }));
-    const r = await chatOpenRouter(user('안녕'), { OPENROUTER_API_KEY: 'k' });
-    expect(models).toEqual([NEMOTRON_ULTRA, NEMOTRON_SUPER]);
+    const oldConfig = { OPENROUTER_API_KEY: 'k', OPENROUTER_MODEL: 'nvidia/nemotron-3-ultra-550b-a55b:free', OPENROUTER_FALLBACK_MODEL: 'unused-model' };
+    const r = await chatOpenRouter(user('안녕'), oldConfig);
+    expect(models).toEqual([NEMOTRON_SUPER]);
     expect(r.model).toBe(NEMOTRON_SUPER); expect(r.reply).toBe('안녕하세요');
   });
-  it('200 이지만 본문 error(5xx) 도 전환, 타임아웃/네트워크 오류도 전환', async () => {
-    let n = 0;
-    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => {
-      const b = JSON.parse(init.body); n++;
-      if (b.model === NEMOTRON_ULTRA) { if (n === 1) throw new Error('timeout'); }
-      return ok({ choices: [{ message: { role: 'assistant', content: 'ok' } }] });
-    }));
+  it('네트워크 오류나 본문 오류는 다른 모델로 재요청하지 않는다', async () => {
+    const failed = vi.fn(async () => { throw new Error('network'); });
+    vi.stubGlobal('fetch', failed);
     const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
-    expect(r.model).toBe(NEMOTRON_SUPER);
-    vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => JSON.parse(init.body).model === NEMOTRON_ULTRA ? ok({ error: { code: 503, message: 'down' } }) : ok({ choices: [{ message: { content: 'ok2' } }] })));
-    expect((await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' })).model).toBe(NEMOTRON_SUPER);
+    expect(r.model).toBe(NEMOTRON_SUPER); expect(r.error).toBe('OpenRouter 연결 실패'); expect(failed).toHaveBeenCalledTimes(1);
+    const bodyError = vi.fn(async () => ok({ error: { code: 503, message: 'down' } }));
+    vi.stubGlobal('fetch', bodyError);
+    expect((await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' })).error).toBe('AI 오류 503');
+    expect(bodyError).toHaveBeenCalledTimes(1);
   });
   it('401 은 전환하지 않고 키 오류', async () => {
     const f = vi.fn(async () => ok({ error: { message: 'bad key', code: 401 } }, 401));
@@ -84,10 +82,11 @@ describe('네모트론 (OpenRouter)', () => {
     const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
     expect(f).toHaveBeenCalledTimes(1); expect(r.error).toBe('OpenRouter 키 오류');
   });
-  it('둘 다 실패하면 오류', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('busy', { status: 503 })));
+  it('슈퍼의 요청 한도를 바로 알리고 울트라로 재시도하지 않는다', async () => {
+    const fetch = vi.fn(async () => new Response('busy', { status: 429 }));
+    vi.stubGlobal('fetch', fetch);
     const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
-    expect(r.error).toBe('AI 오류 503');
+    expect(r.error).toContain('요청 한도'); expect(fetch).toHaveBeenCalledTimes(1);
   });
   it('도구 미지원(404 tool use) → 텍스트 액션 블록 프로토콜', async () => {
     const bodies: any[] = [];
@@ -101,7 +100,8 @@ describe('네모트론 (OpenRouter)', () => {
     expect(bodies[1].tools).toBeUndefined();
     expect(bodies[1].messages[0].content).toContain('"tools"');
     expect(bodies[2].messages.at(-1).content).toContain('get_forecast');
-    expect(r.model).toBe(NEMOTRON_ULTRA);
+    expect(r.model).toBe(NEMOTRON_SUPER);
+    expect(bodies.every(body => body.model === NEMOTRON_SUPER)).toBe(true);
     expect(r.actions).toContainEqual({ type: 'focus_country', country: 'POL' });
     expect(r.actions).toContainEqual({ type: 'set_mode', system: 'sph' });
     expect(r.reply).toBe('폴란드 자주포 교체는 2058~2064년 예측입니다.');
@@ -159,7 +159,7 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(p).toContain('procurement MCP'); expect(p).toContain('"actions"'); expect(p).toContain('도우미: 네'); expect(p.trim().endsWith('사용자: 폴란드 자주포')).toBe(true);
     expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'codex')).toContain('Documents 플러그인의 documents 스킬');
     expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'grok')).toContain('Grok Build 기본 docx 스킬');
-    expect(p).toContain('publish_artifact(path)'); expect(p).toContain('기존 국가별 틀에 억지로 맞추지 않는다');
+    expect(p).toContain('publish_artifact(path, preparationId, review)'); expect(p).toContain('prepare_report'); expect(p).toContain('get_app_context');
   });
   it('그록 streaming-json: 마지막 도구 호출 뒤 텍스트가 답, 도구 이름 추출', () => {
     const out = [

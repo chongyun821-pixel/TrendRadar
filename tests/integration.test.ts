@@ -12,6 +12,7 @@ import { repository, PROJECT_ROOT, now } from '../server/store';
 import { researchTool } from '../server/research';
 import { executions } from '../server/execution';
 import { app } from '../server/app';
+import { saveAppContext } from '../server/app-context';
 
 const parsed = (r: any) => JSON.parse(r.content[0].text);
 describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
@@ -29,8 +30,8 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
     });
     await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
     const address = server.address() as { port: number };
-    const repo = repository(), c = repo.createConversation(), runId = randomUUID();
-    repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test', 'running', now());
+    const repo = repository(), c = await repo.createConversation(), runId = randomUUID();
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test', 'running', now());
     try {
       await executions.run({ repo, conversationId: c.id, runId, signal: new AbortController().signal, env: { FIRECRAWL_API_KEY: 'test-firecrawl-key', FIRECRAWL_MCP_URL: `http://127.0.0.1:${address.port}/mcp` } }, async () => {
         const search: any = await researchTool('firecrawl_search', { query: '가상 검색' });
@@ -40,23 +41,33 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
         expect(readFileSync(repo.path(c.id, original.filePath, true), 'utf8')).toBe('가상 원문\n수량 12\n끝');
         fail = true;
         expect(await researchTool('firecrawl_scrape', { url: 'https://example.org/failure' })).toHaveProperty('error');
-        expect(repo.one("SELECT count(*) AS n FROM artifacts WHERE conversation_id=? AND status='failed'", c.id).n).toBe(1);
+        expect((await repo.one("SELECT count(*) AS n FROM artifacts WHERE conversation_id=? AND status='failed'", c.id)).n).toBe(1);
       });
-    } finally { repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); }
+    } finally { await repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); }
   });
   it('별도 MCP 프로세스에서 반영한 데이터·예측·6절 보고서를 웹 API에서 조회', async () => {
-    const repo = repository(), c = repo.createConversation(), runId = randomUUID();
-    repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test-mcp', 'running', now());
+    const repo = repository(), c = await repo.createConversation(), runId = randomUUID();
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test-mcp', 'running', now());
+    const state = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'codex', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
+    await saveAppContext(repo, state); await repo.event(runId, 'app.context', state);
+    await saveAppContext(repo, { ...state, version: 2, focus: 'FIN' });
     const client = new Client({ name: 'integration', version: '1' });
     try {
-      await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(PROJECT_ROOT, 'node_modules/tsx/dist/cli.mjs'), join(PROJECT_ROOT, 'mcp/server.ts')], cwd: PROJECT_ROOT, env: { PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_DB_PATH: repo.file, RADAR_STORAGE_DIR: repo.storage, RADAR_CONVERSATION_ID: c.id, RADAR_RUN_ID: runId } }));
+      await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(PROJECT_ROOT, 'node_modules/tsx/dist/cli.mjs'), join(PROJECT_ROOT, 'mcp/server.ts')], cwd: PROJECT_ROOT, env: { NODE_ENV: 'test', PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_DATABASE: 'sqlite', RADAR_DB_PATH: repo.file, RADAR_STORAGE_DIR: repo.storage, RADAR_CONVERSATION_ID: c.id, RADAR_RUN_ID: runId } }));
+      const context = parsed(await client.callTool({ name: 'get_app_context', arguments: {} }));
+      expect(context.request.focus).toBe('POL'); expect(context.current.state.focus).toBe('FIN');
+      expect(parsed(await client.callTool({ name: 'get_report_template', arguments: { format: 'pptx' } })).templates[0].id).toBe('ppt-country-v1');
       const prepared = parsed(await client.callTool({ name: 'research_procurement', arguments: { country: 'POL', system: 'sph' } }));
       const quote = '검증용 가상 계약 계획: 2031~2033년 10~12문';
       const source = parsed(await client.callTool({ name: 'save_source', arguments: { url: 'https://example.org/mcp-test', content: quote, kind: 'original' } }));
       const record = prepared.record;
       record.plan = { start: 2031, end: 2033, qty: [10,12], text: quote, src: ['integration-source'] }; record.src.push('integration-source');
       const p = { record, expectedVersion: prepared.expectedVersion, reason: '통합 검증', asOf: '2026-10-16', sources: { 'integration-source': { ...source, t: '가상 자료', u: 'https://example.org/mcp-test', y: 0 } }, evidence: [{ path: 'plan', sourceId: 'integration-source', quote }] };
-      expect(parsed(await client.callTool({ name: 'submit_research', arguments: { payload: JSON.stringify(p) } })).ok).toBe(true);
+      const normalized = parsed(await client.callTool({ name: 'normalize_procurement_data', arguments: { payload: JSON.stringify(p) } }));
+      expect(normalized.ok).toBe(true);
+      expect(parsed(await client.callTool({ name: 'validate_research', arguments: { payload: JSON.stringify(normalized.payload) } })).valid).toBe(true);
+      expect(parsed(await client.callTool({ name: 'apply_research', arguments: { payload: JSON.stringify(normalized.payload) } })).ok).toBe(true);
+      expect(parsed(await client.callTool({ name: 'query_procurement', arguments: { country: 'POL', system: 'sph' } })).records[0].plan.qty).toEqual([10,12]);
       const data = await (await app.request('/api/data')).json();
       expect(data.records.find((r: any) => r.id === record.id).plan.qty).toEqual([10,12]);
       const report = await (await app.request('/api/report?country=POL&system=sph')).text();
@@ -65,6 +76,6 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
       expect(repeated.unchanged).toBe(true);
       const raw = parsed(await client.callTool({ name: 'source_read', arguments: { sourceId: 'integration-source' } }));
       expect(raw.text).toBe(quote);
-    } finally { await client.close(); repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); }
+    } finally { await client.close(); await repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); }
   });
 });

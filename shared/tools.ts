@@ -1,6 +1,6 @@
-import { seed, resolveCountry, resolveSystem, recordsBy, findRecord } from './data';
+import { seed, resolveCountry, resolveSystem, recordsBy } from './data';
 import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange } from './forecast';
-import type { Forecast, SystemKey, Batch } from './types';
+import type { Forecast, SystemKey, Batch, Seed } from './types';
 
 const est = (b: { est?: string[] }, f: string) => (b.est?.includes(f) ? ' (추정)' : '');
 const srcList = (ids: string[]) => ids.map(id => seed.sources[id]).filter(Boolean).map(s => ({ title: s.t, url: s.u }));
@@ -77,18 +77,19 @@ export function listForecasts(a?: { system?: string; limit?: number }) {
 
 const STATUS_KO: Record<Forecast['status'], string> = { open: '교체 수요(미계약)', plan: '공개 사업 계획', next: '현 사업 계약 완료 → 후속 주기', none: '데이터 부족' };
 
-export function writeReport(a?: { country?: string; system?: string }): { markdown: string; country?: string; system?: SystemKey } | { error: string } {
+export function writeReport(a?: { country?: string; system?: string }, data: Seed = seed): { markdown: string; country?: string; system?: SystemKey } | { error: string } {
   const baseYear = new Date().getFullYear();
   const { country, system } = args(a);
   if (!country) return { error: '국가를 찾지 못함' };
-  const sysList: SystemKey[] = system ? [system] : recordsBy(country).map(r => r.system);
-  if (!sysList.length) return { error: `${cName(country)} 데이터 없음` };
+  const countryName = data.countries[country]?.ko ?? country;
+  const sysList: SystemKey[] = system ? [system] : data.records.filter(r => r.country === country).map(r => r.system);
+  if (!sysList.length) return { error: `${countryName} 데이터 없음` };
   const parts: string[] = [];
   for (const s of sysList) {
-    const r = findRecord(country, s);
-    if (!r) { parts.push(`## ${cName(country)} · ${sName(s)}\n데이터 없음`); continue; }
-    const f = computeForecast(r);
-    const sys = seed.systems[s];
+    const r = data.records.find(r => r.country === country && r.system === s);
+    if (!r) { parts.push(`## ${countryName} · ${data.systems[s].ko}\n데이터 없음`); continue; }
+    const f = computeForecast(r, data);
+    const sys = data.systems[s];
     const L: string[] = [];
     L.push(`## ${f.flag} ${f.countryKo} · ${f.systemKo} 보고서`);
     L.push(`### 1. 요약`);
@@ -96,7 +97,7 @@ export function writeReport(a?: { country?: string; system?: string }): { markdo
     if (f.window) L.push(`- 예상 시기(예측): **${f.window[0]}~${f.window[1]}년** · 임박도 ${CATEGORY_KO[f.category]} (점수 ${f.score})`);
     if (f.status !== 'none') L.push(`- 예상 규모(예측): **${f.qty[0]}~${f.qty[1]}${f.unit}**, **${fmtKrwRange(f.krw)}**${f.krwEst ? ' (추정 포함)' : ''}`);
     L.push(`- 신뢰도: ${f.confidence} (근거 ${f.nSources}건, 추정 항목 ${f.estCount}개)`);
-    L.push(`- 자료 기준: ${seed.meta.collected || '미확인'}`);
+    L.push(`- 자료 기준: ${data.meta.collected || '미확인'}`);
     L.push(`### 2. 현재 보유와 도입 이력`);
     if (r.batches.length) for (const b of r.batches) L.push(`- ${b.model}: ${b.qty}${sys.unit}${est(b, 'qty')}, 도입 ${b.introYear}${est(b, 'introYear')}${b.covered ? ' — 교체 계약분' : ''}${b.note ? ` — ${b.note}` : ''}`);
     else L.push(`- 교체 대상 구형 장비 없음`);
@@ -123,7 +124,7 @@ export function writeReport(a?: { country?: string; system?: string }): { markdo
     L.push(f.status === 'next' ? `- 현 사업은 계약 완료. 후속·추가 물량, MRO·현지화 협력이 기회` : f.status === 'none' ? `- 데이터 보강 필요` : `- 교체 창 전 1~3년이 제안 시점`);
     L.push(`### 6. 출처`);
     for (const so of f.sources) L.push(`- [${so.t}](${so.u})`);
-    for (const id of sys.costSrc) { const so = seed.sources[id]; if (so && !f.sources.includes(so)) L.push(`- [${so.t}](${so.u}) (단가)`); }
+    for (const id of sys.costSrc) { const so = data.sources[id]; if (so && !f.sources.includes(so)) L.push(`- [${so.t}](${so.u}) (단가)`); }
     L.push(`\n_예측은 공개 자료 기반 범위 추정이며 확정 정보가 아님. "추정" 표기 값은 출처 없음._`);
     parts.push(L.join('\n'));
   }

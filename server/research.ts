@@ -15,9 +15,9 @@ import { publishArtifact } from './artifacts';
 const str = (description: string) => ({ type: 'string' as const, description });
 export const RESEARCH_DEFS: ToolDef[] = [
   { name: 'research_procurement', description: '조사 준비: 최신 SQL record/version·양식·누락·작업 폴더·기존 자료 반환', properties: { country: str('국가명/ISO3'), system: str('무기체계') }, required: ['country', 'system'] },
-  { name: 'save_source', description: '기본 웹 도구로 읽은 원문·검색 요약 또는 수집 실패를 파일과 SQLite에 보존', properties: { url: str('원문 URL'), content: str('도구로 실제 읽은 전체 내용'), title: str('제목'), publishedAt: str('발행일 ISO 또는 빈 문자열'), kind: str('original 또는 search'), status: str('ok 또는 failed'), error: str('실패 이유') }, required: ['url', 'content', 'kind'] },
+  { name: 'save_source', description: '기본 웹 도구로 읽은 원문·검색 요약 또는 수집 실패를 운영 SQL·파일 저장소에 보존', properties: { url: str('원문 URL'), content: str('도구로 실제 읽은 전체 내용'), title: str('제목'), publishedAt: str('발행일 ISO 또는 빈 문자열'), kind: str('original 또는 search'), status: str('ok 또는 failed'), error: str('실패 이유') }, required: ['url', 'content', 'kind'] },
   { name: 'workspace_list', description: '현재 대화의 파일 전체 목록', properties: {} },
-  { name: 'publish_artifact', description: '기존 문서 작성 도구·스킬로 완성한 Word 파일을 다운로드로 등록. 내용 생성·변환 도구가 아님', properties: { path: str('대화 작업 폴더 안의 완성된 .docx 경로. 문서 스킬로 내용·레이아웃을 검증한 뒤 호출') }, required: ['path'] },
+  { name: 'publish_artifact', description: '기존 문서 도구로 작성하고 검수한 워드 또는 파워포인트 완성 파일의 사본과 다운로드를 보존한다', properties: { path: str('대화 작업 폴더 안의 완성된 .docx 또는 .pptx 경로'), preparationId: str('prepare_report가 반환한 작성 자료 ID'), review: str('실제 검수 결과 JSON: content, layout(boolean), notes?') }, required: ['path'] },
   { name: 'source_read', description: 'SQL 출처 ID로 보존 원문 재조회. 대화 삭제 후에도 조회 가능. 큰 파일은 offset/length로 이어 읽기', properties: { sourceId: str('출처 ID'), offset: { type: 'integer' }, length: { type: 'integer' } }, required: ['sourceId'] },
   { name: 'workspace_read', description: '대화 작업 파일 읽기. 큰 파일은 offset/length로 이어 읽기', properties: { path: str('상대경로'), offset: { type: 'integer' }, length: { type: 'integer' } }, required: ['path'] },
   { name: 'workspace_write', description: '조사 메모·분석 파일 작성·수정. 원문과 첨부는 수정 불가', properties: { path: str('notes/ 또는 analysis/ 상대경로'), content: str('파일 전체 내용') }, required: ['path', 'content'] },
@@ -48,14 +48,14 @@ const publishedDate = z.union([z.string().date(), z.string().datetime({ offset: 
 const sourceSchema = z.object({ t: z.string().min(1), u: z.string().url(), y: z.number().int().min(0).max(2300), publishedAt: publishedDate.nullable().optional(), collectedAt: z.string().datetime({ offset: true }), filePath: z.string(), hash: z.string().regex(/^[0-9a-f]{64}$/), kind: z.enum(['original','attachment']), excerpt: z.string().optional() });
 const evidenceSchema = z.array(z.object({ path: z.string(), sourceId: z.string(), quote: z.string().min(1) })).min(1);
 const countrySchema = z.object({ ko: z.string().min(1), flag: z.string(), lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
-export const submissionSchema = z.object({ record: recordSchema, expectedVersion: z.number().int().nonnegative(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1), asOf: z.string().date(), countryMeta: countrySchema.optional() }).strict();
+export const submissionSchema = z.object({ record: recordSchema, expectedVersion: z.number().int().nonnegative(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1), asOf: z.string().date(), countryMeta: countrySchema.optional(), rulesVersion: z.literal('normalization-v1').optional() }).strict();
 
-function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchema>>, evidence: z.infer<typeof evidenceSchema>) {
-  const ctx = execution();
+async function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchema>>, evidence: z.infer<typeof evidenceSchema>) {
+  const ctx = await execution();
   const texts: Record<string, string> = {};
   for (const [id, s] of Object.entries(sources)) {
-    const file = ctx.repo.path(ctx.conversationId, s.filePath, true);
-    const artifact = ctx.repo.one('SELECT * FROM artifacts WHERE path=? AND conversation_id=?', file, ctx.conversationId);
+    const file = await ctx.repo.ensureFile(ctx.repo.path(ctx.conversationId, s.filePath));
+    const artifact = await ctx.repo.one('SELECT * FROM artifacts WHERE path=? AND conversation_id=?', ctx.repo.storedPath(file), ctx.conversationId);
     if (!artifact || !['original','attachment','extracted'].includes(artifact.kind) || artifact.status !== 'ok' || (artifact.url && artifact.url !== s.u)) throw new Error(`${id}: 저장된 원문 근거가 아님`);
     const bytes = readFileSync(file);
     if (hash(bytes) !== s.hash || artifact.hash !== s.hash) throw new Error(`${id}: 원문 해시 불일치`);
@@ -66,10 +66,10 @@ function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchema>>, e
   }
   for (const e of evidence) {
     if (!texts[e.sourceId]) {
-      const source = ctx.repo.data().sources[e.sourceId];
-      const artifact = source?.hash && ctx.repo.one("SELECT * FROM artifacts WHERE hash=? AND name=? AND status='ok' AND kind IN ('original','attachment','extracted')", source.hash, source.filePath || '');
+      const source = (await ctx.repo.data()).sources[e.sourceId];
+      const artifact = source?.hash && await ctx.repo.one("SELECT * FROM artifacts WHERE hash=? AND name=? AND status='ok' AND kind IN ('original','attachment','extracted')", source.hash, source.filePath || '');
       if (artifact) {
-        const bytes = readFileSync(artifact.path);
+        const bytes = readFileSync(await ctx.repo.ensureFile(artifact.path));
         if (hash(bytes) !== source.hash) throw new Error('보존 원문 해시 불일치');
         texts[e.sourceId] = bytes.toString('utf8');
       }
@@ -80,56 +80,63 @@ function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchema>>, e
 function sourceIds(rec: ProgramRecord): string[] {
   return [...rec.src, ...rec.batches.flatMap(b => b.src), ...(rec.awarded?.src || []), ...(rec.plan?.src || []), ...(rec.mro || []).flatMap(x => x.src), ...(rec.signals || []).flatMap(x => x.src), ...(rec.projects || []).flatMap(x => x.src)];
 }
-export function submitResearch(raw: unknown) {
-  const ctx = execution(), repo = ctx.repo;
+export async function submitResearch(raw: unknown, options: { dryRun?: boolean; idempotent?: boolean } = {}) {
+  const ctx = await execution(), repo = ctx.repo;
   const p = submissionSchema.parse(raw), rec = p.record;
-  sourcesChecked(p.sources, p.evidence);
+  await sourcesChecked(p.sources, p.evidence);
   const projects = rec.projects || [];
   if (new Set(projects.map(x => x.id)).size !== projects.length) throw new Error('중복 사업 ID');
   if (projects.some(x => x.buyer !== rec.country)) throw new Error('사업 구매국은 record.country ISO3와 같아야 합니다');
-  return repo.transaction(() => {
+  return await repo.transaction(async () => {
+    await execution();
     ctx.signal.throwIfAborted();
-    const old = repo.one('SELECT * FROM records WHERE country=? AND system=?', rec.country, rec.system);
-    const collision = repo.one('SELECT country,system FROM records WHERE id=?', rec.id);
+    await sourcesChecked(p.sources, p.evidence);
+    const old = await repo.one('SELECT * FROM records WHERE country=? AND system=?', rec.country, rec.system);
+    const collision = await repo.one('SELECT country,system FROM records WHERE id=?', rec.id);
     if (collision && (collision.country !== rec.country || collision.system !== rec.system)) throw new Error('다른 국가·체계에서 쓰는 record ID');
-    if ((old?.version || 0) !== p.expectedVersion) throw new Error('데이터 버전 충돌: 재조회 후 제출');
+    if ((old?.version || 0) !== p.expectedVersion) {
+      const previous = options.idempotent && await repo.one('SELECT data FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', rec.id);
+      if (old?.version === p.expectedVersion + 1 && old.data === JSON.stringify(rec) && previous?.data === JSON.stringify(p)) return { ok: true, unchanged: true, version: old.version };
+      throw new Error('데이터 버전 충돌: 재조회 후 제출');
+    }
     if (old && old.id !== rec.id) throw new Error('기존 record ID 유지 필요');
     const before = old ? JSON.parse(old.data) : null;
     const oldProjects = before?.projects || [];
     const cancelled = projects.filter(x => x.stage === 'cancelled' && oldProjects.some((p: any) => p.id === x.id && p.stage !== 'cancelled'));
     if (cancelled.length && ((before?.awarded && JSON.stringify(before.awarded) === JSON.stringify(rec.awarded)) || (before?.plan && JSON.stringify(before.plan) === JSON.stringify(rec.plan)))) throw new Error('취소 사업의 awarded/plan 계산 입력을 재검토·정정하세요');
     const changed = [...new Set([...Object.keys(before || {}), ...Object.keys(rec)])].filter(k => JSON.stringify(before?.[k]) !== JSON.stringify((rec as any)[k]));
-    if (!changed.length) return { ok: true, unchanged: true, version: old.version };
+    if (!changed.length) return { ok: true, unchanged: true, version: old.version, ...(options.dryRun ? { valid: true, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true } : {}) };
     for (const field of changed.filter(k => !['id','country','system','src'].includes(k))) if (!p.evidence.some(e => e.path === field || e.path.startsWith(`${field}.`))) throw new Error(`${field}: 변경 근거 누락`);
-    const data = repo.data();
+    const data = await repo.data();
     if (data.countries[rec.country] && p.countryMeta && JSON.stringify(data.countries[rec.country]) !== JSON.stringify(p.countryMeta)) throw new Error('countryMeta는 신규 국가에만 사용하세요');
     if (!data.countries[rec.country] && !p.countryMeta) throw new Error('새 국가의 countryMeta 필요');
     const allSources = { ...data.sources, ...p.sources };
     for (const id of sourceIds(rec)) if (!allSources[id]) throw new Error(`없는 출처 ${id}`);
     for (const e of p.evidence) if (!sourceIds(rec).includes(e.sourceId)) throw new Error('변경 근거를 record src에도 연결하세요');
-    if (p.countryMeta && !data.countries[rec.country]) repo.run('INSERT INTO countries VALUES (?,?)', rec.country, JSON.stringify(p.countryMeta));
+    if (options.dryRun) return { ok: true, valid: true, changed, expectedVersion: p.expectedVersion, rulesVersion: 'normalization-v1', semanticReviewRequired: true };
+    if (p.countryMeta && !data.countries[rec.country]) await repo.run('INSERT INTO countries VALUES (?,?)', rec.country, JSON.stringify(p.countryMeta));
     for (const [id, s] of Object.entries(p.sources)) {
       const existing = data.sources[id];
       if (existing && (existing.u !== s.u || (existing.hash && existing.hash !== s.hash))) throw new Error('기존 출처 ID 덮어쓰기 금지. 새 버전 ID 사용');
-      repo.run('INSERT INTO sources VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', id, JSON.stringify(s));
+      await repo.run('INSERT INTO sources VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', id, JSON.stringify(s));
     }
     const version = (old?.version || 0) + 1, date = now();
     const snapshot: Seed = { ...data, countries: { ...data.countries, ...(p.countryMeta ? { [rec.country]: p.countryMeta } : {}) }, sources: allSources };
     const previousForecast = before ? computeForecast(before, data) : null;
     const forecast = computeForecast(rec, snapshot);
-    repo.run('INSERT INTO records VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,version=excluded.version,updated_at=excluded.updated_at', rec.id, rec.country, rec.system, JSON.stringify(rec), version, date);
-    repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', rec.id, ctx.runId, before ? JSON.stringify(before) : null, JSON.stringify(rec), p.reason, JSON.stringify(p.evidence), date);
-    repo.run('INSERT INTO research VALUES(?,?,?,?,?,?)', randomUUID(), ctx.runId, rec.id, 'v1', JSON.stringify(p), date);
-    repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, repo.revision() + 1, JSON.stringify({ before: previousForecast, after: forecast }), date);
-    repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
+    await repo.run('INSERT INTO records VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,version=excluded.version,updated_at=excluded.updated_at', rec.id, rec.country, rec.system, JSON.stringify(rec), version, date);
+    await repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', rec.id, ctx.runId, before ? JSON.stringify(before) : null, JSON.stringify(rec), p.reason, JSON.stringify(p.evidence), date);
+    await repo.run('INSERT INTO research VALUES(?,?,?,?,?,?)', randomUUID(), ctx.runId, rec.id, p.rulesVersion ? `research-v1/${p.rulesVersion}` : 'v1', JSON.stringify(p), date);
+    await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision() + 1, JSON.stringify({ before: previousForecast, after: forecast }), date);
+    await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
     const meta = { ...data.meta, collected: date };
-    repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(meta));
+    await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(meta));
     return { ok: true, version, changed, previousForecast, forecast, reason: p.reason };
-  });
+  }, ctx.signal);
 }
 
 async function firecrawl(name: string, a: Record<string, any>) {
-  const ctx = execution();
+  const ctx = await execution();
   if (!ctx.env.FIRECRAWL_API_KEY?.trim()) throw new Error('FIRECRAWL_API_KEY를 .secrets에 입력하세요');
   const client = new Client({ name: 'procurement-radar', version: '1.0.0' });
   const transport = new StreamableHTTPClientTransport(new URL(ctx.env.FIRECRAWL_MCP_URL || 'https://mcp.firecrawl.dev/v2/mcp'), { requestInit: { headers: { Authorization: `Bearer ${ctx.env.FIRECRAWL_API_KEY.trim()}` }, signal: ctx.signal } });
@@ -149,27 +156,29 @@ async function firecrawl(name: string, a: Record<string, any>) {
     const textOf = (value: any): string => typeof value === 'string' ? value : Array.isArray(value) ? value.map(textOf).filter(Boolean).join('\n\n') : value?.markdown || value?.data?.markdown || value?.html || value?.data?.html || '';
     const content = name === 'firecrawl_search' ? JSON.stringify(raw, null, 2) : textOf(decoded);
     if (!content.trim()) throw new Error('Firecrawl 응답에 읽을 수 있는 원문이 없습니다');
-    ctx.repo.artifact(ctx.conversationId, `runs/${randomUUID()}-firecrawl.json`, JSON.stringify(raw, null, 2), { runId: ctx.runId, kind: 'tool-log', mime: 'application/json' });
-    const artifact = ctx.repo.artifact(ctx.conversationId, `sources/${randomUUID()}.txt`, content, { runId: ctx.runId, kind: name === 'firecrawl_search' ? 'search' : 'original', url: a.url, mime: 'text/plain' });
+    await ctx.repo.artifact(ctx.conversationId, `runs/${randomUUID()}-firecrawl.json`, JSON.stringify(raw, null, 2), { runId: ctx.runId, kind: 'tool-log', mime: 'application/json' });
+    const artifact = await ctx.repo.artifact(ctx.conversationId, `sources/${randomUUID()}.txt`, content, { runId: ctx.runId, kind: name === 'firecrawl_search' ? 'search' : 'original', url: a.url, mime: 'text/plain' });
     return { ...(name === 'firecrawl_search' ? { result: raw } : { totalChars: content.length, nextStep: 'workspace_read로 저장된 원문을 읽으세요. offset/length로 이어 읽을 수 있습니다.' }), filePath: artifact.name, hash: artifact.hash, collectedAt: artifact.collected_at, publishedAt: null, kind: artifact.kind };
   } catch (e) {
-    ctx.repo.artifact(ctx.conversationId, `sources/failure-${randomUUID()}.txt`, String(e).replaceAll(ctx.env.FIRECRAWL_API_KEY, '[redacted]'), { runId: ctx.runId, kind: 'failure', url: a.url, status: 'failed', error: 'Firecrawl 수집 실패' });
+    await ctx.repo.artifact(ctx.conversationId, `sources/failure-${randomUUID()}.txt`, String(e).replaceAll(ctx.env.FIRECRAWL_API_KEY, '[redacted]'), { runId: ctx.runId, kind: 'failure', url: a.url, status: 'failed', error: 'Firecrawl 수집 실패' });
     throw new Error('Firecrawl 수집 실패. 실행 기록을 확인하세요');
   } finally { await client.close().catch(() => {}); }
 }
 
 export async function researchTool(name: string, a: Record<string, any>): Promise<unknown> {
-  const ctx = execution(), repo = ctx.repo, id = ctx.conversationId;
+  const ctx = await execution(), repo = ctx.repo, id = ctx.conversationId;
+  await repo.data();
+  await repo.prepareWorkspace(id);
   ctx.signal.throwIfAborted();
-  repo.event(ctx.runId, 'tool.start', { name, args: a });
+  await repo.event(ctx.runId, 'tool.start', { name, args: a });
   try {
     let result: unknown;
     switch (name) {
       case 'research_procurement': {
         const country = resolveCountry(a.country) || String(a.country).toUpperCase(), system = resolveSystem(a.system);
         if (!system) throw new Error('무기체계 확인 필요');
-        const row = repo.one('SELECT * FROM records WHERE country=? AND system=?', country, system);
-        result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: repo.revision(), assumptions: repo.data().systems[system], meta: repo.data().meta, templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), workspace: repo.workspace(id), files: repo.files(id), lastResearch: repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
+        const row = await repo.one('SELECT * FROM records WHERE country=? AND system=?', country, system);
+        result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
         break;
       }
       case 'save_source': {
@@ -177,23 +186,23 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
         if (!['original','search'].includes(a.kind)) throw new Error('kind는 original 또는 search');
         const content = z.string().parse(a.content);
         if (!content && a.status !== 'failed') throw new Error('빈 원문');
-        const artifact = repo.artifact(id, `sources/${randomUUID()}.txt`, content, { runId: ctx.runId, kind: a.kind, url: a.url, publishedAt: a.publishedAt || null, status: a.status === 'failed' ? 'failed' : 'ok', error: a.error });
+        const artifact = await repo.artifact(id, `sources/${randomUUID()}.txt`, content, { runId: ctx.runId, kind: a.kind, url: a.url, publishedAt: a.publishedAt || null, status: a.status === 'failed' ? 'failed' : 'ok', error: a.error });
         result = { filePath: artifact.name, hash: artifact.hash, collectedAt: artifact.collected_at, publishedAt: artifact.published_at, kind: artifact.kind, status: artifact.status };
         break;
       }
       case 'workspace_list': result = repo.files(id).map(path => ({ path, bytes: statSync(repo.path(id, path, true)).size })); break;
-      case 'publish_artifact': result = publishArtifact(z.string().min(1).parse(a.path), ctx); break;
+      case 'publish_artifact': result = await publishArtifact(z.string().min(1).parse(a.path), ctx, { preparationId: a.preparationId, review: a.review }); break;
       case 'source_read': {
-        const source = repo.data().sources[a.sourceId];
-        const artifact = source?.hash && repo.one("SELECT * FROM artifacts WHERE hash=? AND name=? AND status='ok' AND kind IN ('original','attachment','extracted')", source.hash, source.filePath || '');
+        const source = (await repo.data()).sources[a.sourceId];
+        const artifact = source?.hash && await repo.one("SELECT * FROM artifacts WHERE hash=? AND name=? AND status='ok' AND kind IN ('original','attachment','extracted')", source.hash, source.filePath || '');
         if (!artifact) throw new Error('보존한 원문 없음. 최초 이관 자료는 URL에서 원문을 새로 수집하세요');
-        const bytes = readFileSync(artifact.path);
+        const bytes = readFileSync(await repo.ensureFile(artifact.path));
         if (hash(bytes) !== source.hash) throw new Error('원문 해시 불일치');
         const text = bytes.toString('utf8'), offset = z.number().int().nonnegative().parse(a.offset ?? 0), length = z.number().int().positive().parse(a.length ?? Math.max(1, text.length));
         result = { source, text: text.slice(offset, offset + length), total: text.length, nextOffset: offset + length < text.length ? offset + length : null }; break;
       }
       case 'workspace_read': {
-        const content = readFileSync(repo.path(id, z.string().parse(a.path), true), 'utf8');
+        const content = readFileSync(await repo.ensureFile(repo.path(id, z.string().parse(a.path))), 'utf8');
         const offset = z.number().int().nonnegative().parse(a.offset ?? 0), length = z.number().int().positive().parse(a.length ?? Math.max(1, content.length));
         result = { text: content.slice(offset, offset + length), total: content.length, nextOffset: offset + length < content.length ? offset + length : null };
         break;
@@ -204,48 +213,50 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
         const { mkdirSync, writeFileSync } = await import('node:fs');
         const { dirname } = await import('node:path');
         const content = z.string().parse(a.content);
-        const old = repo.one('SELECT * FROM artifacts WHERE path=?', path);
+        const old = await repo.one('SELECT * FROM artifacts WHERE path=?', repo.storedPath(path));
         if (old) {
           if (!['note','analysis'].includes(old.kind)) throw new Error('원문·첨부·보고서는 이 도구로 수정할 수 없습니다');
           mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content);
-          repo.run('UPDATE artifacts SET hash=?,run_id=?,collected_at=? WHERE id=?', hash(content), ctx.runId, now(), old.id);
-        } else repo.artifact(id, a.path, content, { runId: ctx.runId, kind: a.path.startsWith('analysis/') ? 'analysis' : 'note', mime: 'text/plain' });
+          await repo.syncFile(path);
+          await repo.run('UPDATE artifacts SET hash=?,run_id=?,collected_at=? WHERE id=?', hash(content), ctx.runId, now(), old.id);
+        } else await repo.artifact(id, a.path, content, { runId: ctx.runId, kind: a.path.startsWith('analysis/') ? 'analysis' : 'note', mime: 'text/plain' });
         result = { path: a.path }; break;
       }
-      case 'submit_research': result = submitResearch(JSON.parse(a.payload)); break;
+      case 'submit_research': result = await submitResearch(JSON.parse(a.payload)); break;
       case 'update_assumptions': {
         const p = z.object({ expectedRevision: z.number().int(), systems: z.record(z.object({ ko: z.string(), unit: z.string(), designLife: z.number().positive(), unitCost: range, unitCostEst: z.boolean(), unitCostBasis: z.string(), costSrc: refs, hanwha: refs })).optional(), fx: z.record(z.union([z.string(), z.number()])).optional(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1) }).strict().parse(JSON.parse(a.payload));
-        sourcesChecked(p.sources, p.evidence);
-        result = repo.transaction(() => {
-          if (repo.revision() !== p.expectedRevision) throw new Error('데이터 버전 충돌');
-          const data = repo.data();
+        await sourcesChecked(p.sources, p.evidence);
+        result = await repo.transaction(async () => {
+          await execution();
+          if (await repo.revision() !== p.expectedRevision) throw new Error('데이터 버전 충돌');
+          const data = await repo.data();
           for (const k of Object.keys(p.systems || {})) { if (!data.systems[k as keyof Seed['systems']]) throw new Error('지원하지 않는 무기체계'); if (!p.evidence.some(e => e.path === `systems.${k}` || e.path.startsWith(`systems.${k}.`))) throw new Error('체계 변경 근거 누락'); }
           if (p.fx && !p.evidence.some(e => e.path === 'fx' || e.path.startsWith('fx.'))) throw new Error('환율 변경 근거 누락');
-          for (const [key, value] of Object.entries(p.sources)) { const old = data.sources[key]; if (old && JSON.stringify(old) !== JSON.stringify(value)) throw new Error('출처 ID 덮어쓰기 금지'); repo.run('INSERT OR IGNORE INTO sources VALUES (?,?)', key, JSON.stringify(value)); }
+          for (const [key, value] of Object.entries(p.sources)) { const old = data.sources[key]; if (old && JSON.stringify(old) !== JSON.stringify(value)) throw new Error('출처 ID 덮어쓰기 금지'); await repo.run('INSERT OR IGNORE INTO sources VALUES (?,?)', key, JSON.stringify(value)); }
           const sources = { ...data.sources, ...p.sources };
-          for (const [key, value] of Object.entries(p.systems || {})) { for (const source of value.costSrc) if (!sources[source]) throw new Error('단가 출처 누락'); repo.run('UPDATE systems SET data=? WHERE id=?', JSON.stringify(value), key); }
+          for (const [key, value] of Object.entries(p.systems || {})) { for (const source of value.costSrc) if (!sources[source]) throw new Error('단가 출처 누락'); await repo.run('UPDATE systems SET data=? WHERE id=?', JSON.stringify(value), key); }
           const next = { ...data, sources, systems: { ...data.systems, ...p.systems }, meta: { ...data.meta, fx: { ...data.meta.fx, ...p.fx }, collected: now() } };
-          repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(next.meta));
-          repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
-          repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', '@assumptions', ctx.runId, JSON.stringify({ systems: data.systems, fx: data.meta.fx }), JSON.stringify({ systems: next.systems, fx: next.meta.fx }), p.reason, JSON.stringify(p.evidence), now());
-          for (const rec of data.records) repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, repo.revision(), JSON.stringify({ before: computeForecast(rec, data), after: computeForecast(rec, next) }), now());
-          return { ok: true, revision: repo.revision(), recalculated: data.records.length };
-        }); break;
+          await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(next.meta));
+          await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
+          await repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', '@assumptions', ctx.runId, JSON.stringify({ systems: data.systems, fx: data.meta.fx }), JSON.stringify({ systems: next.systems, fx: next.meta.fx }), p.reason, JSON.stringify(p.evidence), now());
+          for (const rec of data.records) await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision(), JSON.stringify({ before: computeForecast(rec, data), after: computeForecast(rec, next) }), now());
+          return { ok: true, revision: await repo.revision(), recalculated: data.records.length };
+        }, ctx.signal); break;
       }
       case 'research_history': {
         const c = resolveCountry(a.country), s = resolveSystem(a.system);
-        const ids = repo.data().records.filter(r => (!c || r.country === c) && (!s || r.system === s)).map(r => r.id);
-        result = { changes: repo.all('SELECT * FROM changes ORDER BY id DESC').filter(r => ids.includes(r.record_id)), forecasts: repo.all('SELECT * FROM forecasts ORDER BY id DESC').filter(r => ids.includes(r.record_id)) }; break;
+        const ids = (await repo.data()).records.filter(r => (!c || r.country === c) && (!s || r.system === s)).map(r => r.id);
+        result = { changes: (await repo.all('SELECT * FROM changes ORDER BY id DESC')).filter(r => ids.includes(r.record_id)), forecasts: (await repo.all('SELECT * FROM forecasts ORDER BY id DESC')).filter(r => ids.includes(r.record_id)) }; break;
       }
       case 'conversation_read': {
-        const msgs = repo.conversation(id).messages.filter((m: any) => !a.query || m.text.includes(a.query));
+        const msgs = (await repo.conversation(id)).messages.filter((m: any) => !a.query || m.text.includes(a.query));
         const offset = z.number().int().nonnegative().parse(a.offset ?? 0), limit = z.number().int().positive().parse(a.limit ?? Math.max(1, msgs.length));
         result = { messages: msgs.slice(offset, offset + limit), total: msgs.length }; break;
       }
       case 'firecrawl_search': case 'firecrawl_scrape': result = await firecrawl(name, a); break;
       default: throw new Error('알 수 없는 조사 도구');
     }
-    repo.event(ctx.runId, 'tool.complete', { name, result });
+    await repo.event(ctx.runId, 'tool.complete', { name, result });
     return result;
-  } catch (e) { repo.event(ctx.runId, 'tool.error', { name, error: String(e) }); return { error: String(e) }; }
+  } catch (e) { await repo.event(ctx.runId, 'tool.error', { name, error: String(e) }); return { error: String(e) }; }
 }

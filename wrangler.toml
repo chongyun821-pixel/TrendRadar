@@ -1,4 +1,4 @@
-# 이전 Cloudflare 배포 설정. 현재 SQLite·작업 폴더 버전은 npm start로 Node에서 운영한다.
+# 이전 Cloudflare 배포 설정. CLI·문서 작업은 npm start로 Node 호스트에서 운영한다.
 # Pages/Workers 진입점은 503 안내만 반환한다.
 name = "procurement-radar"
 compatibility_date = "2025-09-01"

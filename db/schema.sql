@@ -16,5 +16,8 @@ CREATE TABLE IF NOT EXISTS research (id TEXT PRIMARY KEY, run_id TEXT NOT NULL R
 CREATE TABLE IF NOT EXISTS changes (id INTEGER PRIMARY KEY, record_id TEXT NOT NULL, run_id TEXT NOT NULL, before_data TEXT, after_data TEXT NOT NULL, reason TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS forecasts (id INTEGER PRIMARY KEY, record_id TEXT NOT NULL, run_id TEXT, data_version INTEGER NOT NULL, data TEXT NOT NULL, computed_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS reports (id TEXT PRIMARY KEY, conversation_id TEXT, run_id TEXT, data_version INTEGER NOT NULL, basis_date TEXT NOT NULL, markdown TEXT NOT NULL, path TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS app_contexts (screen_id TEXT PRIMARY KEY, conversation_id TEXT, version INTEGER NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS app_commands (id TEXT PRIMARY KEY, screen_id TEXT NOT NULL, conversation_id TEXT NOT NULL, run_id TEXT NOT NULL, expected_version INTEGER NOT NULL, data TEXT NOT NULL, status TEXT NOT NULL, result TEXT, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS app_commands_screen ON app_commands(screen_id, status);
 INSERT OR IGNORE INTO metadata VALUES ('revision', '1');
 INSERT OR IGNORE INTO schema_migrations VALUES (1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

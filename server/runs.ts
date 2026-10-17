@@ -1,45 +1,134 @@
 import { randomUUID } from 'node:crypto';
-import { executions } from './execution';
+import { executions, execution } from './execution';
 import { collectDocuments } from './artifacts';
 import { repository, now } from './store';
 import { chatWith } from './models';
 import type { ChatIn, ChatOut } from './agent';
 import type { Env } from './gemma';
 import { runCommand } from '../src/commands';
+import { saveAppContext, reportTarget } from './app-context';
 
-const globals = globalThis as typeof globalThis & { __radarRuns?: Map<string, { controller: AbortController; done: Promise<void> }> };
+const globals = globalThis as typeof globalThis & {
+  __radarRuns?: Map<string, { controller: AbortController; done: Promise<void> }>;
+  __radarQueueWorkers?: Map<string, Promise<void>>;
+  __radarQueueTimer?: ReturnType<typeof setInterval>;
+  __radarQueueEnv?: Map<string, Env>;
+};
 export const activeRuns = globals.__radarRuns ??= new Map();
-export function recoverRuns() {
+const queueWorkers = globals.__radarQueueWorkers ??= new Map();
+const queuedEnvs = globals.__radarQueueEnv ??= new Map();
+async function queueTransaction<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try { return await repository().transaction(work); }
+    catch (error) { if (attempt >= 4 || !(error instanceof Error) || !error.message.includes('데이터 버전 충돌')) throw error; }
+  }
+}
+export async function recoverRuns(env: Env = {}) {
   const repo = repository();
-  for (const run of repo.all("SELECT id,owner_pid,model FROM runs WHERE status IN ('running','stopping')")) {
+  await repo.data();
+  for (const run of await repo.all("SELECT id,owner_pid,model FROM runs WHERE status IN ('running','stopping')")) {
     if (activeRuns.has(run.id)) continue;
     if (run.owner_pid) { try { process.kill(run.owner_pid, 0); if (run.owner_pid !== process.pid) continue; } catch { /* 종료된 프로세스 */ } }
     else if (!['grok','codex','gemma','nemotron'].includes(run.model)) continue;
-    repo.run("UPDATE runs SET status='interrupted', error='서버 재시작으로 중단됨. 대화에서 이어서 요청하세요.', ended_at=? WHERE id=?", now(), run.id);
+    await repo.run("UPDATE runs SET status='interrupted', error='서버 재시작으로 중단됨. 대화에서 이어서 요청하세요.', ended_at=? WHERE id=?", now(), run.id);
+  }
+  watchQueue(env);
+  for (const row of await repo.all("SELECT DISTINCT conversation_id FROM runs WHERE status='queued' AND conversation_id IS NOT NULL")) dispatchQueue(row.conversation_id, env);
+}
+
+function watchQueue(env: Env) {
+  if (globals.__radarQueueTimer) return;
+  let checking = false;
+  globals.__radarQueueTimer = setInterval(async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      for (const row of await repository().all("SELECT DISTINCT conversation_id FROM runs WHERE status='queued' AND conversation_id IS NOT NULL")) dispatchQueue(row.conversation_id, env);
+    } catch { /* 연결 복구 후 다음 주기에 다시 확인한다. */ }
+    finally { checking = false; }
+  }, 1500);
+  globals.__radarQueueTimer.unref();
+}
+
+function dispatchQueue(conversationId: string, env: Env) {
+  if (queueWorkers.has(conversationId)) return;
+  const repo = repository();
+  const worker = (async () => {
+    while (true) {
+      const next = await queueTransaction(async () => {
+        if (!await repo.one('SELECT id FROM conversations WHERE id=?', conversationId)) return;
+        if (await repo.one("SELECT id FROM runs WHERE conversation_id=? AND status IN ('running','stopping')", conversationId)) return;
+        const row = await repo.one("SELECT * FROM runs WHERE conversation_id=? AND status='queued' ORDER BY rowid LIMIT 1", conversationId);
+        if (!row) return;
+        const saved = await repo.one("SELECT data FROM events WHERE run_id=? AND name='run.queued' ORDER BY id LIMIT 1", row.id);
+        if (!saved) {
+          await repo.run("UPDATE runs SET status='failed',error=?,ended_at=? WHERE id=?", '대기 요청 원문을 찾을 수 없습니다', now(), row.id);
+          return;
+        }
+        const input: ChatIn = JSON.parse(saved.data);
+        await repo.run("UPDATE runs SET status='running',started_at=?,owner_pid=? WHERE id=? AND status='queued'", now(), process.pid, row.id);
+        await repo.message(conversationId, 'user', input.messages[0].text, input.appContext ? { appContext: input.appContext } : {});
+        if (input.appContext) await repo.event(row.id, 'app.context', input.appContext);
+        return { input, runId: row.id };
+      });
+      if (!next) return;
+      try { await executeRun(next.input, queuedEnvs.get(next.runId) || env, next.runId).done; }
+      finally { queuedEnvs.delete(next.runId); }
+    }
+  })().catch(() => { /* 트랜잭션 충돌과 일시적인 연결 실패는 다음 주기에 재시도한다. */ }).finally(() => { queueWorkers.delete(conversationId); });
+  queueWorkers.set(conversationId, worker);
+}
+
+export async function startRun(input: ChatIn, env: Env) {
+  const repo = repository();
+  const conversationId = input.conversationId || (await repo.createConversation()).id;
+  await repo.conversation(conversationId);
+  const last = input.messages.at(-1);
+  if (!last || last.role !== 'user' || typeof last.text !== 'string' || !last.text.trim()) throw new Error('사용자 메시지 필요');
+  const runId = randomUUID();
+  const appContext = input.appContext ? await saveAppContext(repo, { ...input.appContext, conversationId }) : undefined;
+  const request: ChatIn = { conversationId, model: input.model, messages: [{ role: 'user', text: last.text }], state: input.state, appContext };
+  await queueTransaction(async () => {
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversationId, input.model || 'gemma', 'queued', now(), process.pid);
+    await repo.event(runId, 'run.queued', request);
+    await repo.run('UPDATE conversations SET updated_at=? WHERE id=?', now(), conversationId);
+    await repo.run("UPDATE conversations SET title=? WHERE id=? AND title='새 대화'", last.text.slice(0, 60), conversationId);
+  });
+  queuedEnvs.set(runId, env);
+  watchQueue(env); dispatchQueue(conversationId, env);
+  return { runId, conversationId, get done() { return waitForRun(runId); } };
+}
+
+async function waitForRun(runId: string) {
+  while (true) {
+    const row = await repository().one('SELECT status FROM runs WHERE id=?', runId);
+    if (!row || !['queued', 'running', 'stopping'].includes(row.status)) return;
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 }
-export function startRun(input: ChatIn, env: Env) {
-  const repo = repository();
-  const conversationId = input.conversationId || repo.createConversation().id;
-  repo.conversation(conversationId);
-  if (repo.one("SELECT id FROM runs WHERE conversation_id=? AND status IN ('running','stopping')", conversationId)) throw new Error('이 대화의 조사가 진행 중입니다');
-  const last = input.messages.at(-1);
-  if (!last || last.role !== 'user' || !last.text.trim()) throw new Error('사용자 메시지 필요');
-  const runId = randomUUID(), controller = new AbortController();
-  repo.transaction(() => {
-    repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversationId, input.model || 'gemma', 'running', now(), process.pid);
-    repo.message(conversationId, 'user', last.text);
-  });
+
+function executeRun(input: ChatIn, env: Env, runId: string) {
+  const repo = repository(), conversationId = input.conversationId!, appContext = input.appContext;
+  const last = input.messages[0], controller = new AbortController();
   let begin!: () => void;
   const gate = new Promise<void>(r => { begin = r; });
-  const cancellation = setInterval(() => {
-    const current = repo.one('SELECT status FROM runs WHERE id=?', runId);
-    if (current?.status !== 'running') controller.abort(new Error('종료되거나 중지된 조사 실행'));
-  }, 1000);
-  const done = gate.then(() => executions.run({ conversationId, runId, signal: controller.signal, repo, env }, async () => {
+  let checking = false;
+  const cancellation = setInterval(async () => {
+    if (checking || controller.signal.aborted) return;
+    checking = true;
     try {
-      const conversation = repo.conversation(conversationId);
-      const names: Record<string, string> = Object.fromEntries(Object.entries(repo.data().countries).map(([id, c]) => [id, c.ko]));
+      const current = await repo.one('SELECT status FROM runs WHERE id=?', runId);
+      if (current?.status !== 'running') controller.abort(new Error('종료되거나 중지된 조사 실행'));
+    } catch { controller.abort(new Error('조사 실행 상태 확인 실패')); }
+    finally { checking = false; }
+  }, 1000);
+  const done = gate.then(() => executions.run({ conversationId, runId, signal: controller.signal, repo, env, appContext }, async () => {
+    try {
+      await execution();
+      await repo.prepareWorkspace(conversationId);
+      const conversation = await repo.conversation(conversationId);
+      const snapshot = await repo.versionedData();
+      const names: Record<string, string> = Object.fromEntries(Object.entries(snapshot.data.countries).map(([id, c]) => [id, c.ko]));
       const local = runCommand(last.text, names);
       let out: ChatOut;
       if (/^[!！]\s*(?:모델|model)(?:\s|$)/i.test(last.text)) {
@@ -53,23 +142,39 @@ export function startRun(input: ChatIn, env: Env) {
         out = await chatWith({ ...input, conversationId, runId, signal: controller.signal, messages }, env);
       }
       controller.signal.throwIfAborted();
-      if (repo.one('SELECT status FROM runs WHERE id=?', runId)?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
-      if (['codex', 'grok'].includes(input.model || '')) out.files = collectDocuments(executions.getStore()!);
+      if ((await repo.one('SELECT status FROM runs WHERE id=?', runId))?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
+      if (['codex', 'grok'].includes(input.model || '')) out.files = await collectDocuments(executions.getStore()!);
+      for (const saved of await repo.all('SELECT markdown FROM reports WHERE run_id=? ORDER BY created_at,id', runId)) if (!out.reports.includes(saved.markdown)) out.reports.push(saved.markdown);
       for (const report of out.reports) {
-        if (!repo.one('SELECT 1 FROM reports WHERE run_id=? AND markdown=?', runId, report)) {
+        if (!await repo.one('SELECT 1 FROM reports WHERE run_id=? AND markdown=?', runId, report)) {
           const id = randomUUID(), date = now();
-          const file = repo.artifact(conversationId, `reports/${id}.md`, report, { runId, kind: 'report', mime: 'text/markdown' });
-          repo.run('INSERT INTO reports VALUES(?,?,?,?,?,?,?,?)', id, conversationId, runId, repo.revision(), date.slice(0, 10), report, file.path, date);
+          const dataVersion = local ? snapshot.revision : await repo.revision();
+          const file = await repo.artifact(conversationId, `reports/${id}.md`, report, { runId, kind: 'report', mime: 'text/markdown' });
+          await repo.run('INSERT INTO reports VALUES(?,?,?,?,?,?,?,?)', id, conversationId, runId, dataVersion, date.slice(0, 10), report, repo.storedPath(file.path), date);
         }
       }
-      if (out.error) repo.message(conversationId, 'model', `${out.error}${out.detail ? `\n${out.detail}` : ''}`, out);
-      else repo.message(conversationId, 'model', out.reply, out);
-      repo.run('UPDATE runs SET status=?,error=?,ended_at=?,result=? WHERE id=?', out.error ? 'failed' : 'completed', out.error || null, now(), JSON.stringify(out), runId);
+      const savedReports = await repo.all('SELECT * FROM reports WHERE run_id=? ORDER BY created_at,id', runId);
+      const usedReports = new Set<string>();
+      out.reportRefs = out.reports.map(markdown => {
+        const row = savedReports.find(r => r.markdown === markdown && !usedReports.has(r.id));
+        if (!row) return null;
+        usedReports.add(row.id);
+        return { id: row.id, ...reportTarget(row.markdown), kind: 'country-analysis', basisDate: row.basis_date, dataVersion: row.data_version };
+      });
+      await repo.syncWorkspace(conversationId);
+      controller.signal.throwIfAborted();
+      if ((await repo.one('SELECT status FROM runs WHERE id=?', runId))?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
+      await repo.transaction(async () => {
+        await execution();
+        if (out.error) await repo.message(conversationId, 'model', `${out.error}${out.detail ? `\n${out.detail}` : ''}`, out);
+        else await repo.message(conversationId, 'model', out.reply, out);
+        await repo.run('UPDATE runs SET status=?,error=?,ended_at=?,result=? WHERE id=?', out.error ? 'failed' : 'completed', out.error || null, now(), JSON.stringify(out), runId);
+      }, controller.signal);
     } catch (e) {
-      const stopped = controller.signal.aborted;
+      const stopped = controller.signal.aborted || ['stopping', 'cancelled'].includes((await repo.one('SELECT status FROM runs WHERE id=?', runId))?.status);
       const error = stopped ? '사용자가 조사를 중지했습니다' : String(e);
-      repo.run('UPDATE runs SET status=?,error=?,ended_at=? WHERE id=?', stopped ? 'cancelled' : 'failed', error, now(), runId);
-      if (repo.one('SELECT id FROM conversations WHERE id=?', conversationId)) repo.message(conversationId, 'model', error);
+      await repo.run('UPDATE runs SET status=?,error=?,ended_at=? WHERE id=?', stopped ? 'cancelled' : 'failed', error, now(), runId);
+      if (await repo.one('SELECT id FROM conversations WHERE id=?', conversationId)) await repo.message(conversationId, 'model', error);
     } finally { clearInterval(cancellation); activeRuns.delete(runId); }
   }));
   activeRuns.set(runId, { controller, done });
@@ -77,9 +182,16 @@ export function startRun(input: ChatIn, env: Env) {
   return { runId, conversationId, done };
 }
 export async function stopRun(runId: string) {
+  await repository().run("UPDATE runs SET status='cancelled',error=?,ended_at=? WHERE id=? AND status='queued'", '대기 메시지를 취소했습니다', now(), runId);
+  queuedEnvs.delete(runId);
   const live = activeRuns.get(runId);
-  repository().run("UPDATE runs SET status='stopping' WHERE id=? AND status='running'", runId);
+  live?.controller.abort(new Error('사용자 중지'));
+  await repository().run("UPDATE runs SET status='stopping' WHERE id=? AND status='running'", runId);
   if (!live) return;
-  live.controller.abort(new Error('사용자 중지'));
   await live.done;
+}
+
+export async function stopConversation(conversationId: string) {
+  await repository().run("UPDATE runs SET status='cancelled',error=?,ended_at=? WHERE conversation_id=? AND status='queued'", '대화 삭제로 대기 취소됨', now(), conversationId);
+  for (const run of await repository().all("SELECT id FROM runs WHERE conversation_id=? AND status IN ('running','stopping')", conversationId)) await stopRun(run.id);
 }

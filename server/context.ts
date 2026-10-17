@@ -8,8 +8,7 @@ export async function contextMessages(input: ChatIn, summarize: (prompt: string)
   const ctx = executions.getStore();
   if (!ctx || input.messages.reduce((n, m) => n + m.text.length, 0) < 60000 || input.messages.length <= 8) return input.messages;
   const repo = ctx.repo;
-  repo.db.exec('CREATE TABLE IF NOT EXISTS context_summaries(conversation_id TEXT PRIMARY KEY REFERENCES conversations(id) ON DELETE CASCADE, covered INTEGER NOT NULL, summary TEXT NOT NULL, updated_at TEXT NOT NULL)');
-  const previous = repo.one('SELECT * FROM context_summaries WHERE conversation_id=?', ctx.conversationId);
+  const previous = await repo.one('SELECT * FROM context_summaries WHERE conversation_id=?', ctx.conversationId);
   const end = input.messages.length - 8;
   let covered = previous?.covered || 0, summary = previous?.summary || '';
   if (covered > end) { covered = 0; summary = ''; }
@@ -21,7 +20,7 @@ export async function contextMessages(input: ChatIn, summarize: (prompt: string)
     summary = await summarize(`${SUMMARY_PROMPT}\n기존 요약:\n${summary}\n추가 원문:\n${chunk.slice(offset, offset + 12000)}`);
     if (!summary.trim()) throw new Error('대화 인계 요약 생성 실패. 원문은 보존되어 있습니다');
   }
-  repo.run('INSERT INTO context_summaries VALUES(?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET covered=excluded.covered,summary=excluded.summary,updated_at=excluded.updated_at', ctx.conversationId, end, summary, now());
-  repo.event(ctx.runId, 'context.summary', { covered: end, total: input.messages.length });
+  await repo.run('INSERT INTO context_summaries VALUES(?,?,?,?) ON CONFLICT(conversation_id) DO UPDATE SET covered=excluded.covered,summary=excluded.summary,updated_at=excluded.updated_at', ctx.conversationId, end, summary, now());
+  await repo.event(ctx.runId, 'context.summary', { covered: end, total: input.messages.length });
   return [{ role: 'user', text: `과거 대화 인계 요약(원문은 conversation_read로 조회):\n${summary}` }, { role: 'model', text: '필요한 원문과 근거를 다시 조회하며 이어가겠습니다.' }, ...input.messages.slice(end)];
 }

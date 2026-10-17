@@ -1,5 +1,9 @@
 node_modules/
 dist/
+/output/
+/outputs/
+/font-cache/
+.DS_Store
 .secrets
 .wrangler/
 *.log

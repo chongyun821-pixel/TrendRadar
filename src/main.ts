@@ -38,7 +38,7 @@ async function boot() {
       placeTip(x, y);
     },
     onClick(id) {
-      if (!id) { unpin(); globe.setSelected(null); state.focus = null; chat.suggest(null); return; }
+      if (!id) { unpin(); globe.setSelected(null); state.focus = null; chat.suggest(null); mapChanged(); return; }
       focusCountry(id, false);
       tip.innerHTML = tipHtml(id, names); state.pinned = true; tip.classList.add('pinned');
       const r = globe.renderer.domElement.getBoundingClientRect();
@@ -72,16 +72,19 @@ async function boot() {
     globe.setSpikes(fs.filter(f => f.status !== 'none').map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: CAT_COLOR[f.category], size: f.size })));
     if (state.pinned && state.focus) tip.innerHTML = tipHtml(state.focus, names);
   }
-  function setMode(sys: SystemKey | null) { state.mode = sys; applyMode(); if (state.focus) chat.suggest(state.focus); }
+  function mapChanged() { dispatchEvent(new Event('radar:map-state')); }
+  function setMode(sys: SystemKey | null) { state.mode = sys; applyMode(); if (state.focus) chat.suggest(state.focus); mapChanged(); }
   function toggleMap(flat?: boolean) {
     state.flat = flat ?? !state.flat; globe.setFlat(state.flat); unpin();
     $('#mapBtn').classList.toggle('on', state.flat);
+    mapChanged();
   }
   function focusCountry(id: string, pinTip = true) {
     state.focus = id; const c = seed.countries[id];
     globe.focus(id, c?.lat, c?.lon);
     chat.suggest(id);
     if (pinTip) unpin();
+    mapChanged();
   }
 
   // 상단 버튼
@@ -95,10 +98,11 @@ async function boot() {
   const chat = initChat({
     names,
     getState: () => ({ mode: state.mode, flat: state.flat, focus: state.focus }),
+    dataVersion: () => Number(dataVersion || 0),
     actions: {
       set_mode: (s: SystemKey | null) => setMode(s),
       toggle_map_mode: (flat?: boolean) => toggleMap(flat),
-      focus_country: (id: string) => focusCountry(id),
+      focus_country: (id: string | null) => { if (id) focusCountry(id); else { state.focus = null; globe.setSelected(null); unpin(); mapChanged(); } },
     },
     modeKo: () => (state.mode ? seed.systems[state.mode].ko : null),
     refreshData: async () => {
@@ -108,9 +112,17 @@ async function boot() {
       if (state.focus) { tip.innerHTML = tipHtml(state.focus, names); chat.suggest(state.focus); }
     },
   });
+  tip.addEventListener('click', event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-report-system][data-report-country]');
+    if (!button) return;
+    const country = button.dataset.reportCountry!, system = button.dataset.reportSystem as SystemKey;
+    if (!SYSTEM_KEYS.includes(system) || !findRecord(country, system)) return;
+    setMode(system); focusCountry(country); chat.open();
+    void chat.send(`!보고서 ${country} ${system}`);
+  });
   addEventListener('keydown', e => { if (e.key === 'Escape') { unpin(); chat.collapse(); } });
   applyMode();
-  (window as any).__app = { setMode, toggleMap, focusCountry, state };
+  (window as any).__app = { setMode, toggleMap, focusCountry, state, getAppContext: chat.getAppContext };
   document.body.classList.add('ready');
   const checkData = async () => {
     if (document.hidden) return;
@@ -135,7 +147,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   if (!mode) {
     const recs = seed.records.filter(r => r.country === id);
     if (!recs.length) return `<div class="th">${esc(meta?.flag ?? '')} ${name}</div>`;
-    const chips = recs.map(r => { const f = computeForecast(r); return `<span class="chip"><i style="background:${CAT_COLOR[f.category]}"></i>${esc(f.systemKo)}</span>`; }).join('');
+    const chips = recs.map(r => { const f = computeForecast(r); return `<button type="button" class="chip" data-report-country="${esc(id)}" data-report-system="${r.system}" aria-label="${name} ${esc(f.systemKo)} 보고서 보기" title="${esc(f.systemKo)} 지도로 전환하고 보고서 열기"><i style="background:${CAT_COLOR[f.category]}"></i>${esc(f.systemKo)}</button>`; }).join('');
     return `<div class="th">${esc(meta.flag)} ${name}</div><div class="chips">${chips}</div>`;
   }
   const rec = findRecord(id, mode);
