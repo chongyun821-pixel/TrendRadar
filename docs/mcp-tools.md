@@ -46,6 +46,10 @@
 
 `publish_artifact`는 `.docx`와 `.pptx`의 파일 구조를 검사하고 다운로드용 사본과 해시값, 작성 자료 식별자 및 검수 기록을 보존한다. 파일 구조 검사가 실제 내용과 레이아웃 검수를 대신하지 않는다. 기존 `publish_artifact(path)` 호출도 호환되지만 새 작성 자료를 연결하면 검수 결과도 함께 제출해야 한다.
 
+## 판단 점수
+
+`get_score_breakdown(country, system)`은 통과 조건(3세계·독자 양산), 항목별 점수(비중 × 원점수 × 출처 신뢰도), 고객 등급 계수와 근거 ID(`표:키`), 보고서용 근거 표 마크다운을 반환한다. 지도는 `GET /api/scores?system=`으로 같은 점수를 받아 제외 국가를 회색으로 표시한다. `prepare_report`의 `evidenceTables`는 케이스별 근거 표 자료다. 수집 방법은 [데이터 수집 실행 안내](data-collection.md)를 따른다.
+
 ## API와 검증
 
 새 도구는 `POST /api/tools/{도구 이름}`에서도 사용한다. 요청 본문은 `{"conversationId":"대화 ID","args":{...},"appContext":{...}}` 형식이며 화면 맥락은 필요할 때 전달한다. 응답의 `result`에 도구 결과, `conversationId`와 `runId`에 실행 식별자를 반환한다. 기존 조회 API의 평면 인자는 호환된다.

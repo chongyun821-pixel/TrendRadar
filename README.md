@@ -87,6 +87,18 @@ npm run dev
 
 빌드한 화면으로 실행하려면 `npm run build` 후 `npm run serve`를 사용합니다. 설정을 바꾼 뒤에는 서버를 다시 시작하세요.
 
+### 5. 공개 자료 수집(선택)
+
+판단 점수에 쓰는 SIPRI·World Bank·UCDP·GDELT·Oryx 자료는 수집 테이블을 만든 뒤 적재합니다. 인증키는 필요 없습니다.
+
+```sh
+npm run supabase -- schema
+npm run ingest:all -- --dry-run
+npm run ingest:all
+```
+
+출처별 명령과 옵션은 [데이터 수집 실행 안내](docs/data-collection.md)를 참고하세요.
+
 ## 처음 사용하기
 
 1. 상단에서 살펴볼 무기체계를 선택합니다.
