@@ -44,7 +44,7 @@ export const TOOL_DEFS: ToolDef[] = [
   { name: 'get_inventory', description: '국가·체계별 보유 모델·수량·도입 연도와 추정 표시', properties: { country: S('국가명'), system: S('체계') } },
   { name: 'get_lifespan', description: '설계 수명과 모델별 교체 시점', properties: { system: S('체계'), model: S('모델명 일부') } },
   { name: 'search_mro', description: '정비·성능개량·수명연장 기록', properties: { country: S('국가명'), model: S('모델명 일부') } },
-  { name: 'get_score_breakdown', description: '국가·체계의 100점 판단 점수: 통과 조건(3세계·독자 양산), 항목별 점수(비중×원점수×출처 신뢰도), 등급 계수와 근거 ID(표:키)', properties: { country: S('국가명'), system: S('체계') }, required: ['country', 'system'] },
+  { name: 'get_score_breakdown', description: '국가·체계의 100점 판단 점수: 통과 조건(수출 불가·독자 양산), 항목별 점수(비중×원점수×출처 신뢰도), 등급 계수와 근거 ID(표:키)', properties: { country: S('국가명'), system: S('체계') }, required: ['country', 'system'] },
   { name: 'write_report', description: '국가 보고서 작성(화면에 자동 표시)', properties: { country: S('국가명'), system: S('체계(생략 시 전체)') }, required: ['country'] },
 ];
 export const PAGE_TOOLS = new Set(['set_mode', 'toggle_map_mode', 'focus_country', 'write_report', 'set_map_state']);

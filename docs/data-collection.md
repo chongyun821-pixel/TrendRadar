@@ -22,7 +22,7 @@
 | `npm run ingest:ucdp` | UCDP 전투 사망자(dyadic) 내려받기 | `pair_events` | 불필요 |
 | `npm run ingest:gdelt` | GDELT 1.0 일별 이벤트 파일 | `pair_events` | 불필요 |
 | `npm run ingest:oryx` | Oryx 러시아·우크라이나 손실 목록 | `consumption` | 불필요 |
-| `npm run ingest:tiers` | 위 자료 + `data/reference/export-controls.json` | `export_tiers` | 해당 없음 |
+| `npm run ingest:tiers` | 위 자료 + `data/reference/export-controls.json`(수기 통제·수출 불가 지정) | `export_tiers` | 해당 없음 |
 | `npm run ingest:tension` | 위 자료 + 국경·`data/reference/*.json` | `neighbors` | 해당 없음 |
 
 `npm run ingest:all`은 위 순서대로 실행하고 실패한 단계를 마지막에 보여준다(`--skip gdelt,oryx`로 제외). 등급·긴장도는 앞 단계 결과를 DB에서 읽으므로 드라이런에서도 DB 연결이 필요하다. 매월 `gdelt` → `tension` → `tiers` 순으로 다시 실행한다.
@@ -48,7 +48,7 @@
 - UCDP: API(`ucdpapi.pcr.uu.se`)는 `x-ucdp-access-token`이 필요해 쓰지 않고 공개 CSV 묶음을 쓴다. 국가 간 분쟁(type 2)은 `source='ucdp'`, 그 밖의 정부 대 정부 쌍은 `ucdp_intl`.
 - GDELT: 하루 파일이 5~7MB라 달마다 표본일만 받아 일수로 환산한다(신뢰도 0.7). 이미 적재된 달은 건너뛴다. 평문 HTTP는 막힐 수 있어 HTTPS 주소를 쓴다.
 - ITAR: eCFR은 자동 요청을 403/406으로 막아 Cornell LII 사본을 읽는다.
-- 금수: 비국가 대상(NGF 등)과 법적 구속력 없는 EU 정치 선언(이집트·중국)은 `partial`로 두어 2세계(승인 필요)로 판정한다.
+- 금수: 비국가 대상(NGF 등)과 법적 구속력 없는 EU 정치 선언은 `partial`로 두어 조건부 수출 가능(승인 필요)으로 판정한다. 이집트(EGY)·중국(CHN)은 `data/reference/export-controls.json`의 수기 지정(`regime: MANUAL`, 사유 포함)으로 수출 불가다.
 - 한국 수출통제 목록과 체계별 미국산 부품 여부는 `data/reference/export-controls.json`에서 수기로 관리한다(현재 부품 여부 미확인). 방산 협정 목록은 아직 수집하지 않는다.
 - 영토 분쟁(`data/reference/territorial-disputes.json`)은 위키백과 기준 정적 목록(신뢰도 0.4), 동맹(`alliances.json`)은 수기 목록이다.
 

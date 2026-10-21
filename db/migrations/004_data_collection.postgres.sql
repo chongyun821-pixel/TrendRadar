@@ -68,7 +68,7 @@ INSERT INTO weights(factor,weight,note) VALUES ('neighbor',15,'주변국 압력:
 INSERT INTO weights(factor,weight,note) VALUES ('consumption',10,'소모 보충: 소모·공여량 대비 재고, 기존 공급사 수주잔고와 납기') ON CONFLICT DO NOTHING;
 INSERT INTO weights(factor,weight,note) VALUES ('competition',15,'경쟁 우위: 경쟁사 수주·납기 비교') ON CONFLICT DO NOTHING;
 INSERT INTO weights(factor,weight,note) VALUES ('access',5,'접근성: 한국과의 협력 이력, 한국산 운용 여부') ON CONFLICT DO NOTHING;
-INSERT INTO weights(factor,weight,note) VALUES ('tier1',1.0,'1세계 등급 계수') ON CONFLICT DO NOTHING;
-INSERT INTO weights(factor,weight,note) VALUES ('tier2',0.7,'2세계 등급 계수') ON CONFLICT DO NOTHING;
+INSERT INTO weights(factor,weight,note) VALUES ('tier1',1.0,'수출 가능 등급 계수') ON CONFLICT DO NOTHING;
+INSERT INTO weights(factor,weight,note) VALUES ('tier2',0.7,'조건부 수출 가능 등급 계수') ON CONFLICT DO NOTHING;
 INSERT INTO weights(factor,weight,note) VALUES ('domestic_development',0.8,'동급 체계 독자 개발 중 감산 계수(요구서에 수치 없음, 조정용 기본값)') ON CONFLICT DO NOTHING;
 INSERT INTO schema_migrations(version,applied_at) VALUES (4, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ON CONFLICT DO NOTHING;

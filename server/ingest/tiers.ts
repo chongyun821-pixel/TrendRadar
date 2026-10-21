@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ExportControlRow, ExportTierRow, PairEventRow, SignalRow, SystemKey } from '../../shared/types';
 import { SYSTEM_KEYS } from '../../shared/types';
-import { classifyCountry, type ComponentControl } from '../../shared/tiers';
+import { classifyCountry, type ComponentControl, TIER_KO } from '../../shared/tiers';
 import { PROJECT_ROOT, repository } from '../store';
 import { selectRows } from '../collection';
 import { baseYear, countryIndex, load, type IngestOptions, type IngestResult } from './common';
@@ -43,8 +43,8 @@ export async function ingestTiers(opts: IngestOptions = {}): Promise<IngestResul
   const controls = [...dbControls.filter(c => !ref.controls.some(m => m.id === c.id)), ...(manual.rows.export_controls as ExportControlRow[])];
   const countries = [...new Set([...countryIndex().ids, ...records.map((r: any) => r.country)])].sort();
   const rows = buildTiers({ countries, controls, signals, events, components: ref.components, base: baseYear(opts), checkedAt });
-  const tally = [1, 2, 3].map(t => `${t}세계 ${rows.filter(r => r.system === '*' && r.tier === t).length}`).join(', ');
-  const notes = [...manual.notes, `국가 ${countries.length}개 판정(국가 단위): ${tally}`, '방산 협정 목록은 아직 수집하지 않아 한국산 인도 이력만으로 1세계 여부를 본다', '체계별 미국산 부품 여부는 data/reference/export-controls.json에서 수기로 채운다(현재 미확인)'];
-  if (!signals.length) notes.push('signals가 비어 있어 모든 국가가 이력 없음(2세계 이상)으로 판정됨. sipri-transfers를 먼저 실행하세요');
+  const tally = ([1, 2, 3] as const).map(t => `${TIER_KO[t]} ${rows.filter(r => r.system === '*' && r.tier === t).length}`).join(', ');
+  const notes = [...manual.notes, `국가 ${countries.length}개 판정(국가 단위): ${tally}`, '방산 협정 목록은 아직 수집하지 않아 한국산 인도 이력만으로 수출 가능 여부를 본다', '체계별 미국산 부품 여부는 data/reference/export-controls.json에서 수기로 채운다(현재 미확인)'];
+  if (!signals.length) notes.push('signals가 비어 있어 모든 국가가 이력 없음(조건부 수출 가능 이하)으로 판정됨. sipri-transfers를 먼저 실행하세요');
   return load(opts, TIER_SOURCE, { export_tiers: rows }, notes);
 }

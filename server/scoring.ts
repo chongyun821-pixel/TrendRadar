@@ -1,4 +1,5 @@
 /** 판단 점수(요구서 6장) 조회: 수집 테이블 + 기존 기록 예측을 묶어 shared/forecast.ts의 computeScore로 계산한다. */
+import { tierLabel } from '../shared/tiers';
 import type { Repository } from './store';
 import type { ScoreBreakdown, Seed, SystemKey } from '../shared/types';
 import { computeForecast, computeScore } from '../shared/forecast';
@@ -28,7 +29,7 @@ export async function scoreCase(repo: Repository, data: Seed, country: string, s
 }
 
 /** 지도·목록용 요약(점수, 회색 여부, 임박 연도, 통과 실패 사유) */
-export const scoreSummary = (s: ScoredCase) => ({ country: s.country, system: s.system, score: s.score, grey: s.grey, tier: s.tier, gate: s.gate.reason, imminenceYear: s.imminenceYear });
+export const scoreSummary = (s: ScoredCase) => ({ country: s.country, system: s.system, score: s.score, grey: s.grey, tier: s.tier, tierLabel: tierLabel(s.tier), gate: s.gate.reason, imminenceYear: s.imminenceYear });
 
 /** 보고서 양식 evidenceTable 형식의 케이스별 근거 표 */
 export function evidenceTable(s: ScoredCase) {
@@ -37,7 +38,7 @@ export function evidenceTable(s: ScoredCase) {
     title: `${s.countryKo} · ${s.systemKo} 근거 표`,
     header: {
       통과조건: s.gate.passed ? '통과' : `제외 — ${s.gate.reason}`,
-      고객등급: s.tier ? `${s.tier}세계 (계수 ${s.tierFactor})` : `미판정 (계수 ${s.tierFactor})`,
+      고객등급: `${tierLabel(s.tier)} (계수 ${s.tierFactor})`,
       독자개발: s.domestic ? `${({ none: '없음', development: '개발 중', production: '양산' } as const)[s.domestic]} (계수 ${s.domesticFactor})` : '자료 없음',
       판단점수: s.gate.passed ? `${s.score}/100 (항목 합 ${s.subtotal})` : '0 (제외)',
       승인필요: s.approvals.length ? s.approvals : ['없음'],

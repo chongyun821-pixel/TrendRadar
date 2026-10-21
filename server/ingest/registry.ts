@@ -28,7 +28,7 @@ export const INGEST_SOURCES: IngestSource[] = [
   { id: 'ucdp', ko: 'UCDP 국가 간 무력 충돌 사망자', fills: ['pair_events'], sourceIds: ['ucdp_brd'], seconds: 20, params: ['since', 'year', 'countries'], run: ingestUcdp },
   { id: 'gdelt', ko: 'GDELT 국가 쌍 적대 이벤트(월별)', fills: ['pair_events'], sourceIds: ['gdelt_events'], seconds: 240, params: ['months', 'countries'], run: ingestGdelt },
   { id: 'oryx', ko: 'Oryx 러시아·우크라이나 장비 손실', fills: ['consumption'], sourceIds: ['oryx_ukraine'], seconds: 30, params: ['side'], run: ingestOryx },
-  { id: 'tiers', ko: '고객 등급 판정(1·2·3세계)', fills: ['export_tiers', 'export_controls'], sourceIds: ['tier_rules_v1', 'ref_kr_controls'], seconds: 15, params: ['year', 'countries'], after: ['sipri-embargoes', 'itar', 'sipri-transfers', 'ucdp'], run: ingestTiers },
+  { id: 'tiers', ko: '고객 등급 판정(수출 가능·조건부·불가)', fills: ['export_tiers', 'export_controls'], sourceIds: ['tier_rules_v1', 'ref_kr_controls'], seconds: 15, params: ['year', 'countries'], after: ['sipri-embargoes', 'itar', 'sipri-transfers', 'ucdp'], run: ingestTiers },
   { id: 'tension', ko: '인접국 긴장도 산출', fills: ['neighbors'], sourceIds: ['tension_v1'], seconds: 30, params: ['asOf', 'countries'], after: ['ucdp', 'gdelt', 'sipri-milex', 'sipri-transfers'], run: ingestTension },
 ];
 export const ingestSource = (id: string) => INGEST_SOURCES.find(s => s.id === id);

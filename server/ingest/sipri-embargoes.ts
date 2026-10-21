@@ -12,7 +12,7 @@ export const SIPRI_EMBARGO_SOURCE = { id: 'sipri_embargoes', title: 'SIPRI Arms 
 const REGIME_BY_CAPTION: [RegExp, string][] = [[/^mandatory un/i, 'UN'], [/^non.mandatory un/i, 'OTHER'], [/^eu/i, 'EU'], [/other multilateral/i, 'OTHER']];
 /** 괄호 안이 나라 전체가 아닌 대상(무장단체·비정부군)을 뜻하는지 */
 const NON_STATE = /non-governmental|ngf|taliban|unita|rebel|forces|militia|al-qaida|isil|houthi|rsf|janjaweed|hezbollah|isis|\bfactions?\b|ecowas|states\)/i;
-/** 법적 구속력 없는 EU 정치 선언(국내 진압용 장비 등 한정). 국가 전체 금수가 아니라 status='partial'로 두어 2세계 승인 항목으로 남긴다 */
+/** 법적 구속력 없는 EU 정치 선언(국내 진압용 장비 등 한정). 국가 전체 금수가 아니라 status='partial'로 두어 조건부 수출 가능(승인 항목)으로 남긴다 */
 export const NON_BINDING = new Set(['EU:EGY', 'EU:CHN']);
 const isoDate = (s: string) => { const d = new Date(`${s.trim()} UTC`); return s.trim() && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null; };
 

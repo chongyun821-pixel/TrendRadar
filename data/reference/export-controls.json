@@ -1,10 +1,12 @@
 {
-  "note": "자동 수집(SIPRI 금수·ITAR 126.1)으로 채우지 못하는 수기 통제 목록과 체계별 미국산 부품 여부. usItar가 null이면 미확인이며 등급을 바꾸지 않고 승인 필요 항목에 '미확인'으로 남는다.",
+  "note": "자동 수집(SIPRI 금수·ITAR 126.1)으로 채우지 못하는 수기 통제 목록(regime MANUAL은 사유를 적은 수출 불가 지정)과 체계별 미국산 부품 여부. usItar가 null이면 미확인이며 등급을 바꾸지 않고 승인 필요 항목에 '미확인'으로 남는다.",
   "source": { "id": "ref_kr_controls", "url": "https://www.yestrade.go.kr", "confidence": 0.7 },
   "controls": [
     { "id": "KR:PRK", "country": "PRK", "regime": "KR", "name": "대북 전략물자 수출 금지", "status": "active" },
     { "id": "KR:RUS", "country": "RUS", "regime": "KR", "name": "대러 수출통제(2022~)", "status": "active", "started": "2022-02-28" },
-    { "id": "KR:BLR", "country": "BLR", "regime": "KR", "name": "대벨라루스 수출통제(2022~)", "status": "active", "started": "2022-03-07" }
+    { "id": "KR:BLR", "country": "BLR", "regime": "KR", "name": "대벨라루스 수출통제(2022~)", "status": "active", "started": "2022-03-07" },
+    { "id": "MANUAL:EGY", "country": "EGY", "regime": "MANUAL", "name": "수기 지정 수출 불가: 사업 판단상 수출 대상에서 제외(EU 2013 이집트 무기 수출 중단 선언 등 정치적 위험)", "status": "active" },
+    { "id": "MANUAL:CHN", "country": "CHN", "regime": "MANUAL", "name": "수기 지정 수출 불가: 사업 판단상 수출 대상에서 제외(EU 1989 대중 무기 금수 선언·전략 경쟁국)", "status": "active" }
   ],
   "components": [
     { "system": "sph", "usItar": null },

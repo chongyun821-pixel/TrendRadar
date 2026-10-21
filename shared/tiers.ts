@@ -1,10 +1,14 @@
-/** 고객 등급(1/2/3세계) 판정 규칙 (요구서 4장). 순수 함수이며 판정 근거를 tier_reasons에 남긴다. */
+/** 고객 등급(수출 가능·조건부 수출 가능·수출 불가) 판정 규칙 (요구서 4장). 순수 함수이며 판정 근거를 tier_reasons에 남긴다. */
 import type { ExportControlRow, SystemKey, Tier, TierReason, TierRecord } from './types';
 
-/** 3세계로 보는 제재·금수 체계. US-ITAR-126.1(d)(2)는 부분 제한이라 체계별 미국산 부품 여부로 다시 본다 */
-export const BLOCKING_REGIMES = ['UN', 'EU', 'US', 'US-ITAR-126.1(d)(1)', 'KR'] as const;
+/** 등급 표기. 저장 값은 1·2·3 그대로 둔다 */
+export const TIER_KO: Record<Tier, string> = { 1: '수출 가능', 2: '조건부 수출 가능', 3: '수출 불가' };
+export const tierLabel = (tier?: number | null) => tier === 1 || tier === 2 || tier === 3 ? TIER_KO[tier] : '미판정';
+
+/** 수출 불가로 보는 제재·금수 체계. MANUAL은 data/reference/export-controls.json의 수기 지정(사유 포함)이다. US-ITAR-126.1(d)(2)는 부분 제한이라 체계별 미국산 부품 여부로 다시 본다 */
+export const BLOCKING_REGIMES = ['UN', 'EU', 'US', 'US-ITAR-126.1(d)(1)', 'KR', 'MANUAL'] as const;
 export const PARTIAL_REGIMES = ['US-ITAR-126.1(d)(2)'] as const;
-export const REGIME_KO: Record<string, string> = { UN: 'UN 안보리 무기 금수', EU: 'EU 무기 금수', US: '미국 제재', 'US-ITAR-126.1(d)(1)': '미국 ITAR 126.1(d)(1) 거부 정책국', 'US-ITAR-126.1(d)(2)': '미국 ITAR 126.1(d)(2) 제한국', KR: '한국 수출통제 대상국', OTHER: '기타 다자 금수' };
+export const REGIME_KO: Record<string, string> = { UN: 'UN 안보리 무기 금수', EU: 'EU 무기 금수', US: '미국 제재', 'US-ITAR-126.1(d)(1)': '미국 ITAR 126.1(d)(1) 거부 정책국', 'US-ITAR-126.1(d)(2)': '미국 ITAR 126.1(d)(2) 제한국', KR: '한국 수출통제 대상국', MANUAL: '수기 지정(수출 불가)', OTHER: '기타 다자 금수' };
 
 export interface TierFacts {
   country: string;

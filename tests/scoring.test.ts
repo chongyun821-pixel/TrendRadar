@@ -34,7 +34,7 @@ describe('판단 점수 산식', () => {
     expect(s.imminenceYear).toBe(2028);
     expect(s.approvals).toEqual(['시험 승인']);
   });
-  it('3세계·독자 양산은 0점 회색, 개발 단계는 감점, DB 비중이 기본값을 덮어쓴다', () => {
+  it('수출 불가·독자 양산은 0점 회색, 개발 단계는 감점, DB 비중이 기본값을 덮어쓴다', () => {
     const signals = [{ id: 's', country: 'X', system: 'sam' as const, stage: 'selection' as const, published_at: '2026-01-01', confidence: 1 }];
     expect(computeScore({ country: 'X', system: 'sam', signals, tier: tierRow('X', 3) as ExportTierRow }, base)).toMatchObject({ score: 0, grey: true, gate: { passed: false } });
     expect(computeScore({ country: 'X', system: 'sam', signals, domestic: { country: 'X', system: 'sam', status: 'production', program: '자체 체계' } }, base)).toMatchObject({ score: 0, grey: true });
@@ -62,7 +62,7 @@ describe('get_score_breakdown·/api/scores', () => {
     expect(body.scores.find((s: any) => s.country === 'EGY')).toMatchObject({ score: 0, grey: true, tier: 3 });
     expect((await app.request('/api/scores')).status).toBe(400);
     expect(r.evidenceMarkdown).toContain('| 항목 | 비중 | 원점수 | 출처 신뢰도 | 점수 | 판단 내용 | 근거 ID |');
-    expect(r.evidenceMarkdown).toContain('- 고객등급: 1세계 (계수 1)');
+    expect(r.evidenceMarkdown).toContain('- 고객등급: 수출 가능 (계수 1)');
   });
   it('prepare_report 작성 자료에 케이스별 근거 표가 들어간다', async () => {
     const repo = repository(), conversation = await repo.createConversation(), runId = randomUUID();

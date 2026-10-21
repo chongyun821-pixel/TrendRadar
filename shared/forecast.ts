@@ -292,7 +292,7 @@ export function computeScore(input: ScoreInputs, base = new Date().getFullYear()
   const tier = input.tier?.tier ?? null;
   const reasons: TierReason[] = input.tier?.tier_reasons?.reasons || [];
   let gate: ScoreBreakdown['gate'] = { passed: true, reason: null, evidence: [] };
-  if (tier === 3) gate = { passed: false, reason: `3세계(수출 불가): ${reasons.filter(r => r.tier === 3).map(r => r.text).join(', ') || '제재·금수'}`, evidence: [evidenceId.tier(input.tier!)] };
+  if (tier === 3) gate = { passed: false, reason: `수출 불가: ${reasons.filter(r => r.tier === 3).map(r => r.text).join(', ') || '제재·금수'}`, evidence: [evidenceId.tier(input.tier!)] };
   else if (input.domestic?.status === 'production') gate = { passed: false, reason: `동급 체계 독자 양산: ${input.domestic.program || '프로그램 미상'}`, evidence: [evidenceId.domestic(input.domestic)] };
   const tierFactor = tier === 2 ? w.tier2 : tier === 1 ? w.tier1 : 1;
   const domesticFactor = input.domestic?.status === 'development' ? w.domestic_development : 1;

@@ -1,6 +1,6 @@
 /**
  * 미국 ITAR 22 CFR 126.1(d) 국가 목록 → export_controls. eCFR(ecfr.gov)은 자동 요청을 403/406으로 막아 Cornell LII 사본을 쓴다.
- * (d)(1) 거부 정책국은 3세계, (d)(2) 국가는 체계별 미국산 부품 여부에 따라 2·3세계로 판정한다(shared/tiers.ts).
+ * (d)(1) 거부 정책국은 수출 불가, (d)(2) 국가는 체계별 미국산 부품 여부에 따라 조건부 수출 가능 또는 수출 불가로 판정한다(shared/tiers.ts).
  * CLI: npm run ingest:itar -- [--dry-run] [--file 저장한.html]
  */
 import type { ExportControlRow } from '../../shared/types';

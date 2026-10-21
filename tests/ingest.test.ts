@@ -169,7 +169,14 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect((await tier('RUS')).tier).toBe(3); // 한국 수출통제(수기 목록)
     expect((await tier('POL')).tier).toBe(1);
     expect((await tier('POL')).tier_reasons.reasons[0].evidence).toContain('signals:sipri:POL:south-korea:k-9-thunder-155mm:2022');
-    expect((await tier('EGY')).tier).toBe(2); // EU 비구속 정치 선언은 승인 필요(2세계)
+    // 이집트·중국은 수기 지정으로 수출 불가(사유와 근거 ID 포함)
+    for (const c of ['EGY', 'CHN']) {
+      const t = await tier(c);
+      expect(t.tier).toBe(3);
+      const manual = t.tier_reasons.reasons.find(r => r.code === 'embargo:MANUAL');
+      expect(manual).toMatchObject({ tier: 3, evidence: [`export_controls:MANUAL:${c}`] });
+      expect(manual!.text).toContain('수출 불가');
+    }
     expect((await tier('IND')).tier_reasons.reasons.map(r => r.code)).toContain('conflict-party');
     expect((await tier('FRA')).tier).toBe(2); // 한국산 이력 없음
     expect((await tier('POL', 'laser')).tier_reasons.approvals).toContain('laser 체계의 미국산 부품 사용 여부 미확인');
