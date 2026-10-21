@@ -353,6 +353,7 @@ export function initChat(o: ChatOpts) {
             const name = event.name === 'cli.tool' ? event.data.toolName || event.data.item?.tool || event.data.item?.type || event.data.type : event.data.name;
             activity(toolActivity(String(name || '')));
           }
+          if (event.name === 'ingest.progress' && event.data?.message) activity(String(event.data.message));
           if (event.name === 'tool.error') progress.set(`자료 확인 실패: ${event.data.error}`);
           if (event.name === 'tool.complete') activity('결과 정리 중');
           if (event.name === 'model.request') activity('답변 준비 중');

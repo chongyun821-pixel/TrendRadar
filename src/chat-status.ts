@@ -2,6 +2,7 @@ type Activity = { message: string; startedAt?: string };
 
 export function toolActivity(name: string): string {
   const tool = name.toLowerCase().split(/__|\//).at(-1) || '';
+  if (/list_ingest_sources|run_ingest|get_ingest_run/.test(tool)) return '공개 자료 수집 중';
   if (/search_sources|firecrawl_search|web_search|x_search|xsearch/.test(tool)) return '자료 검색 중';
   if (/collect_source|firecrawl_scrape|read_source|source_read/.test(tool)) return '원문 확인 중';
   if (/save_source/.test(tool)) return '근거 보관 중';

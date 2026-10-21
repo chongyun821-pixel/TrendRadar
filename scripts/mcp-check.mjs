@@ -14,6 +14,9 @@ const r = await c.callTool({ name: 'forecast', arguments: { country: '폴란드'
 console.log('forecast(폴란드, 자주포):', r.content[0].text.slice(0, 160).replace(/\s+/g, ' '));
 const template = await c.callTool({ name: 'get_report_template', arguments: { format: 'pptx' } });
 if (JSON.parse(template.content[0].text).templates[0].id !== 'ppt-country-v1') throw new Error('파워포인트 양식 조회 실패');
+const ingest = JSON.parse((await c.callTool({ name: 'list_ingest_sources', arguments: {} })).content[0].text);
+if (!ingest.sources?.some(s => s.source === 'gdelt')) throw new Error('수집 출처 도구 연결 실패');
+console.log('list_ingest_sources:', ingest.sources.map(s => s.source).join(', '));
 await c.close();
 
 const port = 62399;

@@ -5,12 +5,12 @@
 ## 준비
 
 1. 빈 스키마라면 먼저 `npm run supabase -- migrate`로 초기 자료를 넣는다.
-2. `npm run supabase -- schema`로 대기 중인 마이그레이션(004: 수집 테이블, 장갑차→IFV 이름 변경, 레이저대공무기, 기본 비중)을 버전별 트랜잭션으로 적용한다. 같은 명령을 다시 실행해도 이미 적용한 버전은 건너뛴다. SQL 파일을 직접 실행하려면 `db/migrations/004_data_collection.postgres.sql`을 사용한다.
+2. `npm run supabase -- schema`로 대기 중인 마이그레이션(004: 수집 테이블, 장갑차→IFV 이름 변경, 레이저대공무기, 기본 비중 / 005: 수집 작업 기록 `ingest_runs`)을 버전별 트랜잭션으로 적용한다. 같은 명령을 다시 실행해도 이미 적용한 버전은 건너뛴다. SQL 파일을 직접 실행하려면 `db/migrations/004_data_collection.postgres.sql`을 사용한다.
 3. 로컬 SQLite(테스트·이전용)는 저장소를 열 때 같은 마이그레이션을 자동 적용한다.
 
 ## 실행
 
-모든 스크립트는 `--dry-run`(DB를 열지 않고 정규화 결과와 표본만 출력)과 `--file <경로>`(네트워크 대신 저장한 파일 사용)를 지원한다. 결과 요약은 JSON으로 출력한다.
+모든 스크립트는 `--dry-run`(DB를 열지 않고 정규화 결과와 표본만 출력), `--file <경로>`(네트워크 대신 저장한 파일 사용), `--countries POL,ROU`(국가 한정)를 지원한다. 결과 요약은 JSON으로 출력한다.
 
 | 명령 | 출처 | 적재 표 | 인증키 |
 |---|---|---|---|
@@ -28,6 +28,17 @@
 `npm run ingest:all`은 위 순서대로 실행하고 실패한 단계를 마지막에 보여준다(`--skip gdelt,oryx`로 제외). 등급·긴장도는 앞 단계 결과를 DB에서 읽으므로 드라이런에서도 DB 연결이 필요하다. 매월 `gdelt` → `tension` → `tiers` 순으로 다시 실행한다.
 
 주요 옵션: `--year`(기준 연도), `--since`(시작 연도), GDELT의 `--months 12 --days 1,8,15,22 --to 2026-09 --force`, Oryx의 `--side RUS|UKR`, SIPRI 국방비·UCDP의 `--url`(새 판 파일).
+
+## 채팅에서 실행
+
+채팅 모델(그록 빌드·코덱스는 procurement MCP, 나머지는 공용 도구)이 같은 라이브러리(`server/ingest/`)를 호출한다. CLI(`scripts/ingest/`)는 인자 해석만 하는 얇은 진입점이다.
+
+- `list_ingest_sources`: 출처별 채우는 표, 마지막 실행·적재, 저장 행 수.
+- `run_ingest(source, dryRun=true, countries, since, year, months, side, asOf, wait)`: 기본은 미리보기. `dryRun=false`면 적재하고 `changes`에 `@ingest:<출처>` 기록(근거: 출처 ID·주소·작업 id)을 남긴다.
+- `get_ingest_run(id, wait, cancel)`: 진행 확인·중지.
+- 작업은 백그라운드로 돌고 응답은 최대 `wait`초(기본 40, 최대 50) 기다린다. 넘으면 `status: running`과 id를 돌려준다. 진행 상황은 `ingest_runs`(005)와 대화 실행의 `ingest.progress` 이벤트로 채팅 상태줄에 표시한다.
+- 같은 출처는 동시에 하나만 실행한다(`ingest_runs`의 부분 고유 색인). 작업은 시작한 프로세스 안에서만 돌아서, 코덱스·그록의 MCP 프로세스가 끝나면 함께 멈추고 3분 동안 생존 신호가 없으면 다음 조회 때 `failed`로 정리된다. 긴 GDELT 수집은 같은 대화 안에서 `get_ingest_run`으로 이어 확인하거나 CLI로 실행한다.
+- 결과에는 표별 행 수와 표본 3행만 담는다.
 
 ## 출처별 주의
 

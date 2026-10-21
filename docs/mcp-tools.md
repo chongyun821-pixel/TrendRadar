@@ -50,6 +50,10 @@
 
 `get_score_breakdown(country, system)`은 통과 조건(3세계·독자 양산), 항목별 점수(비중 × 원점수 × 출처 신뢰도), 고객 등급 계수와 근거 ID(`표:키`), 보고서용 근거 표 마크다운을 반환한다. 지도는 `GET /api/scores?system=`으로 같은 점수를 받아 제외 국가를 회색으로 표시한다. `prepare_report`의 `evidenceTables`는 케이스별 근거 표 자료다. 수집 방법은 [데이터 수집 실행 안내](data-collection.md)를 따른다.
 
+## 공개 자료 수집
+
+`list_ingest_sources`로 출처(sipri-embargoes, itar, sipri-transfers, sipri-milex, worldbank, ucdp, gdelt, oryx, tiers, tension)와 마지막 실행을 보고, `run_ingest(source, dryRun?, countries?, since?, year?, months?, side?, asOf?, wait?)`로 실행한다. 기본은 미리보기(`dryRun=true`)이며 사용자가 반영을 요청할 때만 `dryRun=false`로 적재한다. 응답은 행 수와 표본 3행뿐이다. 오래 걸리면 `status: running`과 id를 돌려주므로 `get_ingest_run(id, wait?, cancel?)`으로 확인하거나 중지한다. 같은 출처는 동시에 하나만 실행된다. 자세한 동작은 [데이터 수집 실행 안내](data-collection.md#채팅에서-실행)를 따른다.
+
 ## API와 검증
 
 새 도구는 `POST /api/tools/{도구 이름}`에서도 사용한다. 요청 본문은 `{"conversationId":"대화 ID","args":{...},"appContext":{...}}` 형식이며 화면 맥락은 필요할 때 전달한다. 응답의 `result`에 도구 결과, `conversationId`와 `runId`에 실행 식별자를 반환한다. 기존 조회 API의 평면 인자는 호환된다.
