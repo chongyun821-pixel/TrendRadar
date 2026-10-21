@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Env } from './gemma';
+import type { Env } from './env';
 import type { Repository } from './store';
 import type { AppContext } from '../shared/app-context';
 

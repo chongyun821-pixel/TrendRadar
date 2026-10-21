@@ -3,7 +3,7 @@
  * node:* 모듈은 동적 import 로만 불러 Workers 번들에 들어가지 않게 한다.
  */
 import { systemPrompt, recentMessages, newOut, parseActionBlock, applyPageCalls, ACTION_BLOCK_GUIDE, type ChatIn, type ChatOut } from './agent';
-import type { Env } from './gemma';
+import type { Env } from './env';
 import { executions } from './execution';
 import { PROJECT_ROOT, DB_PATH, STORAGE_ROOT, DATABASE_KIND } from './store';
 
@@ -209,7 +209,7 @@ export async function localAvailability(env: Env): Promise<{ grok: boolean; code
 function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const e: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', ...extra };
   if (extra.PATH) for (const key of Object.keys(e)) if (key !== 'PATH' && key.toLowerCase() === 'path') delete e[key];
-  for (const k of ['GOOGLE_API_KEY', 'OPENROUTER_API_KEY', 'FIRECRAWL_API_KEY']) delete e[k];
+  for (const k of ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'FIRECRAWL_API_KEY']) delete e[k];
   return e;
 }
 function documentEnv(m: Mods, env: Env): Record<string, string> {

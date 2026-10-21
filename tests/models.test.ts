@@ -4,8 +4,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { chatOpenRouter, NEMOTRON_SUPER } from '../server/openrouter';
-import { FUNCTION_DECLARATIONS } from '../server/gemma';
-import { parseActionBlock, TOOL_DEFS, openaiTools } from '../server/agent';
+import { parseActionBlock, TOOL_DEFS, openaiTools, responsesTools } from '../server/agent';
 import { parseGrokStream, parseCodexJsonl, grokArgs, codexArgs, buildPrompt, removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName, isNodeRuntime, isAuthError, GROK_ENV } from '../server/cli';
 import { app } from '../server/app';
 import { pickModel } from '../src/chat';
@@ -15,12 +14,12 @@ const ok = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
 const user = (text: string) => ({ messages: [{ role: 'user' as const, text }] });
 
 describe('공유 도구 정의', () => {
-  it('Gemma functionDeclarations 와 OpenAI tools 가 같은 정의에서 나온다', () => {
+  it('OpenAI Responses 도구와 Chat Completions 도구가 같은 정의에서 나온다', () => {
     const names = TOOL_DEFS.map(t => t.name);
-    expect(FUNCTION_DECLARATIONS.map(f => f.name)).toEqual(names);
+    expect(responsesTools().map(f => f.name)).toEqual(names);
     expect(openaiTools().map(t => t.function.name)).toEqual(names);
     expect(names).toEqual(expect.arrayContaining(['set_mode', 'toggle_map_mode', 'focus_country', 'get_forecast', 'search_programs', 'get_lifespan', 'search_mro', 'write_report']));
-    expect((FUNCTION_DECLARATIONS.find(t => t.name === 'set_mode')!.parameters.properties as any).system.type).toBe('STRING');
+    expect((responsesTools().find(t => t.name === 'set_mode')!.parameters.properties as any).system.type).toBe('string');
     expect((openaiTools().find(t => t.function.name === 'toggle_map_mode')!.function.parameters.properties as any).flat.type).toBe('boolean');
   });
 });
@@ -222,12 +221,13 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
 });
 
 describe('모델 API', () => {
-  it('GET /api/models: 4개, 기본 젬마, LOCAL_CLI=0 이면 로컬 모델 숨김', async () => {
-    const r = await app.request('/api/models', {}, { LOCAL_CLI: '0' });
-    const j = await r.json();
-    expect(j.default).toBe('gemma');
-    expect(j.models.map((m: any) => m.name)).toEqual(['그록 빌드', '코덱스', '젬마', '네모트론']);
-    expect(j.models.filter((m: any) => m.available).map((m: any) => m.id)).toEqual(['gemma', 'nemotron']);
+  it('GET /api/models: 4개, 키에 따른 기본 모델, LOCAL_CLI=0 이면 로컬 모델 숨김', async () => {
+    const j = await (await app.request('/api/models', {}, { LOCAL_CLI: '0', OPENAI_API_KEY: 'k' })).json();
+    expect(j.default).toBe('gpt');
+    expect(j.models.map((m: any) => m.name)).toEqual(['그록 빌드', '코덱스', '지피티', '네모트론']);
+    expect(j.models.filter((m: any) => m.available).map((m: any) => m.id)).toEqual(['gpt', 'nemotron']);
+    expect((await (await app.request('/api/models', {}, { LOCAL_CLI: '0', OPENROUTER_API_KEY: 'k' })).json()).default).toBe('nemotron');
+    expect((await (await app.request('/api/models', {}, { LOCAL_CLI: '0' })).json()).default).toBe('gpt');
   });
   it('POST /api/chat model=nemotron 키 없음, 모르는 모델', async () => {
     const post = (b: unknown) => app.request('/api/chat', { method: 'POST', body: JSON.stringify(b), headers: { 'content-type': 'application/json' } }, { LOCAL_CLI: '0' });
@@ -237,7 +237,7 @@ describe('모델 API', () => {
     expect((await (await post({ model: 'grok', ...user('hi') })).json()).error).toBeTruthy();
   });
   it('!모델 이름 해석', () => {
-    const ms = [{ id: 'grok', name: '그록 빌드', available: true }, { id: 'gemma', name: '젬마', available: true }];
-    expect(pickModel('그록 빌드', ms)).toBe('grok'); expect(pickModel('코덱스', ms)).toBe('codex'); expect(pickModel('Gemma', ms)).toBe('gemma'); expect(pickModel('네모트론', ms)).toBe('nemotron'); expect(pickModel('foo', ms)).toBeNull();
+    const ms = [{ id: 'grok', name: '그록 빌드', available: true }, { id: 'gpt', name: '지피티', available: true }];
+    expect(pickModel('그록 빌드', ms)).toBe('grok'); expect(pickModel('코덱스', ms)).toBe('codex'); expect(pickModel('지피티', ms)).toBe('gpt'); expect(pickModel('GPT', ms)).toBe('gpt'); expect(pickModel('네모트론', ms)).toBe('nemotron'); expect(pickModel('foo', ms)).toBeNull();
   });
 });

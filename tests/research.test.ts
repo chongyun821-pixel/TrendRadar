@@ -10,7 +10,7 @@ import { attach } from '../server/attachments';
 import { app } from '../server/app';
 import { startRun, stopRun, recoverRuns } from '../server/runs';
 import { recentMessages, runTool } from '../server/agent';
-import { chat } from '../server/gemma';
+import { chatOpenAI as chat } from '../server/openai';
 import { computeForecast } from '../shared/forecast';
 import { contextMessages } from '../server/context';
 import { zipSync, strToU8 } from 'fflate';
@@ -179,10 +179,10 @@ describe('영속 채팅·비동기 실행', () => {
     expect(recentMessages({ messages: [{ role: 'user', text }] })[0].text).toHaveLength(3000);
     let n = 0;
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
-      expect(JSON.parse(init.body).generationConfig.maxOutputTokens).toBeUndefined();
-      return Response.json({ candidates: [{ content: { parts: ++n <= 5 ? [{ functionCall: { name: 'get_forecast', args: { country: '폴란드', system: '자주포' } } }] : [{ text }] } }] });
+      expect(JSON.parse(init.body).max_output_tokens).toBeUndefined();
+      return Response.json({ output: ++n <= 5 ? [{ type: 'function_call', call_id: `c${n}`, name: 'get_forecast', arguments: JSON.stringify({ country: '폴란드', system: '자주포' }) }] : [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] }] });
     }));
-    expect((await chat({ messages: [{ role: 'user', text: '질문' }] }, { GOOGLE_API_KEY: 'fake' })).reply).toBe(text);
+    expect((await chat({ messages: [{ role: 'user', text: '질문' }] }, { OPENAI_API_KEY: 'fake' })).reply).toBe(text);
     expect(n).toBe(6);
   });
   it('API로 대화 선택·메시지 복원·첨부·삭제와 보고서 저장', async () => {
@@ -230,7 +230,7 @@ describe('영속 채팅·비동기 실행', () => {
       init.signal.addEventListener('abort', () => reject(new Error('aborted'))); entered();
     })));
     const input = { conversationId: c.id, messages: [{ role: 'user' as const, text: '조사해줘' }] };
-    const run = await startRun(input, { GOOGLE_API_KEY: 'fake' });
+    const run = await startRun({ ...input, model: 'gpt' }, { OPENAI_API_KEY: 'fake' });
     await ready;
     const queued = await startRun({ ...input, messages: [{ role: 'user', text: '다음 조사' }] }, {});
     expect((await repo.one('SELECT status FROM runs WHERE id=?', queued.runId)).status).toBe('queued');

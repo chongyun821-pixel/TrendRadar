@@ -34,7 +34,7 @@ const hang = (init?: RequestInit) => new Promise<Response>((_, reject) => init?.
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('수집 채팅 도구', () => {
-  it('도구 정의가 공용 목록(젬마·네모트론·MCP)에 있고 상태 문구가 있다', () => {
+  it('도구 정의가 공용 목록(지피티·네모트론·MCP)에 있고 상태 문구가 있다', () => {
     const names = TOOL_DEFS.map(t => t.name);
     for (const n of ['list_ingest_sources', 'run_ingest', 'get_ingest_run']) { expect(names).toContain(n); expect(toolActivity(`procurement__${n}`)).toBe('공개 자료 수집 중'); }
     const run = TOOL_DEFS.find(t => t.name === 'run_ingest')!;

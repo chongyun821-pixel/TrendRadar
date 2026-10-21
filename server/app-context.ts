@@ -10,7 +10,7 @@ import type { ToolDef } from './agent';
 const system = z.enum(SYSTEM_KEYS);
 export const appContextSchema = z.object({
   screenId: z.string().uuid(), version: z.number().int().nonnegative(), conversationId: z.string().uuid().nullable(),
-  model: z.enum(['grok', 'codex', 'gemma', 'nemotron']), activeView: z.enum(['map', 'report']),
+  model: z.enum(['grok', 'codex', 'gpt', 'nemotron']), activeView: z.enum(['map', 'report']),
   mode: system.nullable(), flat: z.boolean(), focus: z.string().regex(/^[A-Z]{3}$/).nullable(),
   filters: z.object({ system: system.nullable() }).strict(),
   report: z.object({ id: z.string().uuid(), country: z.string().nullable(), system: system.nullable(), kind: z.literal('country-analysis'), basisDate: z.string(), dataVersion: z.number().int() }).nullable(),
@@ -29,7 +29,7 @@ export const APP_DEFS: ToolDef[] = [
   { name: 'switch_conversation', description: '대상 화면에 표시할 대화를 전환한다. 진행 중 작업의 저장 대상은 유지한다', properties: { ...target, conversationId: S('전환할 대화 ID'), expectedVersion: { type: 'integer' } }, required: ['conversationId'] },
   { name: 'create_conversation', description: '새 대화를 만든다. 화면 전환은 switch_conversation으로 요청한다', properties: { title: S('대화 제목') } },
   { name: 'delete_conversation', description: '대화를 삭제하고 원문 근거와 보고서 및 파일은 보존한다. 현재 실행 중인 대화는 중지 후 삭제한다', properties: { conversationId: S('삭제할 대화 ID') }, required: ['conversationId'] },
-  { name: 'set_chat_model', description: '지정한 화면의 다음 요청부터 사용할 모델을 변경한다', properties: { ...target, model: S('codex, grok, gemma, nemotron'), expectedVersion: { type: 'integer' } }, required: ['model'] },
+  { name: 'set_chat_model', description: '지정한 화면의 다음 요청부터 사용할 모델을 변경한다', properties: { ...target, model: S('codex, grok, gpt, nemotron'), expectedVersion: { type: 'integer' } }, required: ['model'] },
   { name: 'get_run_status', description: '실행 상태와 오류를 조회한다', properties: { runId: S('생략하면 현재 실행') } },
   { name: 'cancel_run', description: '실행에 중지를 요청한다. 자신의 종료를 기다리지 않는다', properties: { runId: S('생략하면 현재 실행') } },
 ];
@@ -123,7 +123,7 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
       await repo.deleteConversation(a.conversationId); return { ok: true, evidencePreserved: true };
     }
     case 'set_chat_model': {
-      const model = z.enum(['grok', 'codex', 'gemma', 'nemotron']).parse(a.model);
+      const model = z.enum(['grok', 'codex', 'gpt', 'nemotron']).parse(a.model);
       const { listModels } = await import('./models');
       if (!(await listModels(ctx.env)).some(m => m.id === model && m.available)) throw new Error('사용할 수 없는 모델');
       return requestAppCommand({ type: name, model }, a.screenId, a.expectedVersion);

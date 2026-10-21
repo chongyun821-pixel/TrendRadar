@@ -7,7 +7,7 @@ import { app } from '../server/app';
 import type { ChatIn } from '../server/agent';
 
 afterEach(() => vi.restoreAllMocks());
-const input = (conversationId: string, text: string): ChatIn => ({ conversationId, model: 'gemma', messages: [{ role: 'user', text }] });
+const input = (conversationId: string, text: string): ChatIn => ({ conversationId, model: 'gpt', messages: [{ role: 'user', text }] });
 const reply = (text: string) => ({ reply: text, reports: [], actions: [], tools: [] });
 const gate = () => {
   let release!: () => void;
@@ -72,7 +72,7 @@ describe('대화별 영속 요청 대기열', () => {
   it('재시작 때 미실행 요청과 접수 당시 문맥을 복원하며 대화 삭제는 대기도 취소한다', async () => {
     const repo = repository(), c = await repo.createConversation(), runId = randomUUID();
     const request = { ...input(c.id, '복원할 요청'), state: { focus: 'SAU', mode: 'ifv' } };
-    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'gemma', 'queued', now());
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'gpt', 'queued', now());
     await repo.event(runId, 'run.queued', request);
     const called = vi.spyOn(models, 'chatWith').mockResolvedValue(reply('복원 후 답변'));
     await recoverRuns({});
@@ -80,7 +80,7 @@ describe('대화별 영속 요청 대기열', () => {
     expect(called.mock.calls[0][0].state).toEqual({ focus: 'SAU', mode: 'ifv' });
     const blocker = randomUUID(), pending = randomUUID();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', blocker, c.id, 'mcp', 'running', now());
-    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', pending, c.id, 'gemma', 'queued', now());
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', pending, c.id, 'gpt', 'queued', now());
     await repo.event(pending, 'run.queued', input(c.id, '삭제 전 대기'));
     expect((await app.request(`/api/conversations/${c.id}`, { method: 'DELETE' })).status).toBe(200);
     expect(await repo.one('SELECT id FROM conversations WHERE id=?', c.id)).toBeUndefined();

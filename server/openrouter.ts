@@ -1,6 +1,6 @@
 /** 네모트론 슈퍼: OpenRouter와 공통 도구 정의를 사용한다. */
 import { openaiTools, systemPrompt, recentMessages, runTool, trim, newOut, parseActionBlock, PAGE_TOOLS, TOOL_DEFS, type ChatIn, type ChatOut } from './agent';
-import type { Env } from './gemma';
+import type { Env } from './env';
 import { executions } from './execution';
 import { imageAttachments } from './attachments';
 import { contextMessages, SUMMARY_PROMPT } from './context';

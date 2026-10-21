@@ -14,7 +14,7 @@ interface ChatOpts {
   refreshData(): Promise<void>;
 }
 export type ModelInfo = { id: string; name: string; available: boolean };
-const MODEL_ALIAS: Record<string, string> = { 그록: 'grok', 그록빌드: 'grok', grok: 'grok', 코덱스: 'codex', codex: 'codex', gpt: 'codex', 제마: 'gemma', gemma: 'gemma', 젬마: 'gemma', 네모트론: 'nemotron', nemotron: 'nemotron' };
+const MODEL_ALIAS: Record<string, string> = { 그록: 'grok', 그록빌드: 'grok', grok: 'grok', 코덱스: 'codex', codex: 'codex', 지피티: 'gpt', gpt: 'gpt', 쥐피티: 'gpt', chatgpt: 'gpt', 네모트론: 'nemotron', nemotron: 'nemotron' };
 export function pickModel(name: string, models: ModelInfo[]): string | null {
   const key = name.replace(/\s+/g, '').toLowerCase();
   return MODEL_ALIAS[key] || models.find(m => m.name.replace(/\s+/g, '').toLowerCase() === key || m.id === key)?.id || null;
@@ -52,7 +52,7 @@ export function initChat(o: ChatOpts) {
   let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false;
   let deliveryTarget = newTarget(), queueSignature = '';
   let queuedMessages: QueuedMessage[] = [];
-  let models: ModelInfo[] = [{ id: 'gemma', name: '젬마', available: true }], model = 'gemma';
+  let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], model = 'gpt';
   const screenId = crypto.randomUUID();
   let contextVersion = 0, contextSignature = '', activeView: 'map' | 'report' = 'map', currentReport: ReportRef | null = null;
   let reportEntries: ReportEntry[] = [];

@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto';
 import { executions, execution } from './execution';
 import { collectDocuments } from './artifacts';
 import { repository, now } from './store';
-import { chatWith } from './models';
+import { chatWith, DEFAULT_MODEL } from './models';
 import type { ChatIn, ChatOut } from './agent';
-import type { Env } from './gemma';
+import type { Env } from './env';
 import { runCommand } from '../src/commands';
 import { saveAppContext, reportTarget } from './app-context';
 
@@ -29,7 +29,7 @@ export async function recoverRuns(env: Env = {}) {
   for (const run of await repo.all("SELECT id,owner_pid,model FROM runs WHERE status IN ('running','stopping')")) {
     if (activeRuns.has(run.id)) continue;
     if (run.owner_pid) { try { process.kill(run.owner_pid, 0); if (run.owner_pid !== process.pid) continue; } catch { /* 종료된 프로세스 */ } }
-    else if (!['grok','codex','gemma','nemotron'].includes(run.model)) continue;
+    else if (!['grok','codex','gpt','nemotron'].includes(run.model)) continue;
     await repo.run("UPDATE runs SET status='interrupted', error='서버 재시작으로 중단됨. 대화에서 이어서 요청하세요.', ended_at=? WHERE id=?", now(), run.id);
   }
   watchQueue(env);
@@ -89,7 +89,7 @@ export async function startRun(input: ChatIn, env: Env) {
   const appContext = input.appContext ? await saveAppContext(repo, { ...input.appContext, conversationId }) : undefined;
   const request: ChatIn = { conversationId, model: input.model, messages: [{ role: 'user', text: last.text }], state: input.state, appContext };
   await queueTransaction(async () => {
-    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversationId, input.model || 'gemma', 'queued', now(), process.pid);
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversationId, input.model || DEFAULT_MODEL, 'queued', now(), process.pid);
     await repo.event(runId, 'run.queued', request);
     await repo.run('UPDATE conversations SET updated_at=? WHERE id=?', now(), conversationId);
     await repo.run("UPDATE conversations SET title=? WHERE id=? AND title='새 대화'", last.text.slice(0, 60), conversationId);
@@ -132,7 +132,7 @@ function executeRun(input: ChatIn, env: Env, runId: string) {
       const local = runCommand(last.text, names);
       let out: ChatOut;
       if (/^[!！]\s*(?:모델|model)(?:\s|$)/i.test(last.text)) {
-        out = { reply: `선택 모델: ${input.model || 'gemma'}`, reports: [], actions: [], tools: ['model'] };
+        out = { reply: `선택 모델: ${input.model || DEFAULT_MODEL}`, reports: [], actions: [], tools: ['model'] };
       } else if (local) {
         out = { reply: local.text || '', reports: local.report ? [local.report] : [], actions: local.actions, tools: ['command'] };
       } else {

@@ -85,7 +85,7 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
     const c = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)',runId,c.id,'test','running',now());
     const ctx = { repo, conversationId: c.id, runId, signal: controller.signal, env: {} };
-    const screen: AppContext = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'gemma', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
+    const screen: AppContext = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
     await saveAppContext(repo, screen);
     await executions.run({ ...ctx, appContext: screen }, async () => {
       expect(await runTool('get_app_context', {}, newOut())).toMatchObject({ request: { focus: 'POL' }, current: { state: { focus: 'POL' } } });

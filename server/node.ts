@@ -18,4 +18,4 @@ const root = new Hono();
 root.all('/api/*', c => api.fetch(c.req.raw, env));
 root.use('/*', serveStatic({ root: './dist' }));
 root.get('*', serveStatic({ path: './dist/index.html' }));
-serve({ fetch: root.fetch, port, hostname: env.HOST || '127.0.0.1' }, i => console.log(`무기조달사업예상 → http://localhost:${i.port}  (AI 키 ${env.GOOGLE_API_KEY ? '있음' : '없음'})`));
+serve({ fetch: root.fetch, port, hostname: env.HOST || '127.0.0.1' }, i => console.log(`무기조달사업예상 → http://localhost:${i.port}  (OpenAI 키 ${env.OPENAI_API_KEY ? '있음' : '없음'})`));

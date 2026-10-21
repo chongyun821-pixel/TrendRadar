@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
-import type { Env } from './gemma';
-import { listModels, DEFAULT_MODEL } from './models';
+import type { Env } from './env';
+import { listModels, defaultModel } from './models';
+import { GPT_MODEL } from './openai';
 import { TOOL_IMPLS, listForecasts, writeReport } from '../shared/tools';
 import { seed } from '../shared/data';
 import { repository, hash } from './store';
@@ -18,8 +19,8 @@ app.use('*', bodyLimit({ maxSize: 40 * 1024 * 1024, onError: c => c.json({ error
 app.use('*', async (_c, next) => { await repository().data(); await next(); });
 app.onError((e, c) => c.json({ error: e.message }, /찾을 수|파일 없음/.test(e.message) ? 404 : /진행 중|충돌/.test(e.message) ? 409 : 400));
 
-app.get('/health', c => c.json({ ok: true, storage: repository().kind, ai: !!c.env?.GOOGLE_API_KEY, openrouter: !!c.env?.OPENROUTER_API_KEY, model: c.env?.GEMMA_MODEL || 'gemma-4-26b-a4b-it', records: seed.records.length }));
-app.get('/models', async c => c.json({ default: DEFAULT_MODEL, models: await listModels(c.env ?? {}) }));
+app.get('/health', c => c.json({ ok: true, storage: repository().kind, ai: !!c.env?.OPENAI_API_KEY, openrouter: !!c.env?.OPENROUTER_API_KEY, model: c.env?.OPENAI_MODEL || GPT_MODEL, records: seed.records.length }));
+app.get('/models', async c => { const models = await listModels(c.env ?? {}); return c.json({ default: defaultModel(c.env ?? {}, models), models }); });
 app.get('/forecasts', c => c.json(listForecasts({ system: c.req.query('system') ?? undefined, limit: 100 })));
 app.get('/scores', async c => {
   const system = resolveSystem(c.req.query('system'));

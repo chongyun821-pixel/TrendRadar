@@ -5,6 +5,6 @@ compatibility_date = "2025-09-01"
 pages_build_output_dir = "./dist"
 
 [vars]
-GEMMA_MODEL = "gemma-4-26b-a4b-it"
+OPENAI_MODEL = "gpt-5.4-mini"
 
 # 이 설정은 로컬 DB를 Cloudflare에 연결하지 않는다. 비밀값은 로컬 .secrets에서만 관리한다.

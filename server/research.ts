@@ -30,8 +30,8 @@ export const RESEARCH_DEFS: ToolDef[] = [
   { name: 'update_assumptions', description: '단가·수명·환율 가정 변경. 모든 예측 재계산. 출처와 추정 표시 유지', properties: { payload: str('JSON: expectedRevision, systems?(부분 아닌 체계 메타 전체), fx?, reason, evidence[{path,sourceId,quote}], sources') }, required: ['payload'] },
   { name: 'research_history', description: '기존 조사·변경 전후·예측 이력 조회', properties: { country: str('국가명/ISO3'), system: str('체계') } },
   { name: 'conversation_read', description: '저장된 전체 대화·보고서에서 검색·재조회', properties: { query: str('포함 문자열, 생략하면 전체'), offset: { type: 'integer' }, limit: { type: 'integer' } } },
-  { name: 'firecrawl_search', description: '젬마·네모트론용 Firecrawl MCP 웹 검색. 요약은 원문과 구분해 저장', properties: { query: str('검색어') }, required: ['query'] },
-  { name: 'firecrawl_scrape', description: '젬마·네모트론용 Firecrawl MCP 원문 HTML/PDF 읽기 및 보존', properties: { url: str('원문 URL') }, required: ['url'] },
+  { name: 'firecrawl_search', description: '지피티·네모트론용 Firecrawl MCP 웹 검색. 요약은 원문과 구분해 저장', properties: { query: str('검색어') }, required: ['query'] },
+  { name: 'firecrawl_scrape', description: '지피티·네모트론용 Firecrawl MCP 원문 HTML/PDF 읽기 및 보존', properties: { url: str('원문 URL') }, required: ['url'] },
 ];
 
 const refs = z.array(z.string());

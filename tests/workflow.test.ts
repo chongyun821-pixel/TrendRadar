@@ -18,7 +18,7 @@ async function fixture() {
   await repo.data();
   const c = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
   await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test', 'running', now());
-  const state: AppContext = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'gemma', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: 1 };
+  const state: AppContext = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: 1 };
   await saveAppContext(repo, state);
   return { repo, state, controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {}, appContext: state } };
 }

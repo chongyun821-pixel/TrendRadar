@@ -5,7 +5,7 @@ import { executions } from './execution';
 import { loadDevVars } from './devvars';
 import { runTool, newOut } from './agent';
 import type { AppContext } from '../shared/app-context';
-import type { Env } from './gemma';
+import type { Env } from './env';
 import { saveAppContext } from './app-context';
 
 export async function executeTool(name: string, args: Record<string, any>, options: { conversationId?: string; runId?: string; env?: Env; appContext?: AppContext } = {}) {
