@@ -4,7 +4,6 @@ import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import { RESEARCH_DEFS, researchTool } from './research';
 import { executions } from './execution';
 import { randomUUID } from 'node:crypto';
-import { now } from './store';
 import type { ArtifactDownload } from './artifacts';
 import type { AppContext, ReportRef } from '../shared/app-context';
 import { APP_DEFS, appTool, requestAppCommand } from './app-context';
@@ -12,6 +11,8 @@ import { SOURCE_DEFS, sourceTool } from './sources';
 import { NORMALIZATION_DEFS, normalizationTool } from './normalization';
 import { REPORT_DEFS, reportTool } from './reporting';
 import { computeForecast } from '../shared/forecast';
+import { now, repository } from './store';
+import { scoreCase } from './scoring';
 
 export type ModelId = 'grok' | 'codex' | 'gemma' | 'nemotron';
 export interface ChatIn { model?: string; conversationId?: string; runId?: string; signal?: AbortSignal; messages: { role: 'user' | 'model'; text: string }[]; state?: { mode?: string | null; flat?: boolean; focus?: string | null }; appContext?: AppContext }
@@ -41,6 +42,7 @@ export const TOOL_DEFS: ToolDef[] = [
   { name: 'get_inventory', description: '국가·체계별 보유 모델·수량·도입 연도와 추정 표시', properties: { country: S('국가명'), system: S('체계') } },
   { name: 'get_lifespan', description: '설계 수명과 모델별 교체 시점', properties: { system: S('체계'), model: S('모델명 일부') } },
   { name: 'search_mro', description: '정비·성능개량·수명연장 기록', properties: { country: S('국가명'), model: S('모델명 일부') } },
+  { name: 'get_score_breakdown', description: '국가·체계의 100점 판단 점수: 통과 조건(3세계·독자 양산), 항목별 점수(비중×원점수×출처 신뢰도), 등급 계수와 근거 ID(표:키)', properties: { country: S('국가명'), system: S('체계') }, required: ['country', 'system'] },
   { name: 'write_report', description: '국가 보고서 작성(화면에 자동 표시)', properties: { country: S('국가명'), system: S('체계(생략 시 전체)') }, required: ['country'] },
 ];
 export const PAGE_TOOLS = new Set(['set_mode', 'toggle_map_mode', 'focus_country', 'write_report', 'set_map_state']);
@@ -101,6 +103,12 @@ export async function runTool(name: string, args: Record<string, any>, out: Chat
       if (name === 'get_country_analysis' && !country) return { error: '국가를 지정하세요' };
       const records = data.records.filter(r => (!country || r.country === country) && (!system || r.system === system));
       return { revision: snapshot?.revision, records, forecasts: records.map(r => computeForecast(r, data)), ...(name === 'get_country_analysis' ? { analysis: writeReport({ country: country!, system: system || undefined }, data) } : {}) };
+    }
+    case 'get_score_breakdown': {
+      const data = snapshot?.data || seed;
+      const country = resolveCountry(args.country), system = resolveSystem(args.system);
+      if (!country || !system) return { error: '국가와 무기체계를 확인하세요' };
+      return { revision: snapshot?.revision, ...(await scoreCase(ctx?.repo ?? repository(), data, country, system)) };
     }
     case 'set_mode': {
       const s = isGeneral(args.system) || args.system == null || args.system === '' ? null : resolveSystem(args.system);

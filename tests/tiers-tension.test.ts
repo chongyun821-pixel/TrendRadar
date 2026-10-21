@@ -17,6 +17,9 @@ describe('고객 등급 규칙', () => {
     expect(classifyTier(facts({ country: 'RUS', controls: [control('RUS', 'KR')] })).record.reasons[0].evidence).toEqual(['export_controls:KR:RUS']);
     expect(classifyTier(facts({ controls: [control('POL', 'EU', 'lifted')] })).tier).toBe(1);
     expect(classifyTier(facts({ controls: [control('ROU', 'UN')] })).tier).toBe(1); // 다른 나라 행
+    const partial = classifyTier(facts({ country: 'LBN', controls: [control('LBN', 'UN', 'partial')] }));
+    expect(partial.tier).toBe(2); // 비국가 대상·비구속 금수는 승인 필요
+    expect(partial.record.reasons[0].code).toBe('partial:UN');
   });
   it('ITAR (d)(2)는 미국산 부품이 있는 체계만 3세계, 나머지는 2세계', () => {
     const f = facts({ country: 'CYP', controls: [control('CYP', 'US-ITAR-126.1(d)(2)')] });

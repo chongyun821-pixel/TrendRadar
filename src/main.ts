@@ -11,6 +11,9 @@ export const CAT_COLOR: Record<Category, string> = { red: '#ff453a', orange: '#f
 const hex = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 
 const state = { mode: null as SystemKey | null, flat: false, focus: null as string | null, pinned: false };
+/** 현재 모드의 판단 점수(/api/scores). 통과 조건에 걸린 나라는 회색으로 칠한다 */
+interface ScoreSummary { country: string; score: number; grey: boolean; gate: string | null }
+const scores = new Map<string, ScoreSummary>();
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 
 async function boot() {
@@ -64,16 +67,26 @@ async function boot() {
     const fs = allForecasts(state.mode);
     const colors = new Map<string, [number, number, number]>();
     const base: [number, number, number] = [0.09, 0.12, 0.16];
-    for (const f of fs) {
-      const c = hex(CAT_COLOR[f.category]); const k = f.category === 'gray' ? 0.55 : 0.42 + 0.5 * f.size;
-      colors.set(f.country, [base[0] + (c[0] - base[0]) * k, base[1] + (c[1] - base[1]) * k, base[2] + (c[2] - base[2]) * k]);
-    }
+    const mix = (h: string, k: number): [number, number, number] => { const c = hex(h); return [base[0] + (c[0] - base[0]) * k, base[1] + (c[1] - base[1]) * k, base[2] + (c[2] - base[2]) * k]; };
+    for (const f of fs) colors.set(f.country, f.category === 'gray' ? mix(CAT_COLOR.gray, 0.55) : mix(CAT_COLOR[f.category], 0.42 + 0.5 * f.size));
+    for (const s of scores.values()) if (s.grey) colors.set(s.country, mix(CAT_COLOR.gray, 0.55));
     globe.setBaseColors(colors, true);
-    globe.setSpikes(fs.filter(f => f.status !== 'none').map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: CAT_COLOR[f.category], size: f.size })));
+    globe.setSpikes(fs.filter(f => f.status !== 'none' && !scores.get(f.country)?.grey).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: CAT_COLOR[f.category], size: f.size })));
     if (state.pinned && state.focus) tip.innerHTML = tipHtml(state.focus, names);
   }
+  async function loadScores() {
+    const mode = state.mode;
+    scores.clear();
+    if (!mode) return;
+    try {
+      const response = await fetch(`/api/scores?system=${mode}`, { cache: 'no-store' });
+      if (!response.ok || state.mode !== mode) return;
+      for (const s of (await response.json()).scores as ScoreSummary[]) scores.set(s.country, s);
+      applyMode();
+    } catch { /* 점수 없이 기존 히트맵만 표시 */ }
+  }
   function mapChanged() { dispatchEvent(new Event('radar:map-state')); }
-  function setMode(sys: SystemKey | null) { state.mode = sys; applyMode(); if (state.focus) chat.suggest(state.focus); mapChanged(); }
+  function setMode(sys: SystemKey | null) { state.mode = sys; applyMode(); void loadScores(); if (state.focus) chat.suggest(state.focus); mapChanged(); }
   function toggleMap(flat?: boolean) {
     state.flat = flat ?? !state.flat; globe.setFlat(state.flat); unpin();
     $('#mapBtn').classList.toggle('on', state.flat);
@@ -108,7 +121,7 @@ async function boot() {
     refreshData: async () => {
       await refreshData();
       for (const [iso, c] of Object.entries(seed.countries)) names[iso] = c.ko;
-      applyMode();
+      applyMode(); void loadScores();
       if (state.focus) { tip.innerHTML = tipHtml(state.focus, names); chat.suggest(state.focus); }
     },
   });
@@ -129,7 +142,7 @@ async function boot() {
     try {
       const result = await fetch('/api/data/version', { cache: 'no-store' });
       const version = await result.json();
-      if (String(version.revision) !== dataVersion) { await refreshData(); for (const [id, c] of Object.entries(seed.countries)) names[id] = c.ko; applyMode(); }
+      if (String(version.revision) !== dataVersion) { await refreshData(); for (const [id, c] of Object.entries(seed.countries)) names[id] = c.ko; applyMode(); void loadScores(); }
     } catch { /* 다음 활성화·주기 확인에서 재시도 */ }
   };
   setInterval(checkData, 5000);
@@ -152,7 +165,9 @@ function tipHtml(id: string, names: Record<string, string>) {
   }
   const rec = findRecord(id, mode);
   const sysKo = esc(seed.systems[mode].ko);
-  if (!rec) return `<div class="th">${esc(meta?.flag ?? '')} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR.gray}">데이터 없음</span></div>`;
+  const sc = scores.get(id);
+  const scoreRow: [string, string] | null = sc ? ['판단 점수', sc.grey ? `제외 · ${esc((sc.gate || '').slice(0, 60))}` : `${sc.score}/100`] : null;
+  if (!rec) return `<div class="th">${esc(meta?.flag ?? '')} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR.gray}">${sc?.grey ? '제외' : '데이터 없음'}</span></div>${scoreRow ? `<table><tr><th>${scoreRow[0]}</th><td>${scoreRow[1]}</td></tr></table>` : ''}`;
   const f = computeForecast(rec);
   const cur = f.current;
   const be = (b: { est: string[] }, k: string) => b.est.includes(k);
@@ -166,6 +181,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   if (rec.plan) rows.push(['사업 계획', esc(rec.plan.text)]);
   if (f.status !== 'none') rows.push(['예상 사업', `${f.qty[0].toLocaleString()}~${f.qty[1].toLocaleString()}${esc(f.unit)} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
+  if (scoreRow) rows.push(scoreRow);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
   return `<div class="th">${esc(meta.flag)} ${name} · ${sysKo}<span class="badge" style="--c:${CAT_COLOR[f.category]}">${CATEGORY_KO[f.category]}</span></div>
     <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>

@@ -10,6 +10,8 @@ import { bodyLimit } from 'hono/body-limit';
 import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand, reportTarget } from './app-context';
 import { TOOL_DEFS } from './agent';
 import { executeTool } from './tool-session';
+import { scoreSystem, scoreSummary } from './scoring';
+import { resolveSystem } from '../shared/data';
 
 export const app = new Hono<{ Bindings: Env }>().basePath('/api');
 app.use('*', bodyLimit({ maxSize: 40 * 1024 * 1024, onError: c => c.json({ error: '첨부는 요청당 40MB까지 가능합니다' }, 413) }));
@@ -19,6 +21,12 @@ app.onError((e, c) => c.json({ error: e.message }, /찾을 수|파일 없음/.te
 app.get('/health', c => c.json({ ok: true, storage: repository().kind, ai: !!c.env?.GOOGLE_API_KEY, openrouter: !!c.env?.OPENROUTER_API_KEY, model: c.env?.GEMMA_MODEL || 'gemma-4-26b-a4b-it', records: seed.records.length }));
 app.get('/models', async c => c.json({ default: DEFAULT_MODEL, models: await listModels(c.env ?? {}) }));
 app.get('/forecasts', c => c.json(listForecasts({ system: c.req.query('system') ?? undefined, limit: 100 })));
+app.get('/scores', async c => {
+  const system = resolveSystem(c.req.query('system'));
+  if (!system) return c.json({ error: '체계를 지정하세요' }, 400);
+  const repo = repository(), snapshot = await repo.versionedData();
+  return c.json({ revision: snapshot.revision, system, scores: (await scoreSystem(repo, snapshot.data, system)).map(scoreSummary) }, 200, { 'cache-control': 'no-store' });
+});
 app.get('/report', c => { const r = writeReport({ country: c.req.query('country'), system: c.req.query('system') }); return 'error' in r ? c.json(r, 404) : c.text(r.markdown, 200, { 'content-type': 'text/markdown; charset=utf-8' }); });
 app.get('/data', async c => {
   const snapshot = await repository().versionedData();

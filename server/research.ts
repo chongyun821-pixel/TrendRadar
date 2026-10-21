@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import { computeForecast } from '../shared/forecast';
+import { computeForecast, SOURCE_CONFIDENCE } from '../shared/forecast';
 import { resolveCountry, resolveSystem } from '../shared/data';
 import type { ProgramRecord, Seed } from '../shared/types';
 import { SYSTEM_KEYS } from '../shared/types';
@@ -12,6 +12,10 @@ import { execution } from './execution';
 import { PROJECT_ROOT, now, hash } from './store';
 import type { ToolDef } from './agent';
 import { publishArtifact } from './artifacts';
+import { upsertRows } from './collection';
+import { scoreCase } from './scoring';
+import type { Repository } from './store';
+import type { SignalRow } from '../shared/types';
 
 const str = (description: string) => ({ type: 'string' as const, description });
 export const RESEARCH_DEFS: ToolDef[] = [
@@ -49,7 +53,13 @@ const publishedDate = z.union([z.string().date(), z.string().datetime({ offset: 
 const sourceSchema = z.object({ t: z.string().min(1), u: z.string().url(), y: z.number().int().min(0).max(2300), publishedAt: publishedDate.nullable().optional(), collectedAt: z.string().datetime({ offset: true }), filePath: z.string(), hash: z.string().regex(/^[0-9a-f]{64}$/), kind: z.enum(['original','attachment']), excerpt: z.string().optional() });
 const evidenceSchema = z.array(z.object({ path: z.string(), sourceId: z.string(), quote: z.string().min(1) })).min(1);
 const countrySchema = z.object({ ko: z.string().min(1), flag: z.string(), lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
-export const submissionSchema = z.object({ record: recordSchema, expectedVersion: z.number().int().nonnegative(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1), asOf: z.string().date(), countryMeta: countrySchema.optional(), rulesVersion: z.literal('normalization-v1').optional() }).strict();
+/** 조사 결과의 signals 추출 형식(템플릿 'signals 추출'). 행마다 원문 인용이 있어야 하며 signals 표에 upsert된다 */
+export const signalRowSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/), stage: z.enum(['review', 'tender', 'selection', 'contract', 'delivery', 'cancelled']),
+  model: z.string().optional(), maker: z.string().optional(), supplier: z.string().optional(), quantity: count.optional(), value_usd_m: count.optional(), expected_year: year.optional(),
+  published_at: publishedDate.nullable().optional(), sourceType: z.enum(['official', 'specialist', 'news']), sourceId: z.string().min(1), quote: z.string().min(1), note: z.string().max(500).optional(),
+}).strict();
+export const submissionSchema = z.object({ record: recordSchema, signalRows: z.array(signalRowSchema).max(50).optional(), expectedVersion: z.number().int().nonnegative(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1), asOf: z.string().date(), countryMeta: countrySchema.optional(), rulesVersion: z.literal('normalization-v1').optional() }).strict();
 
 async function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchema>>, evidence: z.infer<typeof evidenceSchema>) {
   const ctx = await execution();
@@ -78,20 +88,34 @@ async function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchem
     if (!texts[e.sourceId]?.includes(e.quote)) throw new Error(`${e.path}: 저장 원문에 인용문이 없음`);
   }
 }
+/** 공급국 표기 → ISO3. 한국은 그룹사 판정(supplier='KOR')에 쓰이므로 한·영 표기를 모두 받는다 */
+const KOREA = /^(kor|korea|south korea|republic of korea|rok|대한민국|한국)$/i;
+export const supplierId = (s?: string) => s == null ? undefined : KOREA.test(s.trim()) ? 'KOR' : resolveCountry(s) ?? (/^[A-Z]{3}$/.test(s.trim()) ? s.trim() : s);
+const signalEvidence = (rows: z.infer<typeof signalRowSchema>[] = []) => rows.map((r, i) => ({ path: `signalRows.${i}`, sourceId: r.sourceId, quote: r.quote }));
+/** signals 추출 행 → signals 표. 신뢰도는 출처 유형(공식 1.0, 전문 0.7, 뉴스 0.4), 수집일은 출처의 collectedAt */
+async function applySignalRows(repo: Repository, rec: ProgramRecord, rows: z.infer<typeof signalRowSchema>[], sources: Seed['sources'], date: string) {
+  if (new Set(rows.map(r => r.id)).size !== rows.length) throw new Error('중복 signalRows ID');
+  for (const r of rows) if (!sources[r.sourceId]) throw new Error(`signalRows: 없는 출처 ${r.sourceId}`);
+  return upsertRows(repo, 'signals', rows.map((r): Partial<SignalRow> => ({
+    id: `research:${rec.country}:${rec.system}:${r.id}`, country: rec.country, system: rec.system, model: r.model, maker: r.maker, supplier: supplierId(r.supplier),
+    stage: r.stage, quantity: r.quantity, value_usd_m: r.value_usd_m, expected_year: r.expected_year, published_at: r.published_at ?? null, url: sources[r.sourceId].u,
+    note: r.note ?? r.quote.slice(0, 300), source_id: r.sourceId, confidence: SOURCE_CONFIDENCE[r.sourceType], collected_at: sources[r.sourceId].collectedAt || date,
+  })));
+}
 function sourceIds(rec: ProgramRecord): string[] {
   return [...rec.src, ...rec.batches.flatMap(b => b.src), ...(rec.awarded?.src || []), ...(rec.plan?.src || []), ...(rec.mro || []).flatMap(x => x.src), ...(rec.signals || []).flatMap(x => x.src), ...(rec.projects || []).flatMap(x => x.src)];
 }
 export async function submitResearch(raw: unknown, options: { dryRun?: boolean; idempotent?: boolean } = {}) {
   const ctx = await execution(), repo = ctx.repo;
   const p = submissionSchema.parse(raw), rec = p.record;
-  await sourcesChecked(p.sources, p.evidence);
+  await sourcesChecked(p.sources, [...p.evidence, ...signalEvidence(p.signalRows)]);
   const projects = rec.projects || [];
   if (new Set(projects.map(x => x.id)).size !== projects.length) throw new Error('중복 사업 ID');
   if (projects.some(x => x.buyer !== rec.country)) throw new Error('사업 구매국은 record.country ISO3와 같아야 합니다');
   return await repo.transaction(async () => {
     await execution();
     ctx.signal.throwIfAborted();
-    await sourcesChecked(p.sources, p.evidence);
+    await sourcesChecked(p.sources, [...p.evidence, ...signalEvidence(p.signalRows)]);
     const old = await repo.one('SELECT * FROM records WHERE country=? AND system=?', rec.country, rec.system);
     const collision = await repo.one('SELECT country,system FROM records WHERE id=?', rec.id);
     if (collision && (collision.country !== rec.country || collision.system !== rec.system)) throw new Error('다른 국가·체계에서 쓰는 record ID');
@@ -106,7 +130,18 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     const cancelled = projects.filter(x => x.stage === 'cancelled' && oldProjects.some((p: any) => p.id === x.id && p.stage !== 'cancelled'));
     if (cancelled.length && ((before?.awarded && JSON.stringify(before.awarded) === JSON.stringify(rec.awarded)) || (before?.plan && JSON.stringify(before.plan) === JSON.stringify(rec.plan)))) throw new Error('취소 사업의 awarded/plan 계산 입력을 재검토·정정하세요');
     const changed = [...new Set([...Object.keys(before || {}), ...Object.keys(rec)])].filter(k => JSON.stringify(before?.[k]) !== JSON.stringify((rec as any)[k]));
-    if (!changed.length) return { ok: true, unchanged: true, version: old.version, ...(options.dryRun ? { valid: true, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true } : {}) };
+    if (!changed.length) {
+      // 기록은 그대로이고 signals 추출 행만 있으면 출처를 검사해 signals 표만 갱신한다
+      if (p.signalRows?.length) {
+        const known = (await repo.data()).sources;
+        for (const [id, s] of Object.entries(p.sources)) if (known[id] && (known[id].u !== s.u || (known[id].hash && known[id].hash !== s.hash))) throw new Error('기존 출처 ID 덮어쓰기 금지. 새 버전 ID 사용');
+        for (const r of p.signalRows) if (!known[r.sourceId] && !p.sources[r.sourceId]) throw new Error(`signalRows: 없는 출처 ${r.sourceId}`);
+        if (options.dryRun) return { ok: true, unchanged: true, valid: true, signalRows: p.signalRows.length, version: old.version, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true };
+        for (const [id, s] of Object.entries(p.sources)) await repo.run('INSERT INTO sources VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', id, JSON.stringify(s));
+        return { ok: true, unchanged: true, version: old.version, signals: await applySignalRows(repo, rec, p.signalRows, { ...known, ...p.sources }, now()) };
+      }
+      return { ok: true, unchanged: true, version: old.version, ...(options.dryRun ? { valid: true, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true } : {}) };
+    }
     for (const field of changed.filter(k => !['id','country','system','src'].includes(k))) if (!p.evidence.some(e => e.path === field || e.path.startsWith(`${field}.`))) throw new Error(`${field}: 변경 근거 누락`);
     const data = await repo.data();
     if (data.countries[rec.country] && p.countryMeta && JSON.stringify(data.countries[rec.country]) !== JSON.stringify(p.countryMeta)) throw new Error('countryMeta는 신규 국가에만 사용하세요');
@@ -114,7 +149,8 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     const allSources = { ...data.sources, ...p.sources };
     for (const id of sourceIds(rec)) if (!allSources[id]) throw new Error(`없는 출처 ${id}`);
     for (const e of p.evidence) if (!sourceIds(rec).includes(e.sourceId)) throw new Error('변경 근거를 record src에도 연결하세요');
-    if (options.dryRun) return { ok: true, valid: true, changed, expectedVersion: p.expectedVersion, rulesVersion: 'normalization-v1', semanticReviewRequired: true };
+    for (const r of p.signalRows || []) if (!allSources[r.sourceId]) throw new Error(`signalRows: 없는 출처 ${r.sourceId}`);
+    if (options.dryRun) return { ok: true, valid: true, changed, expectedVersion: p.expectedVersion, rulesVersion: 'normalization-v1', semanticReviewRequired: true, ...(p.signalRows ? { signalRows: p.signalRows.length } : {}) };
     if (p.countryMeta && !data.countries[rec.country]) await repo.run('INSERT INTO countries(id,data) VALUES (?,?)', rec.country, JSON.stringify(p.countryMeta));
     for (const [id, s] of Object.entries(p.sources)) {
       const existing = data.sources[id];
@@ -128,11 +164,14 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     await repo.run('INSERT INTO records VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data,version=excluded.version,updated_at=excluded.updated_at', rec.id, rec.country, rec.system, JSON.stringify(rec), version, date);
     await repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', rec.id, ctx.runId, before ? JSON.stringify(before) : null, JSON.stringify(rec), p.reason, JSON.stringify(p.evidence), date);
     await repo.run('INSERT INTO research VALUES(?,?,?,?,?,?)', randomUUID(), ctx.runId, rec.id, p.rulesVersion ? `research-v1/${p.rulesVersion}` : 'v1', JSON.stringify(p), date);
-    await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision() + 1, JSON.stringify({ before: previousForecast, after: forecast }), date);
+    const signals = p.signalRows?.length ? await applySignalRows(repo, rec, p.signalRows, allSources, date) : 0;
+    // 판단 점수(항목별 점수·근거 ID)를 예측과 함께 보존해 리포트에서 인용한다
+    const score = await scoreCase(repo, { ...snapshot, records: [...data.records.filter(r => r.id !== rec.id), rec] }, rec.country, rec.system);
+    await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision() + 1, JSON.stringify({ before: previousForecast, after: forecast, score }), date);
     await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
     const meta = { ...data.meta, collected: date };
     await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(meta));
-    return { ok: true, version, changed, previousForecast, forecast, reason: p.reason };
+    return { ok: true, version, changed, previousForecast, forecast, score: { score: score.score, grey: score.grey, gate: score.gate.reason, evidenceIds: score.evidenceIds }, signals, reason: p.reason };
   }, ctx.signal);
 }
 

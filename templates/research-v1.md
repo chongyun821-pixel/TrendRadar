@@ -12,3 +12,5 @@
 
 Source 형식: { t: 제목, u: URL, y: 연도(발행일 미확인은 0), publishedAt: ISO 날짜|null, collectedAt: 수집시각, filePath: 작업폴더 상대경로, hash: SHA256, kind: original|attachment, excerpt?: 인용문 }.
 record 형식과 systems 단가·수명·환율 가정은 research_procurement 결과를 따른다. 새로운 무기체계는 현재 7개 분류(sph·ifv·sam·mrl·frigate·ssk·laser) 안에 넣는다. IFV는 기존 장갑차 ID인 ifv를 그대로 쓴다. 단가·환율 변경은 update_assumptions로 별도 근거와 함께 반영한다.
+
+signals 추출(판단 점수용): 도입 의사·사업 단계 신호는 payload.signalRows 배열로 함께 제출한다. 행 형식: { id: 같은 사업은 같은 ID(영문·숫자·._:-), stage: review(검토)|tender(입찰)|selection(선정 대기)|contract(계약)|delivery(인도)|cancelled(취소), model?, maker?, supplier?(공급국 ISO3), quantity?, value_usd_m?(미화 백만 달러, 환산 근거가 없으면 생략), expected_year?, published_at?(ISO 날짜|null), sourceType: official(공식 발표·DB)|specialist(전문 매체)|news(일반 뉴스·X), sourceId, quote(저장 원문의 정확한 인용), note? }. 단계가 바뀌면 같은 id로 stage를 갱신하고, 기사마다 새 행을 만들지 않는다. 도입 의사 점수는 최근 3년의 review·tender·selection 행만 반영한다.

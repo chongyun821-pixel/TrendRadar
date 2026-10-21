@@ -2,12 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { resolveCountry, resolveSystem } from '../shared/data';
 import { execution } from './execution';
-import { submissionSchema, submitResearch } from './research';
+import { submissionSchema, submitResearch, supplierId } from './research';
 import type { ToolDef } from './agent';
 
 const S = (description: string) => ({ type: 'string' as const, description });
 export const NORMALIZATION_DEFS: ToolDef[] = [
-  { name: 'normalize_procurement_data', description: '기존 조달 기록과 새 자료를 정제하고 병합한다. 상충 값은 자동 채택하지 않으며 운영 데이터에는 반영하지 않는다', properties: { payload: S('JSON: record(부분 가능), expectedVersion?, sources, evidence, reason, asOf, replaceFields?(배열 교체), removeFields?(명시적 항목 제거)') }, required: ['payload'] },
+  { name: 'normalize_procurement_data', description: '기존 조달 기록과 새 자료를 정제하고 병합한다. 상충 값은 자동 채택하지 않으며 운영 데이터에는 반영하지 않는다', properties: { payload: S('JSON: record(부분 가능), signalRows?(signals 추출 행), expectedVersion?, sources, evidence, reason, asOf, replaceFields?(배열 교체), removeFields?(명시적 항목 제거)') }, required: ['payload'] },
   { name: 'validate_research', description: '조사 결과의 형식, 원문 인용, 중복 및 버전을 사전 검사한다. 반영하지 않으며 의미 검토는 별도로 필요하다', properties: { payload: S('정제한 조사 제출 JSON') }, required: ['payload'] },
   { name: 'apply_research', description: '원문 근거와 최신 버전 및 실행 상태를 다시 검사하고 기존 자료와 새 자료를 통합한다. 변경 이력과 예측을 함께 저장한다', properties: { payload: S('검토한 조사 제출 JSON') }, required: ['payload'] },
 ];
@@ -78,7 +78,15 @@ export async function normalizationTool(name: string, a: Record<string, any>): P
   for (const field of z.array(z.enum(['awarded', 'plan', 'mro', 'signals', 'ratio', 'ratioEst', 'analysis'])).parse(input.removeFields || [])) delete rec[field];
   if (raw.id && raw.id !== base.id) changes.push({ path: 'record.id', before: raw.id, after: base.id });
   changes.push({ path: 'record.country', before: raw.country, after: country }, { path: 'record.system', before: raw.system, after: system });
-  const candidate = { record: rec, expectedVersion: row?.version || 0, sources: input.sources || {}, evidence: input.evidence || [], reason: input.reason, asOf: input.asOf, rulesVersion: 'normalization-v1' as const, ...(input.countryMeta ? { countryMeta: input.countryMeta } : {}) };
+  const SIGNAL_STAGES: Record<string, string> = { 검토: 'review', 입찰: 'tender', 선정: 'selection', '선정 대기': 'selection', 계약: 'contract', 인도: 'delivery', 취소: 'cancelled' };
+  const signalRows = Array.isArray(input.signalRows) ? input.signalRows.map((r: any, i: number) => {
+    const next = { ...r };
+    if (typeof next.stage === 'string') { const stage = SIGNAL_STAGES[next.stage.trim()] || next.stage.trim().toLowerCase(); if (stage !== r.stage) changes.push({ path: `signalRows.${i}.stage`, before: r.stage, after: stage }); next.stage = stage; }
+    for (const key of ['quantity', 'expected_year', 'value_usd_m']) if (typeof next[key] === 'string') { const n = Number(next[key].replaceAll(',', '').replace(/(대|문|척|기|년)$/, '')); if (Number.isFinite(n)) { changes.push({ path: `signalRows.${i}.${key}`, before: next[key], after: n }); next[key] = n; } }
+    if (typeof next.supplier === 'string') next.supplier = supplierId(next.supplier);
+    return next;
+  }) : undefined;
+  const candidate = { record: rec, ...(signalRows ? { signalRows } : {}), expectedVersion: row?.version || 0, sources: input.sources || {}, evidence: input.evidence || [], reason: input.reason, asOf: input.asOf, rulesVersion: 'normalization-v1' as const, ...(input.countryMeta ? { countryMeta: input.countryMeta } : {}) };
   const parsed = submissionSchema.safeParse(candidate);
   const result = { ok: conflicts.length === 0 && parsed.success, rulesVersion: 'normalization-v1', payload: parsed.success && !conflicts.length ? parsed.data : null, candidate, changes, conflicts, errors: parsed.success ? [] : parsed.error.issues, semanticReviewRequired: true, warnings: ['원문이 주장을 입증하는지 검토하세요. 금액의 통화 환산은 자동 수행하지 않습니다.'] };
   const artifact = await ctx.repo.artifact(ctx.conversationId, `analysis/normalization-${randomUUID()}.json`, JSON.stringify({ original, ...result }, null, 2), { runId: ctx.runId, kind: 'normalization', mime: 'application/json' });
