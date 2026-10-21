@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { Env } from './env';
 import { listModels, defaultModel } from './models';
 import { GPT_MODEL } from './openai';
@@ -45,6 +46,12 @@ app.post('/app-context', async c => c.json(await saveAppContext(repository(), aw
 app.get('/app-context/:screen', async c => c.json(await readAppContext(repository(), c.req.param('screen')), 200, { 'cache-control': 'no-store' }));
 app.get('/app-context/:screen/commands', async c => c.json(await pendingCommands(repository(), c.req.param('screen')), 200, { 'cache-control': 'no-store' }));
 app.post('/app-context/:screen/commands/:id', async c => c.json(await acknowledgeCommand(repository(), c.req.param('screen'), c.req.param('id'), await c.req.json())));
+const renameSchema = z.object({ title: z.string().trim().min(1, '제목을 입력하세요').max(120, '제목은 120자까지') }).strict();
+app.patch('/conversations/:id', async c => {
+  const parsed = renameSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.issues[0]?.message || '잘못된 요청' }, 400);
+  return c.json(await repository().renameConversation(c.req.param('id'), parsed.data.title));
+});
 app.delete('/conversations/:id', async c => {
   const id = c.req.param('id'), repo = repository();
   if (!await repo.conversationExists(id)) throw new Error('대화를 찾을 수 없습니다');

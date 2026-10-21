@@ -5,7 +5,7 @@ import type { SystemKey } from '../shared/types';
 import type { AppContext, ReportRef } from '../shared/app-context';
 import { createChatStatus, toolActivity } from './chat-status';
 import { createPicker } from './picker';
-import { modelStep, parseSlash, readChoice, type PickItem } from './slash';
+import { slashSuggestions, modelStep, parseSlash, readChoice, type PickItem } from './slash';
 import { checkChoice, choiceLabel, type ModelChoice } from '../shared/model-options';
 
 interface ChatOpts {
@@ -117,7 +117,11 @@ export function initChat(o: ChatOpts) {
     input.style.height = `${Math.min(150, Math.max(34, input.scrollHeight))}px`;
   }
   input.addEventListener('input', resizeInput);
-  input.addEventListener('input', () => { if (input.value.trim() && picker.isOpen()) picker.close(); });
+  // / 로 시작하면 명령 후보를 보이고, 다른 내용을 입력하면 열린 선택기를 닫는다
+  input.addEventListener('input', () => {
+    if (slashSuggestions(input.value).length) openSlashHints();
+    else if (picker.isOpen('slash') || (input.value.trim() && picker.isOpen())) picker.close();
+  });
   input.addEventListener('input', updateSendButton);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -283,6 +287,60 @@ export function initChat(o: ChatOpts) {
     });
     if (refresh) void refreshHistory().catch(showError);
   }
+  /** / 명령 자동완성: Tab 완성, ↑↓ 이동, Enter·클릭 실행, Esc 닫기 */
+  function openSlashHints() {
+    const items: PickItem[] = slashSuggestions(input.value).map(s => ({ id: s.name, label: s.command, hint: s.desc }));
+    const run = (item: PickItem) => { input.value = `/${item.id}`; void send(input.value).catch(showError); };
+    picker.open('slash', { title: '명령 · Tab 완성', items, start: 0, reset: true }, {
+      pick: run,
+      tab: item => { input.value = `/${item.id}`; resizeInput(); updateSendButton(); openSlashHints(); },
+    });
+  }
+  /** 대화 제목: 눌러서 바로 고친다. Enter·초점 이동 저장, Esc 취소, 빈 값은 되돌림. 화면을 먼저 바꾸고 실패하면 되돌린다 */
+  const titleEl = get<HTMLElement>('#conversationTitle');
+  let titleBefore = '', titleCancel = false;
+  titleEl.addEventListener('click', () => {
+    if (titleEl.isContentEditable) return;
+    picker.close(); titleBefore = titleEl.textContent || ''; titleCancel = false;
+    try { titleEl.contentEditable = 'plaintext-only'; } catch { titleEl.contentEditable = 'true'; }
+    if (!titleEl.isContentEditable) titleEl.contentEditable = 'true';
+    titleEl.focus();
+    const range = document.createRange(); range.selectNodeContents(titleEl);
+    const selection = getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
+  });
+  titleEl.addEventListener('keydown', e => {
+    if (e.isComposing) return;
+    if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); titleCancel = true; titleEl.blur(); }
+  });
+  titleEl.addEventListener('blur', () => {
+    if (!titleEl.isContentEditable) return;
+    titleEl.contentEditable = 'false'; titleEl.scrollLeft = 0;
+    const next = (titleEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (titleCancel || !next || next === titleBefore) { titleEl.textContent = titleBefore; return; }
+    titleEl.textContent = next;
+    void renameConversation(next, titleBefore);
+  });
+  function setRowTitle(id: string, title: string) {
+    const row = historyRows.find(r => r.id === id);
+    if (row) row.title = title; else historyRows.unshift({ id, title });
+    const cached = conversations.get(id); if (cached) conversations.set(id, { ...cached, title });
+    if (picker.isOpen('sessions')) openSessions(false);
+  }
+  async function renameConversation(title: string, previous: string) {
+    const token = view;
+    let id: string;
+    try { id = conversationId ?? await ensureConversation(token); } catch { if (token === view) titleEl.textContent = previous; progress.set('제목 변경 실패'); return; }
+    const before = historyRows.find(r => r.id === id)?.title ?? previous;
+    setRowTitle(id, title);
+    try { await api(`/conversations/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) }); }
+    catch {
+      setRowTitle(id, before);
+      if (conversationId === id && titleEl.textContent === title) titleEl.textContent = before;
+      progress.set('제목 변경 실패');
+    }
+  }
+  choiceLabelEl.addEventListener('click', () => { open(); openModels(); });
   /** /models: 제공자 → (코덱스·그록 빌드) 모델 → 추론 강도 */
   function openModels(path: string[] = []) {
     const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));

@@ -12,6 +12,23 @@ export function parseSlash(text: string): Slash | null {
   return null;
 }
 
+/** 자동완성 대상 명령(설명은 짧게) */
+export const SLASH_COMMANDS = [
+  { name: 'models', desc: '모델 변경', aliases: ['model', '모델'] },
+  { name: 'sessions', desc: '세션 교체', aliases: ['session', '세션', '대화'] },
+] as const;
+/** 입력이 / 로 시작하고 공백 없이 일부 일치하면 후보를 돌려준다(이름·별칭 앞부분 일치) */
+export function slashSuggestions(text: string) {
+  const m = /^[/／]([a-z가-힣]*)$/i.exec(text);
+  if (!m) return [];
+  const q = m[1].toLowerCase();
+  return SLASH_COMMANDS.filter(c => [c.name, ...c.aliases].some(n => n.startsWith(q))).map(c => ({ name: c.name, desc: c.desc, command: `/${c.name}` }));
+}
+/** Tab 완성: 강조된(기본 첫) 후보의 전체 명령. 후보가 없으면 입력 그대로 */
+export function completeSlash(text: string, index = 0) {
+  const list = slashSuggestions(text);
+  return list.length ? list[Math.min(Math.max(0, index), list.length - 1)].command : text;
+}
 export interface PickItem { id: string; label: string; hint?: string; current?: boolean; disabled?: boolean; deletable?: boolean }
 export type ModelStep = { title: string; items: PickItem[] } | { done: ModelChoice };
 /**

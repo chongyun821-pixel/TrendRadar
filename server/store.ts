@@ -193,6 +193,14 @@ export class Repository {
     await this.run('UPDATE conversations SET updated_at=? WHERE id=?', date, id);
     if (role === 'user') await this.run("UPDATE conversations SET title=? WHERE id=? AND title='새 대화'", text.slice(0, 60), id);
   }
+  /** 제목 변경: 목록 순서를 흔들지 않도록 updated_at은 그대로 둔다 */
+  async renameConversation(id: string, title: string) {
+    const clean = title.replace(/\s+/g, ' ').trim().slice(0, 120);
+    if (!clean) throw new Error('제목을 입력하세요');
+    if (!await this.conversationExists(id)) throw new Error('대화를 찾을 수 없습니다');
+    await this.run('UPDATE conversations SET title=? WHERE id=?', clean, id);
+    return { id, title: clean };
+  }
   async deleteConversation(id: string) {
     if (!await this.conversationExists(id)) throw new Error('대화를 찾을 수 없습니다');
     await this.transaction(async () => {

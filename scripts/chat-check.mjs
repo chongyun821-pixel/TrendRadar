@@ -12,7 +12,7 @@ const base = process.env.BASE_URL || 'http://localhost:62356';
 mkdirSync('shots', { recursive: true });
 try {
   await page.goto(base); await page.waitForSelector('body.ready');
-  assert.equal(await page.locator('#q').getAttribute('placeholder'), '메시지 · /sessions · /models');
+  assert.equal(await page.locator('#q').getAttribute('placeholder'), '챗봇 메시지 입력');
   assert.equal(await page.locator('#q').getAttribute('title'), null);
   await page.fill('#q', '!보고서 폴란드 자주포'); await page.press('#q', 'Enter');
   await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료');
@@ -46,6 +46,50 @@ try {
   await page.waitForFunction(() => document.querySelector('#chat.open .panel')?.clientHeight > 200);
   assert.equal(await page.locator('#modelLabel').textContent(), '네모트론');
   assert.equal(await page.locator('.m.user').count(), 2);
+  // 한 줄 표시: 제목 | 모델, 구분자는 |
+  const metaTitle = await page.locator('#conversationTitle').textContent();
+  assert.equal(await page.locator('.composer-meta').textContent(), `${metaTitle} | 네모트론`);
+  // / 명령 자동완성: 입력하면 거르고, ↑↓·Tab 완성·Esc 닫기, 완성된 명령 Enter는 선택기를 연다
+  const hints = () => page.locator('#picker .picker-item').evaluateAll(rows => rows.map(r => `${r.querySelector('.picker-label').textContent} ${r.querySelector('.picker-hint')?.textContent}`));
+  await page.fill('#q', ''); await page.focus('#q'); await page.keyboard.type('/');
+  assert.deepEqual(await hints(), ['/models 모델 변경', '/sessions 세션 교체']);
+  assert.equal(await page.locator('#picker .picker-item.active').getAttribute('data-id'), 'models');
+  await page.keyboard.type('s'); assert.deepEqual(await hints(), ['/sessions 세션 교체']);
+  await page.keyboard.press('Backspace'); assert.equal(await page.locator('#picker .picker-item').count(), 2);
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Tab');
+  assert.equal(await page.inputValue('#q'), '/sessions');
+  await page.keyboard.press('Escape'); assert.equal(await page.locator('#picker').isHidden(), true); assert.equal(await page.inputValue('#q'), '/sessions');
+  await page.fill('#q', ''); await page.keyboard.type('/m'); await page.keyboard.press('Tab');
+  assert.equal(await page.inputValue('#q'), '/models');
+  await page.keyboard.press('Enter');
+  await page.locator('#picker .picker-item[data-id="nemotron"]').waitFor();
+  assert.equal(await page.inputValue('#q'), '');
+  await page.keyboard.press('Escape'); assert.equal(await page.locator('#picker').isHidden(), true);
+  await page.fill('#q', ''); await page.keyboard.type('/x'); assert.equal(await page.locator('#picker').isHidden(), true); await page.fill('#q', '');
+  // 모델 부분을 누르면 /models 선택기
+  await page.click('#modelLabel');
+  await page.locator('#picker .picker-item[data-id="nemotron"]').waitFor();
+  await page.keyboard.press('Escape');
+  // 제목을 눌러 바로 고친다: Esc 취소, 빈 값 되돌림, Enter 저장(서버와 /sessions 반영)
+  const renameTo = async (text, key) => { await page.click('#conversationTitle'); await page.keyboard.press('Control+A'); if (text) await page.keyboard.type(text); else await page.keyboard.press('Backspace'); await page.keyboard.press(key); };
+  await renameTo('취소할 제목', 'Escape');
+  assert.equal(await page.locator('#conversationTitle').textContent(), metaTitle);
+  await renameTo('', 'Enter');
+  assert.equal(await page.locator('#conversationTitle').textContent(), metaTitle);
+  await renameTo('이름 바꾼 대화', 'Enter');
+  assert.equal(await page.locator('#conversationTitle').textContent(), '이름 바꾼 대화');
+  assert.equal(await page.locator('#conversationTitle').getAttribute('contenteditable'), 'false');
+  await page.waitForFunction(async id => (await (await fetch(`/api/conversations/${id}`)).json()).title === '이름 바꾼 대화', first);
+  await page.fill('#q', '/sessions'); await page.press('#q', 'Enter');
+  await page.locator(`#picker .picker-item[data-id="${first}"]`).filter({ hasText: '이름 바꾼 대화' }).waitFor();
+  await page.keyboard.press('Escape');
+  // 실패하면 되돌린다
+  await page.route('**/api/conversations/*', route => route.request().method() === 'PATCH' ? route.fulfill({ status: 500, json: { error: '실패' } }) : route.fallback());
+  await renameTo('저장 안 될 제목', 'Enter');
+  await page.waitForFunction(() => document.querySelector('#conversationTitle').textContent === '이름 바꾼 대화');
+  await page.waitForFunction(() => document.querySelector('#chatStatus').textContent.includes('제목 변경 실패'));
+  await page.unroute('**/api/conversations/*');
+  await page.screenshot({ path: 'shots/14-composer-meta-rename.png' });
   await page.click('#attachButton');
   assert.ok(await page.locator('#workspaceFiles a').count() >= 3);
   assert.ok((await page.locator('.panel').boundingBox()).height > 200);
@@ -110,7 +154,7 @@ try {
   assert.equal(await page.locator('.status-signal, .status-clock').count(), 0);
   await page.unroute('**/api/runs/*');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', activityStages: 'pass', compactStatus: 'pass', minimalInput: 'pass', elapsedTime: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', errors }));
+  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', activityStages: 'pass', compactStatus: 'pass', minimalInput: 'pass', elapsedTime: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', metaLabel: 'pass', slashAutocomplete: 'pass', modelLabelClick: 'pass', rename: 'pass', errors }));
 } finally {
   for (const id of ids) await page.request.delete(`${base}/api/conversations/${id}`);
   await browser.close();

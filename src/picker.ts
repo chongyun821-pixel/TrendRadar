@@ -1,7 +1,7 @@
-/** 입력창 위 인라인 선택기: 위·아래 화살표, Enter 선택, Delete 삭제, ←·Backspace(빈 입력) 이전 단계, Esc 닫기. 마우스도 지원 */
+/** 입력창 위 인라인 선택기: 위·아래 화살표, Enter 선택, Tab 완성(명령 후보), Delete 삭제, ←·Backspace(빈 입력) 이전 단계, Esc 닫기. 마우스도 지원 */
 import type { PickItem } from './slash';
 
-export interface PickerHandlers { pick(item: PickItem): void; remove?(item: PickItem): void; back?(): void; hover?(item: PickItem): void }
+export interface PickerHandlers { pick(item: PickItem): void; remove?(item: PickItem): void; back?(): void; hover?(item: PickItem): void; tab?(item: PickItem): void }
 export function createPicker(root: HTMLElement, input: HTMLTextAreaElement) {
   let kind: string | null = null, items: PickItem[] = [], index = 0, handlers: PickerHandlers | null = null;
   root.setAttribute('role', 'listbox');
@@ -45,18 +45,19 @@ export function createPicker(root: HTMLElement, input: HTMLTextAreaElement) {
     if (e.key === 'ArrowDown') move(1);
     else if (e.key === 'ArrowUp') move(-1);
     else if (e.key === 'Enter' && !e.shiftKey) { if (item && !item.disabled) handlers?.pick(item); }
+    else if (e.key === 'Tab' && !e.shiftKey && item && handlers?.tab) handlers.tab(item);
     else if (e.key === 'Escape') close();
     else if (e.key === 'Delete' && item?.deletable && handlers?.remove) handlers.remove(item);
     else if ((e.key === 'ArrowLeft' || e.key === 'Backspace') && !input.value && handlers?.back) handlers.back();
     else return;
     e.preventDefault(); e.stopImmediatePropagation();
   }, { capture: true });
-  function open(name: string, step: { title: string; items: PickItem[]; start?: number }, h: PickerHandlers) {
+  function open(name: string, step: { title: string; items: PickItem[]; start?: number; reset?: boolean }, h: PickerHandlers) {
     const same = kind === name;
     kind = name; handlers = h;
     const previous = items[index]?.id;
     items = step.items;
-    index = Math.max(0, same && previous !== undefined ? items.findIndex(i => i.id === previous) : step.start ?? items.findIndex(i => i.current));
+    index = Math.max(0, same && !step.reset && previous !== undefined ? items.findIndex(i => i.id === previous) : step.start ?? items.findIndex(i => i.current));
     if (index < 0 || items[index]?.disabled) index = Math.max(0, items.findIndex(i => !i.disabled));
     root.hidden = false; input.setAttribute('aria-controls', root.id); input.setAttribute('aria-expanded', 'true');
     render(step.title); input.focus();

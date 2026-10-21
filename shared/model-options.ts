@@ -47,11 +47,12 @@ export function checkChoice(raw: { provider?: unknown; model?: unknown; effort?:
   if (effort && !effortsFor(provider, model).includes(effort)) return { ok: false, error: `허용하지 않는 추론 강도: ${effort} (가능: ${effortsFor(provider, model).join(', ')})` };
   return { ok: true, choice: { provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}) } };
 }
-/** 한 줄 표시: 코덱스 · gpt-6.1-sol · xhigh */
+/** 한 줄 표시: 코덱스 | gpt-6.1-sol | xhigh */
+export const LABEL_SEP = ' | ';
 export function choiceLabel(c: ModelChoice, defaults?: { model?: string; effort?: string }) {
   const name = PROVIDERS.find(p => p.id === c.provider)?.name || c.provider;
   if (!hasSubOptions(c.provider)) return name;
   const model = c.model || defaults?.model || CLI_OPTIONS[c.provider].defaultModel;
   const effort = c.effort || defaults?.effort || CLI_OPTIONS[c.provider].defaultEffort;
-  return `${name} · ${model} · ${effort}`;
+  return [name, model, effort].join(LABEL_SEP);
 }

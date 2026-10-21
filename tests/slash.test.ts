@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { modelStep, parseSlash, readChoice } from '../src/slash';
-import { checkChoice, choiceLabel, CLI_OPTIONS } from '../shared/model-options';
+import { completeSlash, modelStep, parseSlash, readChoice, slashSuggestions } from '../src/slash';
+import { checkChoice, choiceLabel, CLI_OPTIONS, LABEL_SEP } from '../shared/model-options';
 import { parseModelChoice } from '../server/model-choice';
 import { appContextSchema } from '../server/app-context';
 import { app } from '../server/app';
@@ -16,6 +16,33 @@ describe('/ 명령 해석', () => {
     expect(parseSlash('/tmp/파일 경로를 봐줘')).toBeNull();
     expect(parseSlash('sessions')).toBeNull();
     expect(parseSlash('!모델 지피티')).toBeNull();
+  });
+});
+
+describe('/ 명령 자동완성', () => {
+  const names = (t: string) => slashSuggestions(t).map(s => s.command);
+  it('/ 로 시작하는 부분 일치만 후보로 낸다', () => {
+    expect(names('/')).toEqual(['/models', '/sessions']);
+    expect(names('/m')).toEqual(['/models']);
+    expect(names('/S')).toEqual(['/sessions']);
+    expect(names('/세')).toEqual(['/sessions']);
+    expect(names('／mo')).toEqual(['/models']);
+    expect(names('/models')).toEqual(['/models']);
+    expect(names('/x')).toEqual([]);
+    expect(names('/models gpt')).toEqual([]);
+    expect(names(' /m')).toEqual([]);
+    expect(names('m')).toEqual([]);
+    expect(names('/help')).toEqual([]);
+    expect(slashSuggestions('/m')[0]).toMatchObject({ desc: '모델 변경' });
+    expect(slashSuggestions('/s')[0]).toMatchObject({ desc: '세션 교체' });
+  });
+  it('Tab은 강조된 후보(기본 첫 후보)로 완성하고, 완성된 명령은 그대로 실행된다', () => {
+    expect(completeSlash('/')).toBe('/models');
+    expect(completeSlash('/', 1)).toBe('/sessions');
+    expect(completeSlash('/', 9)).toBe('/sessions');
+    expect(completeSlash('/se')).toBe('/sessions');
+    expect(completeSlash('/zz')).toBe('/zz');
+    expect(parseSlash(completeSlash('/mo'))).toEqual({ cmd: 'models' });
   });
 });
 
@@ -51,8 +78,10 @@ describe('모델 선택 단계', () => {
     expect(readChoice('gemma')).toBeNull();
     expect(readChoice(JSON.stringify({ provider: 'grok', model: 'grok-4.6', effort: 'low' }))).toEqual({ provider: 'grok', model: 'grok-4.6', effort: 'low' });
     expect(readChoice(JSON.stringify({ provider: 'grok', model: 'grok-9' }))).toBeNull();
-    expect(choiceLabel({ provider: 'codex' })).toBe('코덱스 · gpt-6.1-sol · xhigh');
+    expect(choiceLabel({ provider: 'codex' })).toBe('코덱스 | gpt-6.1-sol | xhigh');
     expect(choiceLabel({ provider: 'nemotron' })).toBe('네모트론');
+    expect(choiceLabel({ provider: 'grok', model: 'grok-4.6', effort: 'low' })).toBe('그록 빌드 | grok-4.6 | low');
+    expect(LABEL_SEP).toBe(' | ');
     expect(CLI_OPTIONS.codex.defaultEffort).toBe('xhigh');
   });
 });
