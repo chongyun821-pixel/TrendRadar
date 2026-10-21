@@ -11,4 +11,4 @@
 9. 반영: 버전 충돌이면 재조회 후 비교·제출한다. 도구의 변경 내역과 예측 차이를 확인하고 write_report로 기존 6절 보고서를 갱신한다. 기사 언급량은 계약 수량·일정 변경 근거가 아니다.
 
 Source 형식: { t: 제목, u: URL, y: 연도(발행일 미확인은 0), publishedAt: ISO 날짜|null, collectedAt: 수집시각, filePath: 작업폴더 상대경로, hash: SHA256, kind: original|attachment, excerpt?: 인용문 }.
-record 형식과 systems 단가·수명·환율 가정은 research_procurement 결과를 따른다. 새로운 무기체계는 현재 6개 분류 안에 넣는다. 단가·환율 변경은 update_assumptions로 별도 근거와 함께 반영한다.
+record 형식과 systems 단가·수명·환율 가정은 research_procurement 결과를 따른다. 새로운 무기체계는 현재 7개 분류(sph·ifv·sam·mrl·frigate·ssk·laser) 안에 넣는다. IFV는 기존 장갑차 ID인 ifv를 그대로 쓴다. 단가·환율 변경은 update_assumptions로 별도 근거와 함께 반영한다.

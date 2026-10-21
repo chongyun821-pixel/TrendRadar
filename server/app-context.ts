@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AppContext } from '../shared/app-context';
 import { resolveCountry, resolveSystem, isGeneral } from '../shared/data';
+import { SYSTEM_KEYS } from '../shared/types';
 import { execution } from './execution';
 import { now, type Repository } from './store';
 import type { ToolDef } from './agent';
 
-const system = z.enum(['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk']);
+const system = z.enum(SYSTEM_KEYS);
 export const appContextSchema = z.object({
   screenId: z.string().uuid(), version: z.number().int().nonnegative(), conversationId: z.string().uuid().nullable(),
   model: z.enum(['grok', 'codex', 'gemma', 'nemotron']), activeView: z.enum(['map', 'report']),

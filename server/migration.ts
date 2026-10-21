@@ -5,7 +5,7 @@ import { Repository, hash } from './store';
 import { SupabaseFiles, type SupabaseConfig } from './supabase';
 import { computeForecast } from '../shared/forecast';
 
-export const DATA_TABLES = ['schema_migrations','metadata','countries','systems','sources','records','conversations','messages','context_summaries','runs','events','artifacts','research','changes','forecasts','reports','app_contexts','app_commands'] as const;
+export const DATA_TABLES = ['schema_migrations','metadata','countries','systems','sources','records','conversations','messages','context_summaries','runs','events','artifacts','research','changes','forecasts','reports','app_contexts','app_commands','system_links','export_tiers','export_controls','neighbors','inventory','budgets','signals','consumption','supplier_capacity','domestic_capability','weights','pair_events'] as const;
 const ORDERED = new Set(['messages','runs','artifacts','research']);
 export interface SnapshotTable { name: string; columns: string[]; rows: Record<string, any>[]; order: number[] }
 export interface SnapshotFile { path: string; hash: string; bytes: number }

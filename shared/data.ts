@@ -15,9 +15,11 @@ export function useDataProvider(read: () => Seed) {
   });
 }
 
+// 부분 문자열 검색은 선언 순서대로 확인하므로 '대공'보다 레이저 별칭을 먼저 둔다.
 const SYS_ALIASES: Record<string, SystemKey> = {
+  laser: 'laser', '레이저대공무기': 'laser', '레이저 대공무기': 'laser', '레이저': 'laser', '천광': 'laser', 'iron beam': 'laser', dragonfire: 'laser', 'directed energy': 'laser',
   sph: 'sph', '자주포': 'sph', '포병': 'sph', howitzer: 'sph', artillery: 'sph',
-  ifv: 'ifv', '장갑차': 'ifv', '보병전투차': 'ifv', '보병전투차량': 'ifv', apc: 'ifv',
+  ifv: 'ifv', '장갑차': 'ifv', '레드백': 'ifv', '보병전투차': 'ifv', '보병전투차량': 'ifv', apc: 'ifv',
   sam: 'sam', '대공미사일': 'sam', '대공': 'sam', '방공': 'sam', '지대공': 'sam', 'air defense': 'sam',
   mrl: 'mrl', mlrs: 'mrl', '다연장로켓': 'mrl', '다연장': 'mrl', '로켓': 'mrl', '천무': 'mrl',
   frigate: 'frigate', '호위함': 'frigate', '프리깃': 'frigate', '함정': 'frigate',
@@ -28,7 +30,7 @@ const GENERAL = ['일반', 'none', 'general', 'off', '끄기'];
 export function resolveSystem(s?: string | null): SystemKey | null {
   if (!s) return null;
   const k = String(s).trim().toLowerCase();
-  if ((SYSTEM_KEYS as string[]).includes(k)) return k as SystemKey;
+  if ((SYSTEM_KEYS as readonly string[]).includes(k)) return k as SystemKey;
   if (SYS_ALIASES[k]) return SYS_ALIASES[k];
   for (const [a, v] of Object.entries(SYS_ALIASES)) if (k.includes(a)) return v;
   return null;

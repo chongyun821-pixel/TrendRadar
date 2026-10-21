@@ -21,6 +21,8 @@ export function supabaseConfig(): SupabaseConfig {
   const config = { ...process.env, ...loadDevVars(join(PROJECT_ROOT, '.secrets')) };
   return { databaseUrl: config.DATABASE_URL || '', url: config.SUPABASE_URL || '', secretKey: config.SUPABASE_SECRET_KEY || '', bucket: config.SUPABASE_STORAGE_BUCKET || 'trendradar-private', schema: process.env.RADAR_PG_SCHEMA || config.RADAR_PG_SCHEMA || 'trendradar' };
 }
+/** 배포한 SQL 변경 이력. 표 구조는 schema 파일에도 있어 새 스키마에 바로 생성되고, 자료 변경은 버전별로 한 번만 적용한다. */
+export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV·레이저대공무기', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }] as const;
 export class Repository {
   db!: DatabaseSync;
   private cached?: Seed;
@@ -57,6 +59,13 @@ export class Repository {
     if (!this.db.prepare('PRAGMA table_info(runs)').all().some(c => c.name === 'owner_pid')) this.db.exec('ALTER TABLE runs ADD COLUMN owner_pid INTEGER');
     this.db.exec("INSERT OR IGNORE INTO schema_migrations VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS one_running_conversation ON runs(conversation_id) WHERE status IN ('running','stopping'); INSERT OR IGNORE INTO schema_migrations VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));");
+    // 격리 테스트·이전 원본용 SQLite에만 자동 적용한다. Supabase는 `npm run supabase -- schema`로 명시 적용한다.
+    for (const m of MIGRATIONS) {
+      if (this.db.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(m.version)) continue;
+      this.db.exec('BEGIN IMMEDIATE');
+      try { this.db.exec(readFileSync(join(PROJECT_ROOT, 'db', 'migrations', m.sqlite), 'utf8')); this.db.exec('COMMIT'); }
+      catch (e) { this.db.exec('ROLLBACK'); throw e; }
+    }
     this.ready = Promise.resolve();
   }
   private exclusive<T>(work: () => T | Promise<T>): Promise<T> {
@@ -111,6 +120,24 @@ export class Repository {
       finally { state.active = false; }
     });
   }
+  async schemaVersions(): Promise<number[]> { return (await this.all('SELECT version FROM schema_migrations ORDER BY version')).map(r => Number(r.version)); }
+  /** Supabase에 대기 중인 마이그레이션을 각각 하나의 트랜잭션으로 적용한다. 이미 적용한 버전은 건너뛴다. */
+  async applyMigrations(): Promise<number[]> {
+    await this.ready;
+    const applied: number[] = [];
+    if (!this.sql) return applied;
+    for (const m of MIGRATIONS) {
+      const done = await this.sql.begin(async sql => {
+        if ((await sql.unsafe('SELECT 1 FROM schema_migrations WHERE version=$1', [m.version])).length) return false;
+        await sql.unsafe(readFileSync(join(PROJECT_ROOT, 'db', 'migrations', m.postgres), 'utf8'));
+        return true;
+      });
+      if (done) applied.push(m.version);
+    }
+    this.cachedRevision = -1;
+    return applied;
+  }
+  inTransaction() { return !!this.transactionState.getStore()?.active; }
   async revision() { return Number((await this.one("SELECT value FROM metadata WHERE key='revision'"))?.value || 0); }
   async runStatus(id: string) { return this.one(`SELECT status FROM runs WHERE id=?${this.sql && this.transactionState.getStore()?.active ? ' FOR SHARE' : ''}`, id); }
   snapshot(): Seed {
@@ -252,7 +279,7 @@ export class Repository {
 const globalStore = globalThis as typeof globalThis & { __radarRepositories?: Map<string, Repository> };
 export function repository(): Repository {
   const stores = globalStore.__radarRepositories ??= new Map();
-  const key = `${DATABASE_KIND}:${DB_PATH}:schema4`;
+  const key = `${DATABASE_KIND}:${DB_PATH}:schema5`;
   if (!stores.has(key)) stores.set(key, new Repository(DB_PATH, STORAGE_ROOT, DATABASE_KIND === 'sqlite', DATABASE_KIND === 'supabase' ? supabaseConfig() : undefined));
   return stores.get(key)!;
 }

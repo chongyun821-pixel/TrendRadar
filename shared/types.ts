@@ -1,5 +1,6 @@
-export type SystemKey = 'sph' | 'ifv' | 'sam' | 'mrl' | 'frigate' | 'ssk';
-export const SYSTEM_KEYS: SystemKey[] = ['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk'];
+/** ifv는 화면 표기만 IFV로 바뀐 기존 장갑차 ID다. 저장된 기록과 호환되도록 ID를 유지한다. */
+export type SystemKey = 'sph' | 'ifv' | 'sam' | 'mrl' | 'frigate' | 'ssk' | 'laser';
+export const SYSTEM_KEYS = ['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk', 'laser'] as const satisfies readonly SystemKey[];
 export type Category = 'red' | 'orange' | 'yellow' | 'blue' | 'gray';
 
 export interface Source { t: string; u: string; y: number; publishedAt?: string | null; collectedAt?: string; filePath?: string; hash?: string; kind?: 'original' | 'search' | 'attachment'; excerpt?: string }
@@ -35,4 +36,35 @@ export interface Forecast {
   current: BatchCalc | null; batches: BatchCalc[];
   calc: string[]; sources: Source[];
   qtyEst: boolean; krwEst: boolean; lifeEst: boolean;
+}
+
+/* ───────── 데이터 수집 테이블 행 (db/migrations/004) ───────── */
+export type Tier = 1 | 2 | 3;
+export type SignalStage = 'review' | 'tender' | 'selection' | 'contract' | 'delivery' | 'cancelled';
+/** 모든 수치 행의 공통 근거: 출처 ID, 신뢰도(공식·DB 1.0, 전문 매체 0.7, 일반 뉴스·X 0.4), 수집 시각 */
+export interface Provenance { source_id?: string | null; confidence?: number | null; collected_at?: string | null }
+export interface SystemLinkRow extends Provenance { system: SystemKey; model: string; maker?: string | null; is_group: boolean; relation: 'group' | 'competitor' | 'substitute' | 'parent' | string }
+export interface TierReason { code: string; text: string; tier: Tier; evidence: string[] }
+export interface TierRecord { reasons: TierReason[]; facts: Record<string, unknown>; approvals?: string[] }
+export interface ExportTierRow extends Provenance { country: string; system: SystemKey | '*'; tier: Tier; tier_reasons: TierRecord; tier_checked_at: string }
+export interface ExportControlRow extends Provenance { id: string; country: string; regime: string; name: string; status: 'active' | 'suspended' | 'lifted' | 'partial'; started?: string | null; ended?: string | null; url?: string | null }
+export interface NeighborRow extends Provenance { country: string; neighbor: string; kind: 'land' | 'sea' | 'rival'; tension?: number | null; components?: Record<string, unknown> | null; computed_at?: string | null }
+export interface InventoryRow extends Provenance { id: string; country: string; system: SystemKey; model: string; quantity?: number | null; delivered_year?: number | null; service_life?: number | null; retire_year?: number | null; supplier?: string | null }
+export interface BudgetRow extends Provenance { country: string; year: number; usd_m?: number | null; gdp_pct?: number | null; yoy_pct?: number | null; gdp_usd_m?: number | null }
+export interface SignalRow extends Provenance { id: string; country: string; system: SystemKey; model?: string | null; maker?: string | null; supplier?: string | null; stage: SignalStage; quantity?: number | null; value_usd_m?: number | null; expected_year?: number | null; published_at?: string | null; url?: string | null; note?: string | null }
+export interface ConsumptionRow extends Provenance { id: string; conflict: string; user_country: string; target_country?: string | null; system: SystemKey; model?: string | null; quantity: number; period?: string | null; kind: 'loss' | 'donation' | 'expenditure' }
+export interface CapacityRow extends Provenance { maker: string; model: string; year: number; annual_output?: number | null; backlog?: number | null }
+export interface DomesticRow extends Provenance { country: string; system: SystemKey; status: 'none' | 'development' | 'production'; program?: string | null }
+export interface WeightRow { factor: string; weight: number; note?: string | null }
+export interface PairEventRow extends Provenance { source: string; country: string; counterpart: string; period: string; events?: number | null; fatalities?: number | null; goldstein?: number | null }
+
+export type ScoreFactor = 'intent' | 'aging' | 'fiscal' | 'neighbor' | 'consumption' | 'competition' | 'access';
+export interface ScoreComponent { factor: ScoreFactor; label: string; weight: number; raw: number; confidence: number; points: number; missing: boolean; detail: string; evidence: string[] }
+export interface ScoreBreakdown {
+  country: string; system: SystemKey; baseYear: number;
+  gate: { passed: boolean; reason: string | null; evidence: string[] };
+  tier: Tier | null; tierFactor: number; tierReasons: TierReason[]; approvals: string[];
+  domestic: DomesticRow['status'] | null; domesticFactor: number;
+  components: ScoreComponent[]; subtotal: number; score: number;
+  imminenceYear: number | null; grey: boolean; evidenceIds: string[]; weights: Record<string, number>;
 }

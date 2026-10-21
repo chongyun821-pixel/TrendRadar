@@ -29,7 +29,7 @@ export function runCommand(input: string, names: Record<string, string>): LocalR
     case '모드': case 'mode': {
       if (!rest || isGeneral(rest)) return { text: '일반 모드', actions: [{ type: 'set_mode', system: null }] };
       const s = pickSys(); if (!s) return { text: '체계를 모르겠습니다.', actions: [] };
-      return { text: `${seed.systems[s].ko} 모드`, actions: [{ type: 'set_mode', system: s }] };
+      return { text: `${seed.systems[s]?.ko ?? s} 모드`, actions: [{ type: 'set_mode', system: s }] };
     }
     case '지도': case 'map': return { text: '지도 전환', actions: [{ type: 'toggle_map_mode' }] };
     case '국가': case 'country': { const c = pickCountry(); if (!c) return { text: '국가를 모르겠습니다.', actions: [] }; return { text: `${names[c] ?? seed.countries[c]?.ko ?? c}`, actions: [{ type: 'focus_country', country: c }] }; }

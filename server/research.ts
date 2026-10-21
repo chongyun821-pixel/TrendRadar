@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { computeForecast } from '../shared/forecast';
 import { resolveCountry, resolveSystem } from '../shared/data';
 import type { ProgramRecord, Seed } from '../shared/types';
+import { SYSTEM_KEYS } from '../shared/types';
 import { execution } from './execution';
 import { PROJECT_ROOT, now, hash } from './store';
 import type { ToolDef } from './agent';
@@ -36,7 +37,7 @@ const count = z.number().nonnegative();
 const range = z.tuple([count, count]).refine(a => a[0] <= a[1], '범위 순서 오류');
 const batch = z.object({ model: z.string().min(1), introYear: year, qty: count, lifeExt: count.optional(), covered: z.boolean().optional(), est, note: z.string().optional(), src: refs });
 export const recordSchema = z.object({
-  id: z.string().min(1), country: z.string().regex(/^[A-Z]{3}$/), system: z.enum(['sph','ifv','sam','mrl','frigate','ssk']), batches: z.array(batch), src: refs,
+  id: z.string().min(1), country: z.string().regex(/^[A-Z]{3}$/), system: z.enum(SYSTEM_KEYS), batches: z.array(batch), src: refs,
   awarded: z.object({ year, text: z.string(), qty: count, deliveryEnd: year, covers: z.number().min(0).max(1), est, src: refs }).optional(),
   plan: z.object({ start: year, end: year, qty: range, text: z.string(), est, src: refs }).refine(p => p.start <= p.end).optional(),
   mro: z.array(z.object({ year, text: z.string(), lifeExt: count, est, src: refs })).optional(),
@@ -114,7 +115,7 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     for (const id of sourceIds(rec)) if (!allSources[id]) throw new Error(`없는 출처 ${id}`);
     for (const e of p.evidence) if (!sourceIds(rec).includes(e.sourceId)) throw new Error('변경 근거를 record src에도 연결하세요');
     if (options.dryRun) return { ok: true, valid: true, changed, expectedVersion: p.expectedVersion, rulesVersion: 'normalization-v1', semanticReviewRequired: true };
-    if (p.countryMeta && !data.countries[rec.country]) await repo.run('INSERT INTO countries VALUES (?,?)', rec.country, JSON.stringify(p.countryMeta));
+    if (p.countryMeta && !data.countries[rec.country]) await repo.run('INSERT INTO countries(id,data) VALUES (?,?)', rec.country, JSON.stringify(p.countryMeta));
     for (const [id, s] of Object.entries(p.sources)) {
       const existing = data.sources[id];
       if (existing && (existing.u !== s.u || (existing.hash && existing.hash !== s.hash))) throw new Error('기존 출처 ID 덮어쓰기 금지. 새 버전 ID 사용');

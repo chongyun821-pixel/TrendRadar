@@ -89,7 +89,7 @@ async function boot() {
 
   // 상단 버튼
   const modes = $('#modes');
-  const items: [string, string][] = [['', '일반'], ...SYSTEM_KEYS.map(k => [k, seed.systems[k].ko] as [string, string])];
+  const items: [string, string][] = [['', '일반'], ...SYSTEM_KEYS.filter(k => seed.systems[k]).map(k => [k, seed.systems[k].ko] as [string, string])];
   modes.innerHTML = items.map(([k, ko]) => `<button data-sys="${esc(k)}">${esc(ko)}</button>`).join('');
   modes.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b) setMode((b.dataset.sys || null) as SystemKey | null); });
   $('#mapBtn').addEventListener('click', () => toggleMap());

@@ -71,13 +71,13 @@ describe('SQLite 조사 반영', () => {
       const system = { ...(await f.repo.data()).systems.sph, designLife: 40, unitCost: [200,300], costSrc: ['assumption-test'], unitCostEst: true };
       const payload = { expectedRevision: 1, systems: { sph: system }, sources: { 'assumption-test': { ...source, t: '가정 검증', u: 'https://example.org/assumptions', y: 2026 } }, evidence: [{ path: 'systems.sph', sourceId: 'assumption-test', quote }], reason: '검증용 가정 변경' };
       const result: any = await researchTool('update_assumptions', { payload: JSON.stringify(payload) });
-      expect(result.ok).toBe(true); expect(result.recalculated).toBe(59); expect(await f.repo.revision()).toBe(2);
+      expect(result.ok).toBe(true); expect(result.recalculated).toBe(60); expect(await f.repo.revision()).toBe(2);
       const changed = JSON.parse((await f.repo.one('SELECT data FROM forecasts WHERE record_id=?', 'POL-sph')).data);
       expect(changed.after.qty).toEqual(changed.before.qty);
       expect(changed.after.krw).toEqual([changed.after.qty[0] * 200, changed.after.qty[1] * 300]);
       expect(changed.after.window[0]).toBe(changed.before.window[0] + 5);
       expect(await researchTool('update_assumptions', { payload: JSON.stringify(payload) })).toHaveProperty('error');
-      expect(await f.repo.all('SELECT * FROM forecasts')).toHaveLength(59);
+      expect(await f.repo.all('SELECT * FROM forecasts')).toHaveLength(60);
     }); await f.repo.close();
   });
   it('중지한 조사와 작업 폴더 밖 접근을 차단', async () => {

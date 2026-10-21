@@ -15,6 +15,11 @@ try {
     const response = await fetch(`${config.url}/storage/v1/bucket`, { headers: { apikey: config.secretKey, Authorization: `Bearer ${config.secretKey}` }, signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`Storage 인증 실패 (HTTP ${response.status})`);
     console.log('Storage 인증 성공. 비밀값은 출력하지 않았습니다.');
+  } else if (command === 'schema') {
+    // 대기 중인 구조·자료 마이그레이션(db/migrations/*.postgres.sql)을 버전별 트랜잭션으로 적용한다.
+    const target = new Repository(DB_PATH, STORAGE_ROOT, false, config);
+    try { const applied = await target.applyMigrations(); console.log(JSON.stringify({ applied, versions: await target.schemaVersions() })); }
+    finally { await target.close(); }
   } else if (['migrate','verify','export','restore'].includes(command)) {
     let folder = process.argv[3] && resolve(process.argv[3]);
     if (command === 'migrate' && !folder) {
@@ -43,7 +48,7 @@ try {
         console.log(JSON.stringify({ verified: true, ...result }));
       }
     } finally { await target.close(); }
-  } else throw new Error('사용법: npm run supabase -- check | migrate [백업폴더] | verify <백업폴더> | export <새폴더> | restore <백업폴더>');
+  } else throw new Error('사용법: npm run supabase -- check | schema | migrate [백업폴더] | verify <백업폴더> | export <새폴더> | restore <백업폴더>');
 } catch (e: any) {
   // 드라이버 오류의 연결 옵션·매개변수에는 자격 증명이 들어갈 수 있다.
   const code = (e as any)?.code;

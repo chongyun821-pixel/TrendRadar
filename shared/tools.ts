@@ -5,7 +5,7 @@ import type { Forecast, SystemKey, Batch, Seed } from './types';
 const est = (b: { est?: string[] }, f: string) => (b.est?.includes(f) ? ' (추정)' : '');
 const srcList = (ids: string[]) => ids.map(id => seed.sources[id]).filter(Boolean).map(s => ({ title: s.t, url: s.u }));
 const cName = (iso: string) => seed.countries[iso]?.ko ?? iso;
-const sName = (s: SystemKey) => seed.systems[s].ko;
+const sName = (s: SystemKey) => seed.systems[s]?.ko ?? s;
 
 function args(a: Record<string, unknown> | undefined) {
   const country = resolveCountry(a?.country as string);
