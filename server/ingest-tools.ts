@@ -43,10 +43,23 @@ const getSchema = z.object({ id: z.string().uuid(), wait: int(0, MAX_WAIT).defau
 const clean = (a: Record<string, any>) => Object.fromEntries(Object.entries(a).filter(([, v]) => v !== undefined && v !== null && v !== ''));
 const issue = (e: z.ZodError) => e.issues.map(i => `${i.path.join('.') || '인자'}: ${i.message}`).join('; ');
 
-/** 모델에 돌려줄 상태: 실행 중이면 다음 행동을 함께 안내한다 */
-function present(view: IngestRunView | null) {
+const FALLBACK_STEPS = {
+  apply: '기본 웹 도구(없으면 firecrawl_scrape·collect_source)로 url을 읽어 출처를 보존하고 normalize_procurement_data→validate_research→apply_research로 반영(사용자 요청 시만)',
+  source: '기본 웹 도구(없으면 firecrawl_scrape·collect_source)로 url을 읽어 save_source로 보존하고 값·URL·신뢰도를 답변(이 표 적재 도구 없음)',
+  derived: '웹 수집 대상 아님. after의 선행 수집을 성공시킨 뒤 다시 실행',
+} as const;
+/** 실패 시 대체 수집 안내(작게): 원문 쪽 주소, 뽑을 내용, 다음 행동 */
+export function fallbackHint(sourceId: string) {
+  const src = ingestSource(sourceId);
+  if (!src) return undefined;
+  const { url, what, save } = src.fallback;
+  return { ...(url ? { url } : {}), what, suggestion: FALLBACK_STEPS[save], ...(save === 'derived' && src.after ? { after: src.after } : {}) };
+}
+/** 모델에 돌려줄 상태: 실행 중이면 다음 행동, 실패면 대체 수집 안내를 함께 준다 */
+export function present(view: IngestRunView | null) {
   if (!view) return { error: '수집 작업을 찾을 수 없음' };
   const { summary, ...rest } = view;
+  if (view.status === 'failed') return { ...rest, error: view.error ? view.error.slice(0, 300) : null, fallback: fallbackHint(view.source) };
   if (view.status === 'running' || view.status === 'cancelling') return { ...rest, next: `get_ingest_run(id="${view.id}", wait=${DEFAULT_WAIT})로 진행 상황을 확인` };
   return { ...rest, ...(summary ? { summary } : {}), ...(view.status === 'completed' && view.dryRun ? { next: '미리보기 결과. 사용자가 반영을 원하면 같은 인자로 dryRun=false 실행' } : {}) };
 }

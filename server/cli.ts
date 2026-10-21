@@ -50,7 +50,7 @@ export function buildPrompt(input: ChatIn, cli?: 'codex' | 'grok'): string {
   const hist = recentMessages(input);
   const last = hist.pop();
   return [
-    systemPrompt(input.state),
+    systemPrompt(input.state, cli),
     '최신 자료는 기본 웹 검색과 페이지 읽기 및 연결된 MCP로 조사한다. 그록은 XSearch도 사용한다. 접근 실패를 밝히고 내용을 지어내지 않는다. procurement MCP의 research_procurement로 조사 기준을 확인하고 search_sources/collect_source/save_source/read_source로 원문을 보존한다. normalize_procurement_data/validate_research/apply_research로 정제와 최종 반영을 한다. 기존 submit_research도 호환용으로 유지한다.',
     ACTION_BLOCK_GUIDE,
     '자유 양식 보고서·기업 관점의 사업기회 분석·여러 사업 비교 등은 write_report의 고정 6절로 대체하지 않는다. 사용자의 목적·독자·질문에 맞춰 논지와 목차를 설계하고 근거·비교·판단·권고·불확실성을 충분히 작성한다. 이 CLI에 원래 설치된 Word 문서 작성 도구·스킬을 먼저 찾아 사용하여 편집 가능한 .docx를 직접 작성한다. Markdown을 복사해 확장자나 포맷만 바꾸는 것으로 끝내지 않는다. 사용자가 다른 파일 형식을 명시하면 그 지시를 우선한다.',

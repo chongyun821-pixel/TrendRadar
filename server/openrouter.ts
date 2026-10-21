@@ -34,7 +34,7 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
   });
   const hist = recentMessages({ ...input, messages: history });
   if (!hist.length || hist[hist.length - 1].role !== 'user') return { ...out, error: '메시지 없음' };
-  const sys = systemPrompt(input.state);
+  const sys = systemPrompt(input.state, 'nemotron');
   const msgs: any[] = hist.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.text }));
   if (executions.getStore()) {
     const images = await imageAttachments();

@@ -40,6 +40,8 @@
 - 같은 출처는 동시에 하나만 실행한다(`ingest_runs`의 부분 고유 색인). 작업은 시작한 프로세스 안에서만 돌아서, 코덱스·그록의 MCP 프로세스가 끝나면 함께 멈추고 3분 동안 생존 신호가 없으면 다음 조회 때 `failed`로 정리된다. 긴 GDELT 수집은 같은 대화 안에서 `get_ingest_run`으로 이어 확인하거나 CLI로 실행한다.
 - 결과에는 표별 행 수와 표본 3행만 담는다.
 
+수집이 실패하면(`status=failed`) 결과에 `fallback: { url, what, suggestion }`(산출 작업은 `after`)이 붙는다. 모델은 한 번 재시도 후 그 주소를 직접 읽는다. 그록·코덱스는 기본 웹 도구 → 연결된 Firecrawl MCP → `collect_source`, 지피티·네모트론은 Firecrawl 도구(설정 시) → `search_sources`·`collect_source` 순서다. 원문은 `save_source`로 보존하고 반영 가능한 자료는 `normalize_procurement_data`→`validate_research`→`apply_research`로, 적재 도구가 없는 표는 값·URL·신뢰도만 답한다. 권한 설정은 바꾸지 않았다.
+
 ## 출처별 주의
 
 - SIPRI 무기 이전: 공개 웹앱이 쓰는 비공식 백엔드(`atbackend.sipri.org`)라 형식이 바뀔 수 있다. 공급국 필터가 무시되어 전체를 받아 로컬에서 거른다. 보유 현황은 인도 기록 누적 추정치라 신뢰도 0.7.

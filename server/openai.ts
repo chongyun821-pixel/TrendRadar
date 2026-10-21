@@ -40,7 +40,7 @@ export async function chatOpenAI(input: ChatIn, env: Env): Promise<ChatOut> {
       const images = await imageAttachments();
       if (images.length) items.at(-1).content = [{ type: 'input_text', text: items.at(-1).content }, ...images.map(image => ({ type: 'input_image', image_url: `data:${image.mime};base64,${image.base64}` }))];
     }
-    const instructions = systemPrompt(input.state);
+    const instructions = systemPrompt(input.state, 'gpt');
     const tools = responsesTools();
     for (;;) {
       input.signal?.throwIfAborted();

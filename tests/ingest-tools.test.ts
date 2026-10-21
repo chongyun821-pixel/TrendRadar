@@ -120,3 +120,50 @@ describe('수집 채팅 도구', () => {
     expect((await repo.one("SELECT COUNT(*) AS n FROM ingest_runs WHERE source='oryx' AND status='failed'")).n).toBe(1);
   });
 });
+
+describe('수집 실패 시 대체 수집 안내', () => {
+  it('실패 결과에 원문 주소·뽑을 내용·다음 행동(fallback)을 작게 넣는다', async () => {
+    stubNetwork({ 'https://www.law.cornell.edu/': () => new Response('<html>바뀐 페이지</html>', { status: 404 }) });
+    const { ctx } = await context();
+    const r = await call(ctx, 'run_ingest', { source: 'itar' });
+    expect(r.status).toBe('failed');
+    expect(r.fallback).toMatchObject({ url: 'https://www.law.cornell.edu/cfr/text/22/126.1', what: expect.stringContaining('126.1') });
+    expect(r.fallback.suggestion).toContain('save_source');
+    expect(r.error.length).toBeLessThanOrEqual(300);
+    expect(JSON.stringify(r.fallback).length).toBeLessThan(400);
+    const again = await call(ctx, 'get_ingest_run', { id: r.id });
+    expect(again.fallback).toEqual(r.fallback);
+  });
+  it('모든 출처에 안내가 있고, 산출 작업은 선행 수집을, 조사 반영 가능한 출처는 반영 도구를 가리킨다', async () => {
+    const { fallbackHint, present } = await import('../server/ingest-tools');
+    for (const s of INGEST_SOURCES) {
+      const h = fallbackHint(s.id)!;
+      expect(h.what.length).toBeGreaterThan(0);
+      if (s.after) { expect(h.url).toBeUndefined(); expect(h.after).toEqual(s.after); }
+      else expect(h.url).toMatch(/^https:\/\//);
+    }
+    expect(fallbackHint('sipri-transfers')!.suggestion).toContain('apply_research');
+    const base = { id: randomUUID(), source: 'gdelt', dryRun: true, params: {}, progress: null, startedAt: now(), endedAt: null, error: null, summary: null };
+    expect(present({ ...base, status: 'completed' })).not.toHaveProperty('fallback');
+    expect(present({ ...base, status: 'cancelled' })).not.toHaveProperty('fallback');
+    expect(present({ ...base, status: 'failed', error: 'x'.repeat(2000) })).toMatchObject({ error: 'x'.repeat(300), fallback: { url: 'https://data.gdeltproject.org/events/index.html' } });
+  });
+  it('모델별 지침: 그록·코덱스는 기본 웹 도구, 지피티·네모트론은 Firecrawl(설정 시) 또는 collect_source', async () => {
+    const { systemPrompt, ingestFallbackGuide } = await import('../server/agent');
+    const { buildPrompt } = await import('../server/cli');
+    const msg = { conversationId: 'x', messages: [{ role: 'user' as const, text: '수집해줘' }] };
+    const grok = buildPrompt({ ...msg, model: 'grok' }, 'grok'), codex = buildPrompt({ ...msg, model: 'codex' }, 'codex');
+    for (const p of [grok, codex]) { expect(p).toContain('fallback.url'); expect(p).toContain('apply_research'); expect(p).toContain('연결된 Firecrawl MCP'); expect(p).not.toContain('firecrawl_scrape로 fallback.url'); }
+    expect(grok).toContain('WebFetch'); expect(grok).toContain('WebSearch'); expect(codex).not.toContain('WebFetch'); expect(codex).toContain('기본 웹 검색');
+    for (const m of ['gpt', 'nemotron'] as const) {
+      expect(systemPrompt(undefined, m)).toContain('fallback.what');
+      expect(ingestFallbackGuide(m, true)).toContain('firecrawl_scrape로 fallback.url');
+      expect(ingestFallbackGuide(m, false)).toContain('collect_source로 fallback.url');
+      expect(ingestFallbackGuide(m, false)).not.toContain('firecrawl_scrape');
+    }
+    const { ctx } = await context();
+    expect(executions.run({ ...ctx, env: { FIRECRAWL_API_KEY: 'test-key' } } as any, () => systemPrompt(undefined, 'gpt'))).toContain('firecrawl_scrape로 fallback.url');
+    expect(executions.run(ctx as any, () => systemPrompt(undefined, 'nemotron'))).toContain('collect_source로 fallback.url');
+    expect(ingestFallbackGuide()).toContain('사용자가 요청한 경우에만');
+  });
+});
