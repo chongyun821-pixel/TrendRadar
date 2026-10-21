@@ -1,0 +1,22 @@
+{
+  "note": "영토·해양 분쟁 정적 목록. 위키백과 목록 기준이라 신뢰도 0.4(언론·2차 자료)로 둔다. intensity는 0~1 추정치다(무력 충돌 동반 1.0, 대치·순찰 0.5~0.8, 외교 분쟁 0.2~0.4).",
+  "source": { "id": "ref_disputes", "url": "https://en.wikipedia.org/wiki/List_of_territorial_disputes", "confidence": 0.4 },
+  "disputes": [
+    { "a": "RUS", "b": "UKR", "name": "크림반도·우크라이나 점령지", "intensity": 1.0 },
+    { "a": "IND", "b": "PAK", "name": "카슈미르", "intensity": 0.9 },
+    { "a": "CHN", "b": "IND", "name": "악사이친·아루나찰프라데시", "intensity": 0.8 },
+    { "a": "CHN", "b": "PHL", "name": "남중국해(스카버러·세컨드토머스 암초)", "intensity": 0.8 },
+    { "a": "CHN", "b": "VNM", "name": "남중국해(파라셀·스프래틀리)", "intensity": 0.7 },
+    { "a": "ARM", "b": "AZE", "name": "아르메니아-아제르바이잔 국경", "intensity": 0.7 },
+    { "a": "CHN", "b": "JPN", "name": "센카쿠(댜오위다오)", "intensity": 0.5 },
+    { "a": "GRC", "b": "TUR", "name": "에게해 영해·대륙붕", "intensity": 0.5 },
+    { "a": "JPN", "b": "RUS", "name": "쿠릴 열도 남부", "intensity": 0.4 },
+    { "a": "ARE", "b": "IRN", "name": "아부무사·대툰브·소툰브", "intensity": 0.4 },
+    { "a": "CHN", "b": "IDN", "name": "나투나 해역 배타적경제수역", "intensity": 0.3 },
+    { "a": "MYS", "b": "PHL", "name": "사바", "intensity": 0.3 },
+    { "a": "EGY", "b": "SDN", "name": "할라이브 삼각지대", "intensity": 0.3 },
+    { "a": "ARG", "b": "GBR", "name": "포클랜드(말비나스)", "intensity": 0.3 },
+    { "a": "EST", "b": "RUS", "name": "국경 조약 미비준", "intensity": 0.2 },
+    { "a": "CHN", "b": "MYS", "name": "남중국해(스프래틀리)", "intensity": 0.3 }
+  ]
+}

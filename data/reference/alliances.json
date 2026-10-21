@@ -1,0 +1,13 @@
+{
+  "note": "동맹 목록(긴장도 30% 감산용). 회원국은 2026년 기준 공개 자료로 수기 정리했으며 정기 확인이 필요하다.",
+  "source": { "id": "ref_alliances", "url": "https://www.nato.int/cps/en/natohq/topics_52044.htm", "confidence": 0.7 },
+  "alliances": [
+    { "name": "NATO", "members": ["ALB","BEL","BGR","CAN","HRV","CZE","DNK","EST","FIN","FRA","DEU","GRC","HUN","ISL","ITA","LVA","LTU","LUX","MNE","NLD","MKD","NOR","POL","PRT","ROU","SVK","SVN","ESP","SWE","TUR","GBR","USA"] },
+    { "name": "CSTO", "members": ["RUS","BLR","ARM","KAZ","KGZ","TJK"] },
+    { "name": "GCC", "members": ["SAU","ARE","QAT","KWT","BHR","OMN"] },
+    { "name": "ANZUS", "members": ["AUS","NZL","USA"] },
+    { "name": "한미동맹", "members": ["KOR","USA"] },
+    { "name": "미일동맹", "members": ["JPN","USA"] },
+    { "name": "미국-필리핀 상호방위조약", "members": ["PHL","USA"] }
+  ]
+}
