@@ -22,7 +22,7 @@ export function supabaseConfig(): SupabaseConfig {
   return { databaseUrl: config.DATABASE_URL || '', url: config.SUPABASE_URL || '', secretKey: config.SUPABASE_SECRET_KEY || '', bucket: config.SUPABASE_STORAGE_BUCKET || 'trendradar-private', schema: process.env.RADAR_PG_SCHEMA || config.RADAR_PG_SCHEMA || 'trendradar' };
 }
 /** 배포한 SQL 변경 이력. 표 구조는 schema 파일에도 있어 새 스키마에 바로 생성되고, 자료 변경은 버전별로 한 번만 적용한다. */
-export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV·레이저대공무기', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }] as const;
+export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV·레이저대공무기', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }] as const;
 export class Repository {
   db!: DatabaseSync;
   private cached?: Seed;
@@ -170,23 +170,31 @@ export class Repository {
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('잘못된 대화 ID');
     return join(this.storage, 'workspaces', id);
   }
+  async conversationExists(id: string) { return !!await this.one('SELECT id FROM conversations WHERE id=?', id); }
+  /** 대화 한 건: 원격 DB 왕복을 줄이려고 하위 조회를 동시에 보낸다. 실행 목록은 화면에 필요한 열만(결과 JSON 제외) */
   async conversation(id: string) {
-    const c = await this.one('SELECT * FROM conversations WHERE id=?', id);
+    const [c, messages, files, runs, queued] = await Promise.all([
+      this.one('SELECT * FROM conversations WHERE id=?', id),
+      this.all('SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid', id),
+      this.all('SELECT * FROM artifacts WHERE conversation_id=? ORDER BY rowid', id),
+      this.all('SELECT id,conversation_id,model,status,error,started_at,ended_at,owner_pid FROM runs WHERE conversation_id=? ORDER BY rowid DESC', id),
+      this.queuedMessages(id),
+    ]);
     if (!c) throw new Error('대화를 찾을 수 없습니다');
-    return { ...c, workspace: this.workspace(id), messages: (await this.all('SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid', id)).map(m => ({ ...m, ...JSON.parse(m.payload) })), files: await this.all('SELECT * FROM artifacts WHERE conversation_id=? ORDER BY rowid', id), runs: await this.all('SELECT * FROM runs WHERE conversation_id=? ORDER BY rowid DESC', id), queued: await this.queuedMessages(id) };
+    return { ...c, workspace: this.workspace(id), messages: messages.map(m => ({ ...m, ...JSON.parse(m.payload) })), files, runs, queued };
   }
   async queuedMessages(id: string) {
     return (await this.all("SELECT r.id,r.model,e.data,e.created_at FROM runs r JOIN events e ON e.run_id=r.id AND e.name='run.queued' WHERE r.conversation_id=? AND r.status='queued' ORDER BY r.rowid", id)).map(row => ({ id: row.id, model: row.model, text: JSON.parse(row.data).messages[0].text, created_at: row.created_at }));
   }
   async message(id: string, role: string, text: string, payload: unknown = {}) {
-    await this.conversation(id);
+    if (!await this.conversationExists(id)) throw new Error('대화를 찾을 수 없습니다');
     const date = now();
     await this.run('INSERT INTO messages VALUES (?, ?, ?, ?, ?, ?)', randomUUID(), id, role, text, JSON.stringify(payload), date);
     await this.run('UPDATE conversations SET updated_at=? WHERE id=?', date, id);
     if (role === 'user') await this.run("UPDATE conversations SET title=? WHERE id=? AND title='새 대화'", text.slice(0, 60), id);
   }
   async deleteConversation(id: string) {
-    await this.conversation(id);
+    if (!await this.conversationExists(id)) throw new Error('대화를 찾을 수 없습니다');
     await this.transaction(async () => {
       await this.run("UPDATE runs SET status='cancelled',error=?,ended_at=? WHERE conversation_id=? AND status='queued'", '대화 삭제로 대기 취소됨', now(), id);
       await this.run('UPDATE artifacts SET conversation_id=NULL WHERE conversation_id=?', id);

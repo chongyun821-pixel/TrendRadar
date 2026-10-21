@@ -171,7 +171,7 @@ export function initChat(o: ChatOpts) {
           const token = view, id = conversationId; cancel.disabled = true;
           try {
             await api(`/runs/${message.id}/stop`, post());
-            const c: Conversation = await api(`/conversations/${id}`);
+            const c: Conversation = await loadConversation(id!, true);
             if (token === view) { renderConversation(c); followConversation(c, token); }
           } catch (error) { if (token === view) { showError(error); cancel.disabled = false; } }
         };
@@ -218,7 +218,7 @@ export function initChat(o: ChatOpts) {
         uploadedNames.push(...result.files.map((file: any, index: number) => `${files[index].name}${file.message ? ` (${file.message})` : ''}`));
         const notices = result.files.flatMap((file: any, index: number) => ['failed', 'unsupported'].includes(file.extraction) ? [`${files[index].name}: ${file.message}`] : []);
         uploadStatus.textContent = [`${files.length}개 파일 추가됨`, ...notices].join('\n');
-        const conversation = await api(`/conversations/${id}`);
+        const conversation = await loadConversation(id, true);
         if (token !== view) return;
         renderFiles(conversation); await refreshHistory();
       } catch (e) { if (token === view) uploadStatus.textContent = `업로드 실패 · ${e instanceof Error ? e.message : e}`; }
@@ -237,26 +237,47 @@ export function initChat(o: ChatOpts) {
   document.addEventListener('dragleave', e => { if (isFileDrag(e) && --dragDepth <= 0) { dragDepth = 0; overlay.hidden = true; } });
   document.addEventListener('drop', e => { if (!isFileDrag(e)) return; e.preventDefault(); dragDepth = 0; overlay.hidden = true; void upload(Array.from(e.dataTransfer?.files || [])); });
   window.addEventListener('blur', () => { dragDepth = 0; overlay.hidden = true; });
-  async function refreshHistory() {
-    const rows: { id: string; title: string }[] = await api('/conversations');
+  /** 대화 캐시: 전환 즉시 마지막으로 받은 내용을 보여주고 최신 내용은 뒤에서 받는다 */
+  const conversations = new Map<string, Conversation>(), loading = new Map<string, Promise<Conversation>>();
+  let historyRows: { id: string; title: string }[] = [];
+  function loadConversation(id: string, fresh = false) {
+    let task = fresh ? undefined : loading.get(id);
+    if (!task) {
+      task = api(`/conversations/${id}`).then((c: Conversation) => { conversations.set(id, c); return c; }).finally(() => { if (loading.get(id) === task) loading.delete(id); });
+      loading.set(id, task);
+    }
+    return task;
+  }
+  /** 낙관적 삭제: 목록과 화면에서 바로 지우고, 실패하면 목록을 되돌리고 짧게 알린다 */
+  function deleteConversation(id: string) {
+    historyRows = historyRows.filter(r => r.id !== id);
+    const cached = conversations.get(id); conversations.delete(id);
+    historyPanel.querySelector(`[data-row-id="${CSS.escape(id)}"]`)?.remove();
+    if (id === conversationId) newConversation();
+    void api(`/conversations/${id}`, { method: 'DELETE' }).catch(() => {
+      if (cached) conversations.set(id, cached);
+      progress.set('대화 삭제 실패');
+      void refreshHistory().catch(() => {});
+    });
+  }
+  function renderHistory(rows: { id: string; title: string }[]) {
     historyPanel.replaceChildren();
     if (!rows.length) historyPanel.textContent = '저장된 대화가 없습니다.';
     for (const row of rows) {
-      const line = document.createElement('div'); line.className = 'conversation-row';
+      const line = document.createElement('div'); line.className = 'conversation-row'; line.dataset.rowId = row.id;
       const select = document.createElement('button'); select.type = 'button'; select.textContent = row.title; select.classList.toggle('selected', row.id === conversationId);
       select.dataset.conversationId = row.id; select.setAttribute('aria-pressed', String(row.id === conversationId));
       select.onclick = () => { void selectConversation(row.id).catch(showError); closeMenus(); };
+      select.onpointerenter = () => { if (!conversations.has(row.id)) void loadConversation(row.id).catch(() => {}); };
       const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '삭제'; remove.setAttribute('aria-label', `${row.title} 대화 삭제`);
-      remove.onclick = async () => {
-        remove.disabled = true;
-        try {
-          await api(`/conversations/${row.id}`, { method: 'DELETE' });
-          if (row.id === conversationId) newConversation();
-          await refreshHistory();
-        } catch (e) { showError(e); remove.disabled = false; }
-      };
+      remove.onclick = () => deleteConversation(row.id);
       line.append(select, remove); historyPanel.appendChild(line);
     }
+  }
+  async function refreshHistory() {
+    if (historyRows.length) renderHistory(historyRows);
+    const rows: { id: string; title: string }[] = await api('/conversations');
+    historyRows = rows; renderHistory(rows);
     return rows;
   }
   function showError(e: unknown) { progress.set(String(e instanceof Error ? e.message : e)); }
@@ -301,15 +322,31 @@ export function initChat(o: ChatOpts) {
     const visible = Array.from(list.querySelectorAll<HTMLElement>('.m.report')).map(element => ({ element, height: Math.min(bounds.bottom, element.getBoundingClientRect().bottom) - Math.max(bounds.top, element.getBoundingClientRect().top) })).filter(x => x.height > 40).sort((a, b) => b.height - a.height)[0];
     if (visible) activateReport(visible.element);
   }, { passive: true });
+  /** 낙관적 전환: 바로 선택을 바꾸고 캐시(없으면 제목만)를 보여준 뒤 최신 내용으로 갱신한다. 실패하면 이전 대화로 되돌린다 */
   async function selectConversation(id: string) {
-    const token = ++view;
-    progress.set('대화 불러오는 중…'); open();
-    const c: Conversation = await api(`/conversations/${id}`);
+    const token = ++view, previous = conversationId;
+    const show = (c: Conversation) => {
+      conversationId = c.id; currentReport = null; activeView = 'map'; save('pr.conversation', c.id); activeRun = null; busy(false); uploadedNames.length = 0; uploadStatus.textContent = '';
+      deliveryTarget = newTarget(c.id); markSelectedConversation(); renderConversation(c); open();
+    };
+    const cached = conversations.get(id);
+    if (cached) show(cached);
+    else {
+      conversationId = id; activeRun = null; busy(false); deliveryTarget = newTarget(id); markSelectedConversation();
+      list.replaceChildren(); get('#conversationTitle').textContent = historyRows.find(r => r.id === id)?.title || '대화'; open();
+      progress.set('대화 불러오는 중…');
+    }
+    let c: Conversation;
+    try { c = await loadConversation(id); }
+    catch (e) {
+      if (view !== token) return;
+      const back = previous && conversations.get(previous);
+      if (back) { view++; show(back); followConversation(back, view); } else newConversation();
+      progress.set(`대화를 열지 못했습니다${e instanceof Error && e.message ? `: ${e.message}` : ''}`);
+      return;
+    }
     if (view !== token) return;
-    conversationId = id; currentReport = null; activeView = 'map'; save('pr.conversation', id); activeRun = null; busy(false); uploadedNames.length = 0; uploadStatus.textContent = '';
-    deliveryTarget = newTarget(id);
-    markSelectedConversation();
-    renderConversation(c); open();
+    show(c);
     followConversation(c, token);
     if (!activeRun) progress.set(latestRun(c)?.error ? `이전 작업 오류: ${latestRun(c).error}` : '');
   }
@@ -360,7 +397,7 @@ export function initChat(o: ChatOpts) {
           if (event.name === 'model.fallback') activity('모델 재연결 중');
         }
         if (!['queued','running','stopping'].includes(run.status)) {
-          const c = await api(`/conversations/${conversationId}`);
+          const c = await loadConversation(conversationId!, true);
           if (token !== view || activeRun !== runId) return;
           if (requestVersion === undefined || appSnapshot().version === requestVersion) exec(run.result?.actions);
           renderConversation(c);
@@ -407,7 +444,7 @@ export function initChat(o: ChatOpts) {
         const accepted = await api('/chat', post({ conversationId: id, model: selectedModel, messages: [{ role: 'user', text }], state, appContext: requestContext }));
         target.outbox = target.outbox.filter(message => message !== entry);
         if (token !== view) return;
-        const c: Conversation = await api(`/conversations/${id}`);
+        const c: Conversation = await loadConversation(id!, true);
         if (token !== view) return;
         renderConversation(c); followConversation(c, token);
         if (!activeRun) { activeRun = accepted.runId; busy(true); void poll(accepted.runId, token); }

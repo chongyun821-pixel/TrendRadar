@@ -38,8 +38,7 @@ app.get('/conversations', async c => c.json(await repository().all('SELECT * FRO
 app.post('/conversations', async c => c.json(await repository().createConversation(), 201));
 app.get('/conversations/:id', async c => {
   const repo = repository(), id = c.req.param('id');
-  const conversation = await repo.conversation(id);
-  const reports = await repo.all('SELECT * FROM reports WHERE conversation_id=? ORDER BY created_at,id', id);
+  const [conversation, reports] = await Promise.all([repo.conversation(id), repo.all('SELECT * FROM reports WHERE conversation_id=? ORDER BY created_at,id', id)]);
   return c.json({ ...conversation, reportEntries: reports.map(r => ({ id: r.id, ...reportTarget(r.markdown), kind: 'country-analysis', basisDate: r.basis_date, dataVersion: r.data_version, createdAt: r.created_at, markdown: r.markdown })) });
 });
 app.post('/app-context', async c => c.json(await saveAppContext(repository(), await c.req.json())));
@@ -48,8 +47,9 @@ app.get('/app-context/:screen/commands', async c => c.json(await pendingCommands
 app.post('/app-context/:screen/commands/:id', async c => c.json(await acknowledgeCommand(repository(), c.req.param('screen'), c.req.param('id'), await c.req.json())));
 app.delete('/conversations/:id', async c => {
   const id = c.req.param('id'), repo = repository();
-  await repo.conversation(id);
-  await stopConversation(id);
+  if (!await repo.conversationExists(id)) throw new Error('대화를 찾을 수 없습니다');
+  // 진행 중 실행은 중지 요청만 하고 정리를 오래 기다리지 않는다(실행 기록은 대화와 분리되어 남는다)
+  await Promise.race([stopConversation(id), new Promise(r => setTimeout(r, 1500))]);
   await repo.deleteConversation(id);
   return c.json({ ok: true });
 });
