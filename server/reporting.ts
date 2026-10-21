@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { evidenceTable, evidenceTableMarkdown, scoreCase } from './scoring';
 import { execution } from './execution';
 import { PROJECT_ROOT, hash, now } from './store';
 import { resolveCountry, resolveSystem } from '../shared/data';
@@ -44,6 +45,9 @@ export async function reportTool(name: string, a: Record<string, any>): Promise<
     if (!records.length) throw new Error('대상 국가와 체계의 자료가 없습니다');
     const sourceIds = new Set(records.flatMap(r => [...r.src, ...r.batches.flatMap(b => b.src), ...(r.awarded?.src || []), ...(r.plan?.src || []), ...(r.mro || []).flatMap(m => m.src), ...(r.signals || []).flatMap(s => s.src), ...(r.projects || []).flatMap(p => p.src), ...snapshot.data.systems[r.system].costSrc]));
     packet = { basis, country, system: system || null, revision: snapshot.revision, basisDate: snapshot.data.meta.collected, records, forecasts: records.map(r => computeForecast(r, snapshot.data)), assumptions: snapshot.data.systems, meta: snapshot.data.meta, sources: Object.fromEntries(Object.entries(snapshot.data.sources).filter(([id]) => sourceIds.has(id))), analysis: writeReport({ country, system: system || undefined }, snapshot.data) };
+    // 케이스별 근거 표(양식 evidenceTable). 판단 점수는 예측이다
+    const cases = await Promise.all(records.map(r => scoreCase(ctx.repo, snapshot.data, r.country, r.system)));
+    packet = { ...packet, evidenceTables: cases.map(evidenceTable), evidenceMarkdown: cases.map(evidenceTableMarkdown) };
   }
   packet = { ...packet, id, createdAt, purpose: a.purpose || '', requestContext: state || null, rulesVersion: 'normalization-v1', templateVersion: definitions.version, template, checks: definitions.checks, authoring: definitions.authoring };
   const content = JSON.stringify(packet, null, 2);

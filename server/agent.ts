@@ -12,7 +12,7 @@ import { NORMALIZATION_DEFS, normalizationTool } from './normalization';
 import { REPORT_DEFS, reportTool } from './reporting';
 import { computeForecast } from '../shared/forecast';
 import { now, repository } from './store';
-import { scoreCase } from './scoring';
+import { evidenceTableMarkdown, scoreCase } from './scoring';
 
 export type ModelId = 'grok' | 'codex' | 'gemma' | 'nemotron';
 export interface ChatIn { model?: string; conversationId?: string; runId?: string; signal?: AbortSignal; messages: { role: 'user' | 'model'; text: string }[]; state?: { mode?: string | null; flat?: boolean; focus?: string | null }; appContext?: AppContext }
@@ -108,7 +108,8 @@ export async function runTool(name: string, args: Record<string, any>, out: Chat
       const data = snapshot?.data || seed;
       const country = resolveCountry(args.country), system = resolveSystem(args.system);
       if (!country || !system) return { error: '국가와 무기체계를 확인하세요' };
-      return { revision: snapshot?.revision, ...(await scoreCase(ctx?.repo ?? repository(), data, country, system)) };
+      const score = await scoreCase(ctx?.repo ?? repository(), data, country, system);
+      return { revision: snapshot?.revision, ...score, evidenceMarkdown: evidenceTableMarkdown(score) };
     }
     case 'set_mode': {
       const s = isGeneral(args.system) || args.system == null || args.system === '' ? null : resolveSystem(args.system);

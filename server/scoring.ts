@@ -29,3 +29,25 @@ export async function scoreCase(repo: Repository, data: Seed, country: string, s
 
 /** 지도·목록용 요약(점수, 회색 여부, 임박 연도, 통과 실패 사유) */
 export const scoreSummary = (s: ScoredCase) => ({ country: s.country, system: s.system, score: s.score, grey: s.grey, tier: s.tier, gate: s.gate.reason, imminenceYear: s.imminenceYear });
+
+/** 보고서 양식 evidenceTable 형식의 케이스별 근거 표 */
+export function evidenceTable(s: ScoredCase) {
+  const pct = (n: number) => `${Math.round(n * 100)}%`;
+  return {
+    title: `${s.countryKo} · ${s.systemKo} 근거 표`,
+    header: {
+      통과조건: s.gate.passed ? '통과' : `제외 — ${s.gate.reason}`,
+      고객등급: s.tier ? `${s.tier}세계 (계수 ${s.tierFactor})` : `미판정 (계수 ${s.tierFactor})`,
+      독자개발: s.domestic ? `${({ none: '없음', development: '개발 중', production: '양산' } as const)[s.domestic]} (계수 ${s.domesticFactor})` : '자료 없음',
+      판단점수: s.gate.passed ? `${s.score}/100 (항목 합 ${s.subtotal})` : '0 (제외)',
+      승인필요: s.approvals.length ? s.approvals : ['없음'],
+    },
+    columns: ['항목', '비중', '원점수', '출처 신뢰도', '점수', '판단 내용', '근거 ID'],
+    rows: s.components.map(c => [c.label, c.weight, c.missing ? '자료 없음' : pct(c.raw), c.missing ? '—' : c.confidence, c.points, c.detail, c.evidence.join(', ') || '—']),
+  };
+}
+export function evidenceTableMarkdown(s: ScoredCase) {
+  const t = evidenceTable(s), cell = (v: unknown) => String(v).replace(/\|/g, '\\|');
+  return [`**${t.title}**`, '', ...Object.entries(t.header).map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join('; ') : v}`), '',
+    `| ${t.columns.join(' | ')} |`, `|${t.columns.map(() => '---').join('|')}|`, ...t.rows.map(r => `| ${r.map(cell).join(' | ')} |`)].join('\n');
+}

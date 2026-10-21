@@ -9,6 +9,7 @@ import { researchTool, submitResearch } from '../server/research';
 import { upsertRows, selectRows } from '../server/collection';
 import { runTool, newOut, TOOL_DEFS } from '../server/agent';
 import { app } from '../server/app';
+import { reportTool } from '../server/reporting';
 import { computeScore, DEFAULT_WEIGHTS } from '../shared/forecast';
 import type { ExportTierRow } from '../shared/types';
 
@@ -60,6 +61,18 @@ describe('get_score_breakdown·/api/scores', () => {
     expect(body.scores.find((s: any) => s.country === 'POL')).toMatchObject({ score: r.score, grey: false });
     expect(body.scores.find((s: any) => s.country === 'EGY')).toMatchObject({ score: 0, grey: true, tier: 3 });
     expect((await app.request('/api/scores')).status).toBe(400);
+    expect(r.evidenceMarkdown).toContain('| 항목 | 비중 | 원점수 | 출처 신뢰도 | 점수 | 판단 내용 | 근거 ID |');
+    expect(r.evidenceMarkdown).toContain('- 고객등급: 1세계 (계수 1)');
+  });
+  it('prepare_report 작성 자료에 케이스별 근거 표가 들어간다', async () => {
+    const repo = repository(), conversation = await repo.createConversation(), runId = randomUUID();
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, conversation.id, 'test', 'running', now());
+    const packet: any = await executions.run({ repo, conversationId: conversation.id, runId, signal: new AbortController().signal, env: {} } as any, () => reportTool('prepare_report', { country: 'POL', system: 'sph' }));
+    expect(packet.templateVersion).toBe('report-templates-v1');
+    expect(packet.template.id).toBe('word-country-v1');
+    expect(packet.evidenceTables).toHaveLength(1);
+    expect(packet.evidenceTables[0]).toMatchObject({ title: '폴란드 · 자주포 근거 표', columns: ['항목', '비중', '원점수', '출처 신뢰도', '점수', '판단 내용', '근거 ID'] });
+    expect(packet.evidenceTables[0].rows).toHaveLength(7);
   });
 });
 
