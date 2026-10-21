@@ -1,9 +1,8 @@
 /** 수집 스크립트 공통: 인자, 재시도 fetch, 국가명→국가 ID, 출처 기록, 적재(드라이런 지원). */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { PROJECT_ROOT, repository, type Repository } from '../../server/store';
-import { upsertRows, type CollectionTable, type RowTypes } from '../../server/collection';
+import { PROJECT_ROOT, repository, type Repository } from '../store';
+import { upsertRows, type CollectionTable, type RowTypes } from '../collection';
 
 export type Fetch = typeof fetch;
 export interface IngestOptions {
@@ -18,6 +17,12 @@ export interface IngestOptions {
   now?: string;
   log?: (line: string) => void;
   args?: Record<string, string | boolean>;
+  /** 중지 신호. 네트워크 요청과 단계 사이에서 확인한다 */
+  signal?: AbortSignal;
+  /** 진행 상황 알림(채팅 화면 표시·작업 생존 신호) */
+  progress?: (message: string) => void | Promise<void>;
+  /** 적재·미리보기를 이 국가 ID로 한정한다(국가 쌍은 한쪽이라도 포함) */
+  countries?: string[];
 }
 export interface SourceInfo { id: string; title: string; url: string; confidence: number; publishedAt?: string | null }
 export type TableRows = { [T in CollectionTable]?: Partial<RowTypes[T]>[] };
@@ -36,22 +41,24 @@ export function parseArgs(argv: string[]): Record<string, string | boolean> {
 }
 
 /** 시간 제한·재시도(5xx·네트워크 오류) fetch. 4xx는 바로 실패한다(인증키 필요 여부를 그대로 보여주기 위해) */
-export async function fetchRetry(fetchImpl: Fetch, url: string, init: RequestInit = {}, { retries = 3, timeoutMs = 60000 } = {}): Promise<Response> {
+export async function fetchRetry(fetchImpl: Fetch, url: string, init: RequestInit = {}, { retries = 3, timeoutMs = 60000, signal }: { retries?: number; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Response> {
   let last: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
+    signal?.throwIfAborted();
     try {
-      const res = await fetchImpl(url, { ...init, headers: { 'User-Agent': 'Mozilla/5.0 (procurement-radar ingest)', ...(init.headers || {}) }, signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetchImpl(url, { ...init, headers: { 'User-Agent': 'Mozilla/5.0 (procurement-radar ingest)', ...(init.headers || {}) }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs) });
       if (res.ok) return res;
       if (res.status < 500) throw Object.assign(new Error(`HTTP ${res.status} ${url}`), { status: res.status, fatal: true });
       last = new Error(`HTTP ${res.status} ${url}`);
-    } catch (e: any) { if (e?.fatal) throw e; last = e; }
+    } catch (e: any) { if (e?.fatal || signal?.aborted) throw e; last = e; }
     if (attempt < retries) await new Promise(r => setTimeout(r, 1000 * 2 ** attempt));
   }
   throw last instanceof Error ? last : new Error(String(last));
 }
 export async function readInput(opts: IngestOptions, url: string, init?: RequestInit): Promise<Uint8Array> {
   if (opts.file) return new Uint8Array(readFileSync(opts.file));
-  const res = await fetchRetry(opts.fetch || fetch, url, init);
+  await opts.progress?.(`내려받는 중: ${new URL(url).hostname}`);
+  const res = await fetchRetry(opts.fetch || fetch, url, init, { signal: opts.signal });
   return new Uint8Array(await res.arrayBuffer());
 }
 export const text = (bytes: Uint8Array, encoding = 'utf-8') => new TextDecoder(encoding).decode(bytes);
@@ -122,13 +129,18 @@ export function stamp<T extends Record<string, any>>(rows: T[], source: SourceIn
 export async function load(opts: IngestOptions, source: SourceInfo, rows: TableRows, notes: string[] = [], fill: Partial<Record<CollectionTable, string[]>> = {}): Promise<IngestResult> {
   const collectedAt = opts.now || new Date().toISOString();
   const stamped: TableRows = {};
-  for (const [t, list] of Object.entries(rows) as [CollectionTable, any[]][]) (stamped as any)[t] = stamp(list, source, collectedAt, t);
+  const only = opts.countries?.length ? new Set(opts.countries) : null;
+  const keep = (r: Record<string, any>) => !only || [r.country, r.counterpart, r.user_country].some(c => c && only.has(c));
+  for (const [t, list] of Object.entries(rows) as [CollectionTable, any[]][]) (stamped as any)[t] = stamp(list.filter(keep), source, collectedAt, t);
+  if (only) notes.push(`국가 한정: ${[...only].join(', ')}`);
+  opts.signal?.throwIfAborted();
   const written: Partial<Record<CollectionTable, number>> = {};
   if (opts.dryRun) {
     for (const [t, list] of Object.entries(stamped)) written[t as CollectionTable] = 0, notes.push(`${t}: ${list!.length}행(드라이런, 적재 안 함)`);
     return { source, rows: stamped, written, dryRun: true, notes };
   }
   const repo = opts.repo || repository();
+  await opts.progress?.(`적재 중: ${Object.entries(stamped).map(([t, l]) => `${t} ${l!.length}행`).join(', ')}`);
   await repo.transaction(async () => {
     await repo.run('INSERT INTO sources(id,data) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', source.id, JSON.stringify(sourceRow(source, collectedAt)));
     for (const [t, list] of Object.entries(stamped) as [CollectionTable, any[]][]) written[t] = await upsertRows(repo, t, list, { fill: fill[t] });
@@ -136,24 +148,11 @@ export async function load(opts: IngestOptions, source: SourceInfo, rows: TableR
   return { source, rows: stamped, written, dryRun: false, notes };
 }
 
-export function summarize(result: IngestResult) {
-  const sample = Object.fromEntries(Object.entries(result.rows).map(([t, list]) => [t, { rows: list!.length, sample: list!.slice(0, 3) }]));
+/** 결과 요약. 표마다 행 수와 표본 몇 행만 담고 긴 문자열은 자른다(모델 맥락에 전체 자료를 넣지 않는다) */
+export function summarize(result: IngestResult, samples = 3) {
+  const short = (row: Record<string, any>) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, typeof v === 'string' && v.length > 160 ? `${v.slice(0, 160)}…` : v && typeof v === 'object' ? (JSON.stringify(v).length > 400 ? '(생략)' : v) : v]));
+  const sample = Object.fromEntries(Object.entries(result.rows).map(([t, list]) => [t, { rows: list!.length, sample: list!.slice(0, samples).map(short) }]));
   return { source: result.source, dryRun: result.dryRun, written: result.written, tables: sample, notes: result.notes };
 }
 
-export const isMain = (url: string) => !!process.argv[1] && url === pathToFileURL(process.argv[1]).href;
-/** CLI 진입점: --dry-run, --file <경로>, --year <연도>. 결과 요약을 JSON으로 출력한다 */
-export async function runCli(name: string, job: (opts: IngestOptions) => Promise<IngestResult>) {
-  const args = parseArgs(process.argv.slice(2));
-  const opts: IngestOptions = { dryRun: !!args['dry-run'], file: typeof args.file === 'string' ? args.file : undefined, year: args.year ? Number(args.year) : undefined, args, log: line => console.error(`[${name}] ${line}`) };
-  try {
-    const result = await job(opts);
-    console.log(JSON.stringify(summarize(result), null, 2));
-  } catch (e: any) { console.error(`[${name}] 실패: ${e?.message || e}`); process.exitCode = 1; }
-  finally {
-    // 작업이 연 저장소만 닫는다(드라이런 중 읽기만 한 경우 포함)
-    const open = (globalThis as typeof globalThis & { __radarRepositories?: Map<string, Repository> }).__radarRepositories;
-    for (const repo of open?.values() || []) await repo.close().catch(() => {});
-  }
-}
 export const baseYear = (opts: IngestOptions) => opts.year || Number((opts.now || new Date().toISOString()).slice(0, 4));
