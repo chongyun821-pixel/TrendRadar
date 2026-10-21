@@ -3,6 +3,7 @@ import { executions, execution } from './execution';
 import { collectDocuments } from './artifacts';
 import { repository, now } from './store';
 import { chatWith, DEFAULT_MODEL } from './models';
+import { parseModelChoice } from './model-choice';
 import type { ChatIn, ChatOut } from './agent';
 import type { Env } from './env';
 import { runCommand } from '../src/commands';
@@ -85,9 +86,10 @@ export async function startRun(input: ChatIn, env: Env) {
   await repo.conversation(conversationId);
   const last = input.messages.at(-1);
   if (!last || last.role !== 'user' || typeof last.text !== 'string' || !last.text.trim()) throw new Error('사용자 메시지 필요');
+  const choice = parseModelChoice(input.model, input.options);
   const runId = randomUUID();
   const appContext = input.appContext ? await saveAppContext(repo, { ...input.appContext, conversationId }) : undefined;
-  const request: ChatIn = { conversationId, model: input.model, messages: [{ role: 'user', text: last.text }], state: input.state, appContext };
+  const request: ChatIn = { conversationId, model: choice?.provider, ...(choice?.model || choice?.effort ? { options: { model: choice.model, effort: choice.effort } } : {}), messages: [{ role: 'user', text: last.text }], state: input.state, appContext };
   await queueTransaction(async () => {
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversationId, input.model || DEFAULT_MODEL, 'queued', now(), process.pid);
     await repo.event(runId, 'run.queued', request);

@@ -4,6 +4,9 @@ import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import type { SystemKey } from '../shared/types';
 import type { AppContext, ReportRef } from '../shared/app-context';
 import { createChatStatus, toolActivity } from './chat-status';
+import { createPicker } from './picker';
+import { modelStep, parseSlash, readChoice, type PickItem } from './slash';
+import { checkChoice, choiceLabel, type ModelChoice } from '../shared/model-options';
 
 interface ChatOpts {
   names: Record<string, string>;
@@ -39,12 +42,14 @@ export function initChat(o: ChatOpts) {
   const root = document.querySelector('#chat') as HTMLElement;
   const get = <T extends HTMLElement>(s: string) => root.querySelector(s) as T;
   const list = get<HTMLElement>('#msgs'), input = get<HTMLTextAreaElement>('#q');
-  const sel = get<HTMLSelectElement>('#model'), form = get<HTMLFormElement>('form');
-  const status = get<HTMLElement>('#chatStatus'), historyPanel = get<HTMLElement>('#conversationList');
+  const form = get<HTMLFormElement>('form');
+  const status = get<HTMLElement>('#chatStatus'), pickerRoot = get<HTMLElement>('#picker');
+  const choiceLabelEl = get<HTMLElement>('#modelLabel');
   const progress = createChatStatus(status);
-  const historyToggle = get<HTMLButtonElement>('#historyToggle'), fileInput = get<HTMLInputElement>('#fileInput');
+  const picker = createPicker(pickerRoot, get<HTMLTextAreaElement>('#q'));
+  const fileInput = get<HTMLInputElement>('#fileInput');
   const stop = get<HTMLButtonElement>('#stopButton'), sendButton = get<HTMLButtonElement>('.send');
-  const historyMenu = get<HTMLElement>('#historyMenu'), workspace = get<HTMLElement>('#workspace');
+  const workspace = get<HTMLElement>('#workspace');
   const attachButton = get<HTMLButtonElement>('#attachButton'), addFiles = get<HTMLButtonElement>('#addFiles');
   const uploadStatus = get<HTMLElement>('#uploadStatus');
   const uploadedNames: string[] = [];
@@ -52,13 +57,13 @@ export function initChat(o: ChatOpts) {
   let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false;
   let deliveryTarget = newTarget(), queueSignature = '';
   let queuedMessages: QueuedMessage[] = [];
-  let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], model = 'gpt';
+  let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], choice: ModelChoice = { provider: 'gpt' };
   const screenId = crypto.randomUUID();
   let contextVersion = 0, contextSignature = '', activeView: 'map' | 'report' = 'map', currentReport: ReportRef | null = null;
   let reportEntries: ReportEntry[] = [];
   function appSnapshot(): AppContext {
     const map = o.getState();
-    const state = { screenId, conversationId, model, activeView, ...map, filters: { system: map.mode }, report: currentReport, dataVersion: o.dataVersion() };
+    const state = { screenId, conversationId, model: choice.provider, ...(choice.model || choice.effort ? { modelOptions: { ...(choice.model ? { model: choice.model } : {}), ...(choice.effort ? { effort: choice.effort } : {}) } } : {}), activeView, ...map, filters: { system: map.mode }, report: currentReport, dataVersion: o.dataVersion() };
     const signature = JSON.stringify(state);
     if (signature !== contextSignature) { contextSignature = signature; contextVersion++; }
     return { ...state, version: contextVersion };
@@ -74,21 +79,28 @@ export function initChat(o: ChatOpts) {
   addEventListener('radar:map-state', () => { activeView = 'map'; });
   const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* 저장 제한 */ } };
   const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
-  function setModel(id: string) {
-    if (!models.some(m => m.id === id && m.available)) return false;
-    model = id; sel.value = id; save('pr.model', id); return true;
+  /** 모델 선택(제공자·CLI 모델·추론 강도). 전역 마지막 선택과 대화별 선택을 함께 저장한다 */
+  function setChoice(next: ModelChoice | null, persist = true) {
+    if (!next || !models.some(m => m.id === next.provider && m.available)) return false;
+    choice = next; choiceLabelEl.textContent = choiceLabel(choice);
+    if (persist) { save('pr.model', JSON.stringify(choice)); if (conversationId) save(`pr.model.${conversationId}`, JSON.stringify(choice)); }
+    return true;
   }
-  sel.addEventListener('change', () => setModel(sel.value));
+  const setModel = (id: string, cliModel?: string, effort?: string) => {
+    const r = checkChoice({ provider: id, model: cliModel, effort });
+    return r.ok && setChoice(r.choice);
+  };
   api('/models').then(j => {
-    models = j.models; sel.innerHTML = models.filter(m => m.available).map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
-    sel.hidden = false;
-    if (!setModel(read('pr.model') || '')) setModel(j.default);
+    models = j.models;
+    const saved = (conversationId && readChoice(read(`pr.model.${conversationId}`))) || readChoice(read('pr.model'));
+    if (!setChoice(saved, false)) setChoice({ provider: j.default }, false);
   }).catch(e => { progress.set(e.message); });
+  choiceLabelEl.textContent = choiceLabel(choice);
   const open = () => root.classList.add('open');
   const collapse = () => { root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
   function closeMenus() {
-    historyMenu.hidden = true; workspace.hidden = true;
-    historyToggle.setAttribute('aria-expanded', 'false'); attachButton.setAttribute('aria-expanded', 'false');
+    workspace.hidden = true; picker.close();
+    attachButton.setAttribute('aria-expanded', 'false');
   }
   function toggleMenu(menu: HTMLElement, button: HTMLElement) {
     const show = menu.hidden; closeMenus(); menu.hidden = !show; button.setAttribute('aria-expanded', String(show));
@@ -96,7 +108,7 @@ export function initChat(o: ChatOpts) {
   root.querySelectorAll<HTMLButtonElement>('.menu-close').forEach(button => button.onclick = closeMenus);
   document.addEventListener('pointerdown', e => { if (!get('.composer').contains(e.target as Node)) closeMenus(); });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && (!historyMenu.hidden || !workspace.hidden)) { closeMenus(); input.focus(); }
+    if (e.key === 'Escape' && (picker.isOpen() || !workspace.hidden)) { closeMenus(); input.focus(); }
   });
   // 상태를 바꿀 때 마지막 메시지를 보던 사용자는 새 진행 상태도 계속 볼 수 있다.
   new MutationObserver(() => { if (status.textContent) open(); }).observe(status, { childList: true });
@@ -105,6 +117,7 @@ export function initChat(o: ChatOpts) {
     input.style.height = `${Math.min(150, Math.max(34, input.scrollHeight))}px`;
   }
   input.addEventListener('input', resizeInput);
+  input.addEventListener('input', () => { if (input.value.trim() && picker.isOpen()) picker.close(); });
   input.addEventListener('input', updateSendButton);
   input.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
@@ -194,13 +207,6 @@ export function initChat(o: ChatOpts) {
       a.title = f.error || f.name; a.download = ''; a.classList.toggle('word-file', f.kind === 'document'); box.appendChild(a);
     }
   }
-  function markSelectedConversation() {
-    historyPanel.querySelectorAll<HTMLButtonElement>('button[data-conversation-id]').forEach(button => {
-      const selected = button.dataset.conversationId === conversationId;
-      button.classList.toggle('selected', selected);
-      button.setAttribute('aria-pressed', String(selected));
-    });
-  }
   attachButton.onclick = () => toggleMenu(workspace, attachButton);
   addFiles.onclick = () => fileInput.click();
   async function upload(files: File[]) {
@@ -252,39 +258,41 @@ export function initChat(o: ChatOpts) {
   function deleteConversation(id: string) {
     historyRows = historyRows.filter(r => r.id !== id);
     const cached = conversations.get(id); conversations.delete(id);
-    historyPanel.querySelector(`[data-row-id="${CSS.escape(id)}"]`)?.remove();
+    const open = picker.isOpen('sessions');
     if (id === conversationId) newConversation();
+    if (open) openSessions(false);
     void api(`/conversations/${id}`, { method: 'DELETE' }).catch(() => {
       if (cached) conversations.set(id, cached);
       progress.set('대화 삭제 실패');
       void refreshHistory().catch(() => {});
     });
   }
-  function renderHistory(rows: { id: string; title: string }[]) {
-    historyPanel.replaceChildren();
-    if (!rows.length) historyPanel.textContent = '저장된 대화가 없습니다.';
-    for (const row of rows) {
-      const line = document.createElement('div'); line.className = 'conversation-row'; line.dataset.rowId = row.id;
-      const select = document.createElement('button'); select.type = 'button'; select.textContent = row.title; select.classList.toggle('selected', row.id === conversationId);
-      select.dataset.conversationId = row.id; select.setAttribute('aria-pressed', String(row.id === conversationId));
-      select.onclick = () => { void selectConversation(row.id).catch(showError); closeMenus(); };
-      select.onpointerenter = () => { if (!conversations.has(row.id)) void loadConversation(row.id).catch(() => {}); };
-      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '삭제'; remove.setAttribute('aria-label', `${row.title} 대화 삭제`);
-      remove.onclick = () => deleteConversation(row.id);
-      line.append(select, remove); historyPanel.appendChild(line);
-    }
-  }
   async function refreshHistory() {
-    if (historyRows.length) renderHistory(historyRows);
     const rows: { id: string; title: string }[] = await api('/conversations');
-    historyRows = rows; renderHistory(rows);
+    historyRows = rows;
+    if (picker.isOpen('sessions')) openSessions(false);
     return rows;
   }
+  /** /sessions: 새 대화·대화 전환·삭제(낙관적). 목록은 저장본을 바로 보이고 최신 목록으로 갱신한다 */
+  function openSessions(refresh = true) {
+    const items: PickItem[] = [{ id: '', label: '＋ 새 대화' }, ...historyRows.map(r => ({ id: r.id, label: r.title, current: r.id === conversationId, deletable: true }))];
+    picker.open('sessions', { title: '대화 · ↑↓ 이동 · Enter 열기 · Delete 삭제', items, start: 0 }, {
+      pick: item => { picker.close(); if (!item.id) newConversation(); else void selectConversation(item.id).catch(showError); },
+      remove: item => { if (item.id) deleteConversation(item.id); },
+      hover: item => { if (item.id && !conversations.has(item.id)) void loadConversation(item.id).catch(() => {}); },
+    });
+    if (refresh) void refreshHistory().catch(showError);
+  }
+  /** /models: 제공자 → (코덱스·그록 빌드) 모델 → 추론 강도 */
+  function openModels(path: string[] = []) {
+    const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));
+    if ('done' in step) { picker.close(); if (!setChoice(step.done)) progress.set('사용할 수 없는 모델'); return; }
+    picker.open('models', { ...step, title: `${step.title} · ↑↓ · Enter${path.length ? ' · ← 이전' : ''}` }, {
+      pick: item => { if (!item.disabled) openModels([...path, item.id]); },
+      back: path.length ? () => openModels(path.slice(0, -1)) : undefined,
+    });
+  }
   function showError(e: unknown) { progress.set(String(e instanceof Error ? e.message : e)); }
-  historyToggle.onclick = async () => {
-    toggleMenu(historyMenu, historyToggle);
-    if (!historyMenu.hidden) await refreshHistory().catch(showError);
-  };
   function newConversation() {
     view++; conversationId = null; activeRun = null; busy(false); save('pr.conversation', '');
     deliveryTarget = newTarget(); queuedMessages = []; queueSignature = '';
@@ -292,9 +300,7 @@ export function initChat(o: ChatOpts) {
     get('#conversationTitle').textContent = '새 대화'; get('#workspaceFiles').textContent = '추가한 자료가 없습니다.'; get('#fileCount').hidden = true; closeMenus();
     open(); input.focus();
     currentReport = null; reportEntries = []; activeView = 'map';
-    markSelectedConversation();
   }
-  get('#chatReset').onclick = newConversation;
   function renderConversation(c: Conversation) {
     reportEntries = c.reportEntries || [];
     if (currentReport && !reportEntries.some(r => r.id === currentReport!.id)) currentReport = null;
@@ -327,12 +333,12 @@ export function initChat(o: ChatOpts) {
     const token = ++view, previous = conversationId;
     const show = (c: Conversation) => {
       conversationId = c.id; currentReport = null; activeView = 'map'; save('pr.conversation', c.id); activeRun = null; busy(false); uploadedNames.length = 0; uploadStatus.textContent = '';
-      deliveryTarget = newTarget(c.id); markSelectedConversation(); renderConversation(c); open();
+      deliveryTarget = newTarget(c.id); setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); open();
     };
     const cached = conversations.get(id);
     if (cached) show(cached);
     else {
-      conversationId = id; activeRun = null; busy(false); deliveryTarget = newTarget(id); markSelectedConversation();
+      conversationId = id; activeRun = null; busy(false); deliveryTarget = newTarget(id);
       list.replaceChildren(); get('#conversationTitle').textContent = historyRows.find(r => r.id === id)?.title || '대화'; open();
       progress.set('대화 불러오는 중…');
     }
@@ -367,7 +373,7 @@ export function initChat(o: ChatOpts) {
     if (target.id) return target.id;
     target.creation ??= api('/conversations', post()).then(c => c.id as string);
     try { target.id = await target.creation; } catch (error) { target.creation = undefined; throw error; }
-    if (token === view && target === deliveryTarget) { conversationId = target.id; save('pr.conversation', target.id); }
+    if (token === view && target === deliveryTarget) { conversationId = target.id; save('pr.conversation', target.id); save(`pr.model.${target.id}`, JSON.stringify(choice)); }
     return target.id;
   }
   async function poll(runId: string, token: number) {
@@ -420,13 +426,19 @@ export function initChat(o: ChatOpts) {
   async function send(text: string) {
     if (uploadTask) await uploadTask;
     if (!text.trim() && !uploadedNames.length) return;
+    const slash = parseSlash(text);
+    if (slash) {
+      input.value = ''; resizeInput(); updateSendButton(); open();
+      if (slash.cmd === 'sessions') openSessions(); else openModels();
+      return;
+    }
     const modelCommand = /^[!！]\s*(?:모델|model)\s*(.*)$/i.exec(text.trim());
     if (modelCommand) {
       const target = pickModel(modelCommand[1], models);
       if (!target || !setModel(target)) { progress.set('모델 이름 또는 사용 가능 여부를 확인하세요'); return; }
     }
     const wasBusy = sending, token = sending ? view : ++view, target = deliveryTarget;
-    const selectedModel = model, state = { ...o.getState() }, appContext = appSnapshot();
+    const selectedChoice = choice, state = { ...o.getState() }, appContext = appSnapshot();
     if (uploadedNames.length) { text += `\n\n첨부: ${uploadedNames.join(', ')}`; uploadedNames.length = 0; }
     const entry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
     input.value = ''; resizeInput(); open(); closeMenus(); busy(true);
@@ -441,7 +453,7 @@ export function initChat(o: ChatOpts) {
           const comparable = (value: AppContext) => { const { version: _version, conversationId: _conversation, ...rest } = value; return JSON.stringify(rest); };
           if (comparable(current) === comparable(appContext)) requestContext.version = current.version;
         }
-        const accepted = await api('/chat', post({ conversationId: id, model: selectedModel, messages: [{ role: 'user', text }], state, appContext: requestContext }));
+        const accepted = await api('/chat', post({ conversationId: id, model: selectedChoice.provider, ...(selectedChoice.model || selectedChoice.effort ? { options: { model: selectedChoice.model, effort: selectedChoice.effort } } : {}), messages: [{ role: 'user', text }], state, appContext: requestContext }));
         target.outbox = target.outbox.filter(message => message !== entry);
         if (token !== view) return;
         const c: Conversation = await loadConversation(id!, true);
@@ -495,7 +507,7 @@ export function initChat(o: ChatOpts) {
               if ('flat' in data) o.actions.toggle_map_mode(data.flat);
               if ('country' in data) o.actions.focus_country(data.country);
             } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId);
-            else if (data.type === 'set_chat_model') { if (!setModel(data.model)) throw new Error('모델을 선택할 수 없습니다'); }
+            else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
             else throw new Error('지원하지 않는 화면 명령');
             result = { status: 'applied' };
           } catch (error) { result = { status: 'failed', detail: String(error) }; }
@@ -508,5 +520,5 @@ export function initChat(o: ChatOpts) {
   }
   setInterval(() => { void pulse(); }, 1000);
   void pulse();
-  return { send, suggest, collapse, open, HELP, getModel: () => model, getAppContext: appSnapshot };
+  return { send, suggest, collapse, open, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }

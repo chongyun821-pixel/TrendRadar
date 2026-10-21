@@ -16,7 +16,7 @@ import { now, repository } from './store';
 import { evidenceTableMarkdown, scoreCase } from './scoring';
 
 export type ModelId = 'grok' | 'codex' | 'gpt' | 'nemotron';
-export interface ChatIn { model?: string; conversationId?: string; runId?: string; signal?: AbortSignal; messages: { role: 'user' | 'model'; text: string }[]; state?: { mode?: string | null; flat?: boolean; focus?: string | null }; appContext?: AppContext }
+export interface ChatIn { model?: string; /** CLI 모델·추론 강도(코덱스·그록 빌드) */ options?: { model?: string; effort?: string }; conversationId?: string; runId?: string; signal?: AbortSignal; messages: { role: 'user' | 'model'; text: string }[]; state?: { mode?: string | null; flat?: boolean; focus?: string | null }; appContext?: AppContext }
 export interface ChatOut { reply: string; actions: Record<string, unknown>[]; reports: string[]; reportRefs?: (ReportRef | null)[]; files?: ArtifactDownload[]; tools: string[]; model?: string; usage?: { input: number; cached: number; output: number }; nokey?: boolean; error?: string; detail?: string }
 export const newOut = (): ChatOut => ({ reply: '', actions: [], reports: [], tools: [] });
 

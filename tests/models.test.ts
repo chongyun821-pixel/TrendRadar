@@ -233,7 +233,7 @@ describe('모델 API', () => {
     const post = (b: unknown) => app.request('/api/chat', { method: 'POST', body: JSON.stringify(b), headers: { 'content-type': 'application/json' } }, { LOCAL_CLI: '0' });
     const j = await (await post({ model: 'nemotron', ...user('hi') })).json();
     expect(j.nokey).toBe(true); expect(j.reply).toBe('OpenRouter 키 없음');
-    expect((await (await post({ model: 'x', ...user('hi') })).json()).error).toBe('모르는 모델');
+    expect((await (await post({ model: 'x', ...user('hi') })).json()).error).toContain('모르는 모델');
     expect((await (await post({ model: 'grok', ...user('hi') })).json()).error).toBeTruthy();
   });
   it('!모델 이름 해석', () => {

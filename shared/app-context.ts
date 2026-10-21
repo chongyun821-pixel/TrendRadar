@@ -13,6 +13,8 @@ export interface AppContext {
   version: number;
   conversationId: string | null;
   model: string;
+  /** CLI 모델·추론 강도(코덱스·그록 빌드만) */
+  modelOptions?: { model?: string; effort?: string };
   activeView: 'map' | 'report';
   mode: SystemKey | null;
   flat: boolean;

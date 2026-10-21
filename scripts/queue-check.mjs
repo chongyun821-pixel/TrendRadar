@@ -38,10 +38,10 @@ try {
   await page.screenshot({ path: `${folder}/desktop.png` });
   await page.reload(); await page.waitForSelector('body.ready');
   await page.waitForFunction(() => document.querySelectorAll('.queued-heading button').length === 3);
-  await page.click('#historyToggle'); await page.click('#chatReset');
+  await page.fill('#q', '/sessions'); await page.press('#q', 'Enter'); await page.press('#q', 'Enter');
   await send('!help'); await finished();
   ids.push(await page.evaluate(() => localStorage.getItem('pr.conversation')));
-  await page.click('#historyToggle'); await page.locator(`button[data-conversation-id="${id}"]`).click();
+  await page.fill('#q', '/sessions'); await page.press('#q', 'Enter'); await page.locator(`#picker .picker-item[data-id="${id}"]`).click();
   await page.waitForFunction(() => document.querySelectorAll('.queued-heading button').length === 3);
   await page.getByRole('button', { name: '대기 메시지 3 취소', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.queued-heading button').length === 2);

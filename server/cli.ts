@@ -275,7 +275,8 @@ async function finish(out: ChatOut, parsed: CliParsed): Promise<ChatOut> {
 }
 
 export async function chatGrok(input: ChatIn, env: Env): Promise<ChatOut> {
-  const out = newOut(); out.model = env.GROK_MODEL || GROK_MODEL;
+  const grokModel = input.options?.model || env.GROK_MODEL || GROK_MODEL, grokEffort = input.options?.effort || env.GROK_EFFORT || GROK_EFFORT;
+  const out = newOut(); out.model = grokModel;
   const m = await nodeMods();
   if (!m || !(await localAvailability(env)).grok) return { ...out, error: '로컬 전용 모델' };
   if (S.busy.grok) return { ...out, error: '그록 실행 중. 잠시 후 다시 시도' };
@@ -290,7 +291,7 @@ export async function chatGrok(input: ChatIn, env: Env): Promise<ChatOut> {
     m.fs.writeFileSync(m.path.join(configDir, 'config.toml'), `[mcp_servers.procurement]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([m.path.join(p.root, 'node_modules/tsx/dist/cli.mjs'), m.path.join(p.root, 'mcp/server.ts')])}\nenv = ${tomlEnv()}\nenabled = true\n`);
     writeRegistry(p.registry, [...readRegistry(p.registry, m.fs), sid], m.fs);
     m.fs.writeFileSync(promptFile, buildPrompt(input, 'grok'), 'utf8');
-    const r = await run(m, p.grokBin, grokArgs({ promptFile, sid, cwd, model: env.GROK_MODEL, effort: env.GROK_EFFORT }), { cwd, timeoutMs: CLI_TIMEOUT_MS, env: { ...GROK_ENV, ...mcpEnv(), ...documentEnv(m, env) }, signal: input.signal, onData: cliEvent });
+    const r = await run(m, p.grokBin, grokArgs({ promptFile, sid, cwd, model: grokModel, effort: grokEffort }), { cwd, timeoutMs: CLI_TIMEOUT_MS, env: { ...GROK_ENV, ...mcpEnv(), ...documentEnv(m, env) }, signal: input.signal, onData: cliEvent });
     if (ctx) {
       await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-grok.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
       if (r.stderr) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-stderr.txt`, r.stderr, { runId: ctx.runId, kind: 'tool-log' });
@@ -311,7 +312,8 @@ export async function chatGrok(input: ChatIn, env: Env): Promise<ChatOut> {
 }
 
 export async function chatCodex(input: ChatIn, env: Env): Promise<ChatOut> {
-  const out = newOut(); out.model = env.CODEX_MODEL || CODEX_MODEL;
+  const codexModel = input.options?.model || env.CODEX_MODEL || CODEX_MODEL, codexEffort = input.options?.effort || env.CODEX_EFFORT || CODEX_EFFORT;
+  const out = newOut(); out.model = codexModel;
   const m = await nodeMods();
   if (!m || !(await localAvailability(env)).codex) return { ...out, error: '로컬 전용 모델' };
   const c = codexCommand(m, env);
@@ -321,7 +323,7 @@ export async function chatCodex(input: ChatIn, env: Env): Promise<ChatOut> {
   try {
     const p = await paths(m, env);
     const ctx = executions.getStore(), cwd = ctx ? ctx.repo.workspace(ctx.conversationId) : p.codexDir;
-    const args = codexArgs({ cwd, node: process.execPath, tsx: m.path.join(p.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), mcp: m.path.join(p.root, 'mcp', 'server.ts'), model: env.CODEX_MODEL, effort: env.CODEX_EFFORT });
+    const args = codexArgs({ cwd, node: process.execPath, tsx: m.path.join(p.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), mcp: m.path.join(p.root, 'mcp', 'server.ts'), model: codexModel, effort: codexEffort });
     const r = await run(m, c.cmd, [...c.pre, ...args], { cwd, input: buildPrompt(input, 'codex'), timeoutMs: CLI_TIMEOUT_MS, signal: input.signal, env: { ...mcpEnv(), ...documentEnv(m, env) }, onData: cliEvent });
     if (ctx) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-codex.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
     input.signal?.throwIfAborted();

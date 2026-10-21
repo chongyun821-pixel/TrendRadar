@@ -24,7 +24,7 @@
 
 반환된 `pending`은 접수 상태다. 브라우저가 명령을 적용하면 `get_app_command(commandId)`에서 `applied`를 확인할 수 있다. 변경된 화면에는 `conflict`, 실행할 수 없으면 `failed`를 기록한다. 여러 번 화면을 바꾸려면 한 `set_map_state` 요청에 묶거나 앞선 명령의 적용 결과와 최신 버전을 확인한다.
 
-대화는 `list_conversations`, `search_conversations`, `read_conversation`으로 조회하고 `create_conversation`, `switch_conversation`, `delete_conversation`으로 관리한다. 새 대화 생성만으로 화면이 전환되지는 않는다. 진행 중 대화는 중지 후 삭제하고 원문과 보고서는 보존한다. `set_chat_model`은 다음 요청의 모델을 선택한다. `get_run_status`와 `cancel_run`은 실행 조회와 중지를 담당하며 중지 도구는 자신의 실행 종료를 기다리지 않는다.
+대화는 `list_conversations`, `search_conversations`, `read_conversation`으로 조회하고 `create_conversation`, `switch_conversation`, `delete_conversation`으로 관리한다. 새 대화 생성만으로 화면이 전환되지는 않는다. 진행 중 대화는 중지 후 삭제하고 원문과 보고서는 보존한다. `set_chat_model`은 다음 요청의 모델을 선택한다. 코덱스·그록 빌드는 `cliModel`과 `effort`로 세부 모델과 추론 강도도 지정할 수 있고, 허용 목록 밖의 값은 거절한다. `get_run_status`와 `cancel_run`은 실행 조회와 중지를 담당하며 중지 도구는 자신의 실행 종료를 기다리지 않는다.
 
 앱에서 시작한 코덱스와 그록은 대화와 실행 식별자를 MCP에 전달하므로 같은 요청의 화면 맥락을 읽는다. 독립 MCP 연결은 별도 대화에서 시작하며 연결한 앱 화면이 없으면 화면 제어를 수행하지 않는다.
 

@@ -32,12 +32,14 @@ try {
   const toolResponse = await page.request.post(`${base}/api/tools/get_report_template`, { data: { args: { format: 'pptx' } } });
   const toolSession = await toolResponse.json(); assert.equal(toolResponse.status(), 200); ids.push(toolSession.conversationId);
   await page.goto(base); await page.waitForSelector('body.ready');
-  await page.click('#historyToggle');
-  await page.locator(`button[data-conversation-id="${toolSession.conversationId}"]`).click();
+  await page.fill('#q', '/sessions'); await page.press('#q', 'Enter');
+  await page.locator(`#picker .picker-item[data-id="${toolSession.conversationId}"]`).click();
   await page.waitForFunction(id => window.__app.getAppContext().conversationId === id, toolSession.conversationId);
   await page.waitForFunction(() => document.querySelector('.panel').getBoundingClientRect().height > 60);
   assert.equal(await page.locator('.conversation-empty strong').textContent(), 'MCP 도구 실행');
-  assert.equal(await page.locator(`button[data-conversation-id="${toolSession.conversationId}"]`).getAttribute('aria-pressed'), 'true');
+  await page.fill('#q', '/sessions'); await page.press('#q', 'Enter');
+  assert.equal(await page.locator(`#picker .picker-item.current[data-id="${toolSession.conversationId}"]`).count(), 1);
+  await page.press('#q', 'Escape');
   await page.fill('#q', '!help'); await page.press('#q', 'Enter'); await finished();
   assert.equal(captures.at(-1).conversationId, toolSession.conversationId);
   assert.equal(await page.locator('.conversation-empty').count(), 0);
@@ -80,7 +82,7 @@ try {
   await page.unroute('**/api/app-context/*/commands');
 
   await tool('set_chat_model', { model: 'nemotron' });
-  await page.waitForFunction(() => document.querySelector('#model').value === 'nemotron');
+  await page.waitForFunction(() => document.querySelector('#modelLabel').textContent === '네모트론');
   const created = await tool('create_conversation', { title: '격리 화면 제어 검증' }); ids.push(created.id);
   const switched = await tool('switch_conversation', { conversationId: created.id });
   await page.waitForFunction(id => localStorage.getItem('pr.conversation') === id, created.id);
