@@ -1,0 +1,7 @@
+conflict_id,dyad_id,location_inc,side_a,side_a_id,side_a_2nd,side_b,side_b_id,side_b_2nd,incompatibility,territory_name,year,bd_best,bd_low,bd_high,type_of_conflict,battle_location,gwno_a,gwno_a_2nd,gwno_b,gwno_b_2nd,gwno_loc,gwno_battle,region,version
+11345,15678,"Russia (Soviet Union), Ukraine",Government of Russia (Soviet Union),57,Government of North Korea,Government of Ukraine,148,,1,Ukraine,2024,102120,90000,110000,2,"Russia, Ukraine",365,731,369,,"365, 369","365, 369",1,26.1
+11345,15678,"Russia (Soviet Union), Ukraine",Government of Russia (Soviet Union),57,,Government of Ukraine,148,,1,Ukraine,2025,94741,90000,100000,2,"Russia, Ukraine",365,,369,,"365, 369","365, 369",1,26.1
+218,406,"India, Pakistan",Government of India,141,,Government of Pakistan,139,,1,Kashmir,2025,67,60,80,2,"India, Pakistan",750,,770,,"750, 770",750,3,26.1
+299,411,Yemen (North Yemen),"Government of United Kingdom, Government of United States of America",65,Government of Australia,Government of Yemen (North Yemen),124,,2,,2025,781,700,900,4,Yemen (North Yemen),"200, 2",,678,,678,678,2,26.1
+200,300,Colombia,Government of Colombia,96,,FARC,301,,2,,2016,120,100,150,3,Colombia,100,,,,100,100,5,26.1
+218,406,"India, Pakistan",Government of India,141,,Government of Pakistan,139,,1,Kashmir,2010,30,25,40,2,"India, Pakistan",750,,770,,"750, 770",750,3,26.1

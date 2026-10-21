@@ -190,13 +190,14 @@ export const evidenceId = {
 };
 
 /** 국방비 3년 평균 증가율(%). yoy_pct가 없으면 usd_m 연속 연도로 계산한다 */
-export function growth3y(budgets: BudgetRow[]): { value: number | null; rows: BudgetRow[] } {
+/** 최근 3개 연도 전년 대비 증가율 평균. base를 주면 base-3년 이후 값만 쓴다(오래된 급증이 남지 않게) */
+export function growth3y(budgets: BudgetRow[], base?: number): { value: number | null; rows: BudgetRow[] } {
   const sorted = [...budgets].sort((a, b) => a.year - b.year);
   const yoy = sorted.map((b, i) => {
     if (b.yoy_pct != null) return { row: b, v: b.yoy_pct };
     const prev = sorted[i - 1];
     return prev && prev.year === b.year - 1 && prev.usd_m && b.usd_m != null ? { row: b, v: (b.usd_m / prev.usd_m - 1) * 100 } : null;
-  }).filter((x): x is { row: BudgetRow; v: number } => !!x).slice(-3);
+  }).filter((x): x is { row: BudgetRow; v: number } => !!x && (base == null || x.row.year >= base - 3)).slice(-3);
   return yoy.length ? { value: yoy.reduce((s, x) => s + x.v, 0) / yoy.length, rows: yoy.map(x => x.row) } : { value: null, rows: [] };
 }
 
@@ -232,7 +233,7 @@ export function computeScore(input: ScoreInputs, base = new Date().getFullYear()
   } else add('aging', 0, 0, [], '보유 이력 없음', true);
 
   // 재정 여력
-  const g = growth3y(input.budgets || []);
+  const g = growth3y(input.budgets || [], base);
   const latest = [...(input.budgets || [])].filter(b => b.gdp_pct != null).sort((a, b) => b.year - a.year)[0];
   if (g.value != null || latest) {
     const gs = g.value != null ? clamp01(g.value / 10) : null, gdp = latest ? clamp01(latest.gdp_pct! / 3) : null;
@@ -246,7 +247,7 @@ export function computeScore(input: ScoreInputs, base = new Date().getFullYear()
   if (near.length) {
     const scored = near.map(n => {
       const buys = (input.neighborSignals || []).filter(s => s.country === n.neighbor && s.system === input.system && ['selection', 'contract', 'delivery'].includes(s.stage) && yearOf(s) >= base - 3);
-      const ng = growth3y((input.neighborBudgets || []).filter(b => b.country === n.neighbor));
+      const ng = growth3y((input.neighborBudgets || []).filter(b => b.country === n.neighbor), base);
       return { n, buys, ng, v: (n.tension! / 100) * (0.5 * Math.min(1, buys.length / 3) + 0.5 * clamp01((ng.value ?? 0) / 10)) };
     }).sort((a, b) => b.v - a.v);
     const top = scored[0];

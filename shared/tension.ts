@@ -80,7 +80,7 @@ const monthsBack = (base: string, n: number) => { const [y, m] = base.split('-')
  */
 export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
   const { country: a, neighbor: b } = p;
-  const ucdp = p.events.filter(e => e.source === 'ucdp' && pairOf(e, a, b) && Number(e.period) >= p.base - 3);
+  const ucdp = p.events.filter(e => e.source.startsWith('ucdp') && pairOf(e, a, b) && Number(e.period) >= p.base - 3);
   const fatal = ucdp.reduce((s, e) => s + (e.fatalities || 0), 0);
   const conflict = clamp01(Math.log10(1 + fatal) / 3); // 1,000명 이상이면 최대
   const from = monthsBack(asOf, 11);
@@ -88,7 +88,7 @@ export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
   const n = gd.reduce((s, e) => s + (e.events || 0), 0);
   const gold = n ? gd.reduce((s, e) => s + (e.goldstein || 0) * (e.events || 0), 0) / n : 0;
   const events = gd.length ? clamp01(0.6 * Math.log10(1 + n) / Math.log10(5001) + 0.4 * clamp01(-gold / 10)) : 0;
-  const ga = growth3y(p.budgets.filter(x => x.country === a)), gb = growth3y(p.budgets.filter(x => x.country === b));
+  const ga = growth3y(p.budgets.filter(x => x.country === a), p.base), gb = growth3y(p.budgets.filter(x => x.country === b), p.base);
   const buys = p.signals.filter(s => (s.country === a || s.country === b) && ['selection', 'contract', 'delivery'].includes(s.stage) && (Number(String(s.published_at || '').slice(0, 4)) || s.expected_year || 0) >= p.base - 3);
   const growth = [ga.value, gb.value].filter((v): v is number => v != null);
   const arms = clamp01(0.5 * clamp01((growth.length ? growth.reduce((s, v) => s + v, 0) / growth.length : 0) / 10) + 0.5 * Math.min(1, buys.length / 5));

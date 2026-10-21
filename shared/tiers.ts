@@ -25,7 +25,8 @@ export function classifyTier(facts: TierFacts, component?: ComponentControl | nu
   const reasons: TierReason[] = [], approvals: string[] = [];
   const active = facts.controls.filter(c => c.country === facts.country && (c.status === 'active' || c.status === 'partial'));
   for (const c of active) {
-    if ((BLOCKING_REGIMES as readonly string[]).includes(c.regime)) reasons.push({ code: `embargo:${c.regime}`, text: `${REGIME_KO[c.regime] || c.regime}: ${c.name}`, tier: 3, evidence: [controlEvidence(c)] });
+    if ((BLOCKING_REGIMES as readonly string[]).includes(c.regime) && c.status === 'partial') { reasons.push({ code: `partial:${c.regime}`, text: `${REGIME_KO[c.regime] || c.regime}(일부 대상·비구속): ${c.name}`, tier: 2, evidence: [controlEvidence(c)] }); approvals.push(`${c.name} 적용 범위(정부군 대상 여부) 확인`); }
+    else if ((BLOCKING_REGIMES as readonly string[]).includes(c.regime)) reasons.push({ code: `embargo:${c.regime}`, text: `${REGIME_KO[c.regime] || c.regime}: ${c.name}`, tier: 3, evidence: [controlEvidence(c)] });
     else if ((PARTIAL_REGIMES as readonly string[]).includes(c.regime)) {
       if (component?.usItar) reasons.push({ code: 'itar-component', text: `${REGIME_KO[c.regime]}이며 체계에 미국산 부품 사용`, tier: 3, evidence: [controlEvidence(c), ...(component.evidence || [])] });
       else { reasons.push({ code: `restricted:${c.regime}`, text: `${REGIME_KO[c.regime]}: ${c.name}`, tier: 2, evidence: [controlEvidence(c)] }); approvals.push('미국산 부품 포함 여부 확인과 미국 국무부 재수출 승인 검토'); }

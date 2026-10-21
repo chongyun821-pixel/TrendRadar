@@ -1,0 +1,21 @@
+Transfers of major conventional arms from All countries  to All countries . Deals with deliveries made for the year range 'Not specified' to 'Not specified' 
+A '?' in a column indicates uncertain data. The 'Deliveries in the Year Range' and the 'Year(s) of deliveries' refer only to deliveries in the selected year(s).
+An empty field for 'Number ordered' indicates that data is not yet available.
+SIPRI trend-indicator values (TIVs) are in millions.
+An empty field for 'SIPRI TIV for total order' indicates that data (on the number ordered and/or the TIV per unit) is not available.
+A '0' for 'SIPRI TIV of delivered weapons' indicates that the volume of deliveries is between 0 and 0.5 million SIPRI TIV; and an empty field indicates that no deliveries have been identified.
+Figures may not add up to stated totals due to the conventions of rounding.
+For the method used for the SIPRI TIV and explanations of the conventions; abbreviations and acronyms see <https://www.sipri.org/databases/armstransfers/sources-and-methods>.
+
+Source: SIPRI Arms Transfers Database (c) SIPRI.
+Data generated: 21 Oct 2026 1:09:57 PM
+Recipient,Supplier,Year of order, ,Number ordered, ,Weapon designation,Weapon description,Deliveries in the Year Range, ,Year(s) of delivery,status,Comments,SIPRI TIV per unit,SIPRI TIV for total order,SIPRI TIV of delivered weapons
+Poland,South Korea,2023,,152,,K-9 Thunder 155mm,self-propelled gun,,,,New,USD2.6 b deal; incl production under licence in Poland; K-9A1 version; delivery planned by 2027,4.34,659.68,0
+Poland,South Korea,2022,,212,,K-9 Thunder 155mm,self-propelled gun,212,?,2022; 2023; 2024; 2025,New,USD2.4 b deal; incl production under licence in Poland; K-9A1 version,4.34,920.08,920.08
+Australia,South Korea,2023,,129,,K-21,infantry fighting vehicle,,,,New,AUD7.3 b ($4.5-5 b) 'Project Land-400' or 'Mounted Close Combat Capability'; AS-21 Redback version; incl production under licence in Australia; delivery planned 2027-2028,1.7,219.3,0
+Egypt,South Korea,2022,,216,,K-9 Thunder 155mm,self-propelled gun,7,?,2023; 2025,New,KRW2 tr ($1.7 b) deal; K-9A1 version; incl production under licence in Egypt and technology transfers; delivery planned by 2028,4.34,937.44,30.38
+Poland,United States,2022,?,3,,Mk-41 VLS,naval surface-to-air missile system,,,,New,For 3 Type-31 (Arrowhead-140 or Miecznik) frigates from UK,20,60,0
+Houthi rebels (Yemen)*,Iran,2022,?,10,?,Shahed-136,one-way attack drone,10,?,2023,New,Houthi designation Waid-2; probably aid,0.04,0.4,0.4
+Poland,South Korea,2025,,180,,K-2 Black Panther,tank,,,,New,Part of $6.5 b deal; incl 116 K-2GF and 64 K-2PL versions; delivery planned 2026-2030,5,900,0
+Estonia,South Korea,2023,,12,,K-9 Thunder 155mm,self-propelled gun,,,,Second hand,Second-hand; EUR36 m deal; designated Kou by Estonia; delivery planned 2026,1.8,21.6,0
+Poland,United States,2018,,2,,MIM-104F Patriot PAC-3,surface-to-air missile system,2,,2023,New,Wisla Phase-1; $4.75 b deal (fixture row),40,80,80
