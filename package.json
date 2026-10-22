@@ -29,6 +29,7 @@
     "shots": "node scripts/shots.mjs",
     "chat:check": "node scripts/chat-check.mjs",
     "queue:check": "node scripts/queue-check.mjs",
+    "cancel:check": "node scripts/cancel-check.mjs",
     "context:check": "node scripts/context-check.mjs",
     "screen:check": "tsx scripts/screen-control-check.ts",
     "markdown:check": "node scripts/markdown-check.mjs",
