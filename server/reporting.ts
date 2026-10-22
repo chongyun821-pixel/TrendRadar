@@ -43,7 +43,7 @@ export async function reportTool(name: string, a: Record<string, any>): Promise<
   } else {
     const records = snapshot.data.records.filter(r => r.country === country && (!system || r.system === system));
     if (!records.length) throw new Error('대상 국가와 체계의 자료가 없습니다');
-    const sourceIds = new Set(records.flatMap(r => [...r.src, ...r.batches.flatMap(b => b.src), ...(r.awarded?.src || []), ...(r.plan?.src || []), ...(r.mro || []).flatMap(m => m.src), ...(r.signals || []).flatMap(s => s.src), ...(r.projects || []).flatMap(p => p.src), ...snapshot.data.systems[r.system].costSrc]));
+    const sourceIds = new Set(records.flatMap(r => [...r.src, ...r.batches.flatMap(b => b.src), ...(r.awarded?.src || []), ...(r.plan?.src || []), ...(r.mro || []).flatMap(m => m.src), ...(r.signals || []).flatMap(s => s.src), ...(r.projects || []).flatMap(p => p.src), ...snapshot.data.systems[r.system].costSrc, ...(snapshot.data.systems[r.system].lifeSrc || [])]));
     packet = { basis, country, system: system || null, revision: snapshot.revision, basisDate: snapshot.data.meta.collected, records, forecasts: records.map(r => computeForecast(r, snapshot.data)), assumptions: snapshot.data.systems, meta: snapshot.data.meta, sources: Object.fromEntries(Object.entries(snapshot.data.sources).filter(([id]) => sourceIds.has(id))), analysis: writeReport({ country, system: system || undefined }, snapshot.data) };
     // 케이스별 근거 표(양식 evidenceTable). 판단 점수는 예측이다
     const cases = await Promise.all(records.map(r => scoreCase(ctx.repo, snapshot.data, r.country, r.system)));

@@ -1,7 +1,8 @@
 import type { Seed, SystemKey, ProgramRecord } from './types';
 import { SYSTEM_KEYS } from './types';
 
-export let seed: Seed = { meta: { baseYear: new Date().getFullYear(), collected: '', fx: {}, note: '' }, systems: {} as Seed['systems'], countries: {}, sources: {}, records: [] };
+/** 데이터를 읽기 전 자리표시. 기준 연도는 읽어 온 운영 데이터의 meta.baseYear만 쓴다(shared/base-year.ts) */
+export let seed: Seed = { meta: { baseYear: 0, collected: '', fx: {}, note: '' }, systems: {} as Seed['systems'], countries: {}, sources: {}, records: [] };
 export function setData(data: Seed) { seed = data; }
 export function useDataProvider(read: () => Seed) {
   seed = new Proxy({} as Seed, {

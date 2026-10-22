@@ -4,7 +4,7 @@
  * CLI: npm run ingest:sipri-milex -- [--dry-run] [--since 2010] [--file 받은.xlsx] [--url ...]
  */
 import type { BudgetRow } from '../../shared/types';
-import { baseYear, countryId, load, readInput, type IngestOptions } from './common';
+import { collectionYear, countryId, load, readInput, type IngestOptions } from './common';
 import { readXlsx } from './xlsx';
 
 export const SIPRI_MILEX_URL = 'https://www.sipri.org/sites/default/files/SIPRI-Milex-data-1949-2025_v1.2.xlsx';
@@ -44,7 +44,7 @@ export function normalizeMilex(workbook: Record<string, Sheet>, since: number) {
 }
 
 export async function ingestSipriMilex(opts: IngestOptions = {}) {
-  const since = Number(opts.args?.since) || baseYear(opts) - 15;
+  const since = Number(opts.args?.since) || collectionYear(opts) - 15;
   const url = typeof opts.args?.url === 'string' ? opts.args.url : SIPRI_MILEX_URL;
   const workbook = readXlsx(await readInput(opts, url));
   if (!workbook['Current US$']) throw new Error(`SIPRI 국방비 파일에 'Current US$' 시트가 없습니다(시트: ${Object.keys(workbook).join(', ')})`);

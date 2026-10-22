@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PROJECT_ROOT, repository, type Repository } from '../store';
 import { upsertRows, type CollectionTable, type RowTypes } from '../collection';
+import { baseYearOf } from '../../shared/base-year';
 
 export type Fetch = typeof fetch;
 export interface IngestOptions {
@@ -11,7 +12,7 @@ export interface IngestOptions {
   file?: string;
   fetch?: Fetch;
   repo?: Repository;
-  /** 기준 연도. 기본값은 현재 연도 */
+  /** 수집 범위의 끝 연도. 기본값은 현재 연도. 판단 기준 연도(meta.baseYear)와 별개 */
   year?: number;
   /** 수집 시각(ISO). 테스트에서 고정한다 */
   now?: string;
@@ -155,4 +156,7 @@ export function summarize(result: IngestResult, samples = 3) {
   return { source: result.source, dryRun: result.dryRun, written: result.written, tables: sample, notes: result.notes };
 }
 
-export const baseYear = (opts: IngestOptions) => opts.year || Number((opts.now || new Date().toISOString()).slice(0, 4));
+/** 수집 범위의 끝 연도(--year, 기본 현재 연도). 내려받을 자료 범위에만 쓰고 판단 기준 연도로 쓰지 않는다 */
+export const collectionYear = (opts: IngestOptions) => opts.year || Number((opts.now || new Date().toISOString()).slice(0, 4));
+/** 판단 기준 연도: 운영 데이터 meta.baseYear(등급의 분쟁 당사국·긴장도의 '최근 3년' 창) */
+export const judgmentBaseYear = async (repo: Repository) => baseYearOf(await repo.data());

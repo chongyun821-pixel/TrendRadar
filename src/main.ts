@@ -178,7 +178,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   const be = (b: { est: string[] }, k: string) => b.est.includes(k);
   const rows: [string, string][] = [];
   rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear}${est(be(cur, 'introYear'))} · ${cur.qty.toLocaleString()}${esc(f.unit)}${est(be(cur, 'qty'))}` : rec.awarded ? esc(rec.awarded.text) : '—']);
-  if (cur) rows.push(['설계 수명', `${cur.life}년${est(true)}${cur.ext ? ` + MRO ${cur.ext}년` : ''} → ${cur.year}년`]);
+  if (cur) rows.push(['설계 수명', `${cur.life}년${est(f.lifeEst)}${cur.ext ? ` + MRO ${cur.ext}년` : ''} → ${cur.year}년`]);
   rows.push(['교체 예상', `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' · 후속 주기' : f.status === 'plan' ? ' · 사업 계획' : ''}`]);
   const mro = rec.mro?.[rec.mro.length - 1];
   if (mro) rows.push(['최근 MRO', `${mro.year}${est(!!mro.est?.includes('year'))} ${esc(mro.text)}`]);

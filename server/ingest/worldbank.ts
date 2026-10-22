@@ -4,7 +4,7 @@
  * CLI: npm run ingest:worldbank -- [--dry-run] [--since 2010] [--file 응답묶음.json]
  */
 import type { BudgetRow } from '../../shared/types';
-import { baseYear, countryIndex, fetchRetry, load, text, type IngestOptions } from './common';
+import { collectionYear, countryIndex, fetchRetry, load, text, type IngestOptions } from './common';
 import { readFileSync } from 'node:fs';
 
 export const WB_INDICATORS = { gdp_pct: 'MS.MIL.XPND.GD.ZS', usd: 'MS.MIL.XPND.CD', gdp: 'NY.GDP.MKTP.CD' } as const;
@@ -35,7 +35,7 @@ export function normalizeWorldBank(series: { gdp_pct: WbPoint[]; usd: WbPoint[];
 }
 
 export async function ingestWorldBank(opts: IngestOptions = {}) {
-  const to = baseYear(opts), from = Number(opts.args?.since) || to - 15;
+  const to = collectionYear(opts), from = Number(opts.args?.since) || to - 15;
   let series: { gdp_pct: WbPoint[]; usd: WbPoint[]; gdp: WbPoint[] };
   if (opts.file) series = JSON.parse(readFileSync(opts.file, 'utf8'));
   else {

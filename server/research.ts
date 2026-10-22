@@ -8,6 +8,7 @@ import { computeForecast, SOURCE_CONFIDENCE } from '../shared/forecast';
 import { resolveCountry, resolveSystem } from '../shared/data';
 import type { ProgramRecord, Seed } from '../shared/types';
 import { SYSTEM_KEYS, SIGNAL_STAGES } from '../shared/types';
+import { baseYearOf, recentLabel } from '../shared/base-year';
 import { execution } from './execution';
 import { PROJECT_ROOT, now, hash } from './store';
 import type { ToolDef } from './agent';
@@ -218,7 +219,7 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
         const country = resolveCountry(a.country) || String(a.country).toUpperCase(), system = resolveSystem(a.system);
         if (!system) throw new Error('무기체계 확인 필요');
         const row = await repo.one('SELECT * FROM records WHERE country=? AND system=?', country, system);
-        result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
+        result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, baseYear: baseYearOf(await repo.data()), recentWindow: recentLabel(baseYearOf(await repo.data())), templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
         break;
       }
       case 'save_source': {
@@ -264,7 +265,7 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
       }
       case 'submit_research': result = await submitResearch(JSON.parse(a.payload)); break;
       case 'update_assumptions': {
-        const p = z.object({ expectedRevision: z.number().int(), systems: z.record(z.object({ ko: z.string(), unit: z.string(), designLife: z.number().positive(), unitCost: range, unitCostEst: z.boolean(), unitCostBasis: z.string(), costSrc: refs, hanwha: refs })).optional(), fx: z.record(z.union([z.string(), z.number()])).optional(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1) }).strict().parse(JSON.parse(a.payload));
+        const p = z.object({ expectedRevision: z.number().int(), systems: z.record(z.object({ ko: z.string(), unit: z.string(), designLife: z.number().positive(), unitCost: range, unitCostEst: z.boolean(), unitCostBasis: z.string(), costSrc: refs, hanwha: refs, lifeSrc: refs.optional() })).optional(), fx: z.record(z.union([z.string(), z.number()])).optional(), sources: z.record(sourceSchema), evidence: evidenceSchema, reason: z.string().min(1) }).strict().parse(JSON.parse(a.payload));
         await sourcesChecked(p.sources, p.evidence);
         result = await repo.transaction(async () => {
           await execution();
@@ -274,7 +275,7 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
           if (p.fx && !p.evidence.some(e => e.path === 'fx' || e.path.startsWith('fx.'))) throw new Error('환율 변경 근거 누락');
           for (const [key, value] of Object.entries(p.sources)) { const old = data.sources[key]; if (old && JSON.stringify(old) !== JSON.stringify(value)) throw new Error('출처 ID 덮어쓰기 금지'); await repo.run('INSERT OR IGNORE INTO sources VALUES (?,?)', key, JSON.stringify(value)); }
           const sources = { ...data.sources, ...p.sources };
-          for (const [key, value] of Object.entries(p.systems || {})) { for (const source of value.costSrc) if (!sources[source]) throw new Error('단가 출처 누락'); await repo.run('UPDATE systems SET data=? WHERE id=?', JSON.stringify(value), key); }
+          for (const [key, value] of Object.entries(p.systems || {})) { for (const source of value.costSrc) if (!sources[source]) throw new Error('단가 출처 누락'); for (const source of value.lifeSrc || []) if (!sources[source]) throw new Error('수명 출처 누락'); await repo.run('UPDATE systems SET data=? WHERE id=?', JSON.stringify(value), key); }
           const next = { ...data, sources, systems: { ...data.systems, ...p.systems }, meta: { ...data.meta, fx: { ...data.meta.fx, ...p.fx }, collected: now() } };
           await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(next.meta));
           await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");

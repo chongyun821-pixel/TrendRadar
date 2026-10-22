@@ -18,7 +18,7 @@ export const INGEST_DEFS: ToolDef[] = [
     properties: {
       source: S(`수집 출처: ${IDS.join(', ')}`), dryRun: B('true(기본)면 적재하지 않고 미리보기만. 사용자가 반영·적재를 요청했을 때만 false'),
       countries: S('국가 한정(쉼표 구분 국가 ID나 이름, 예: POL,ROU). 생략 시 전체'), since: I('시작 연도(sipri-transfers·sipri-milex·worldbank·ucdp)'),
-      year: I('기준 연도(기본 올해)'), months: I('GDELT 최근 개월 수(1~24, 기본 12)'), side: S('Oryx 진영: RUS 또는 UKR(생략 시 둘 다)'),
+      year: I('수집 범위의 끝 연도(기본 올해). 판단 기준 연도는 meta.baseYear로 고정'), months: I('GDELT 최근 개월 수(1~24, 기본 12)'), side: S('Oryx 진영: RUS 또는 UKR(생략 시 둘 다)'),
       asOf: S('긴장도 기준 월 YYYY-MM'), wait: I(`응답 대기 초(0~${MAX_WAIT}, 기본 ${DEFAULT_WAIT}). 넘으면 실행 중 상태를 돌려준다`),
     }, required: ['source'] },
   { name: 'get_ingest_run', description: '수집 작업의 진행 상태와 결과 요약을 확인하거나 중지한다', properties: { id: S('run_ingest가 돌려준 작업 id'), wait: I(`끝날 때까지 기다릴 초(0~${MAX_WAIT}, 기본 0)`), cancel: B('true면 작업을 중지') }, required: ['id'] },

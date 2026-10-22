@@ -17,8 +17,8 @@ export interface TierFacts {
   /** SIPRI 이전 DB의 한국산 인도·계약 건수와 근거 ID */
   koreanDeliveries: number; koreanEvidence?: string[];
   defenseAgreement?: boolean; agreementEvidence?: string[];
-  /** 최근 3년 UCDP 국가 간·국제화 분쟁 당사국 여부 */
-  conflictParty: boolean; conflictEvidence?: string[];
+  /** '최근 3년'(기준 연도 포함 4개년) UCDP 국가 간·국제화 분쟁 당사국 여부와 그 연도 범위(예: 2023~2026) */
+  conflictParty: boolean; conflictWindow?: string; conflictEvidence?: string[];
 }
 /** 체계별 미국산 부품(ITAR) 사용 여부. null이면 미확인이며 등급을 바꾸지 않고 확인 필요로 남긴다 */
 export interface ComponentControl { system: SystemKey; usItar: boolean | null; note?: string; evidence?: string[] }
@@ -38,7 +38,7 @@ export function classifyTier(facts: TierFacts, component?: ComponentControl | nu
   }
   if (!reasons.some(r => r.tier === 3)) {
     if (!facts.koreanDeliveries && !facts.defenseAgreement) { reasons.push({ code: 'no-history', text: '한국과 방산 협정·한국산 무기 수입 이력 없음', tier: 2, evidence: [] }); approvals.push('정부 간 협력 경로(방산 협정·G2G) 확인'); }
-    if (facts.conflictParty) { reasons.push({ code: 'conflict-party', text: '최근 3년 분쟁 당사국', tier: 2, evidence: facts.conflictEvidence || [] }); approvals.push('분쟁 당사국 수출 허가 심사(대외무역법·방위사업법)'); }
+    if (facts.conflictParty) { reasons.push({ code: 'conflict-party', text: `최근 3년${facts.conflictWindow ? `(${facts.conflictWindow})` : ''} 분쟁 당사국`, tier: 2, evidence: facts.conflictEvidence || [] }); approvals.push('분쟁 당사국 수출 허가 심사(대외무역법·방위사업법)'); }
     if (component?.usItar) { reasons.push({ code: 'us-components', text: '미국산 부품 사용으로 재수출 승인 필요', tier: 2, evidence: component.evidence || [] }); approvals.push('미국 ITAR 재수출 승인(DSP-5/제3국 이전 동의)'); }
   }
   if (component && component.usItar == null) approvals.push(`${component.system} 체계의 미국산 부품 사용 여부 미확인`);

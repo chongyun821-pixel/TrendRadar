@@ -16,7 +16,9 @@ export interface ProgramRecord {
   projects?: { id: string; buyer: string; supplier: string; stage: 'consideration' | 'plan' | 'tender' | 'contract' | 'delivery' | 'cancelled'; text: string; qty?: number; amount?: number; currency?: string; src: string[] }[];
   analysis?: { facts: string[]; estimates: string[]; conflicts: string[]; unknowns: string[]; opportunity?: string };
 }
-export interface SystemMeta { ko: string; unit: string; designLife: number; unitCost: [number, number]; unitCostEst: boolean; unitCostBasis: string; costSrc: string[]; hanwha: string[] }
+export interface SystemMeta { ko: string; unit: string; designLife: number; unitCost: [number, number]; unitCostEst: boolean; unitCostBasis: string; costSrc: string[]; hanwha: string[];
+  /** 설계 수명(designLife)의 출처 ID. 하나라도 있으면 수명을 추정으로 표시하지 않는다 */
+  lifeSrc?: string[] }
 export interface CountryMeta { ko: string; flag: string; lat: number; lon: number }
 export interface Seed {
   meta: { baseYear: number; collected: string; fx: Record<string, number | string>; note: string };
@@ -60,7 +62,9 @@ export interface WeightRow { factor: string; weight: number; note?: string | nul
 export interface PairEventRow extends Provenance { source: string; country: string; counterpart: string; period: string; events?: number | null; fatalities?: number | null; goldstein?: number | null }
 
 export type ScoreFactor = 'intent' | 'aging' | 'fiscal' | 'neighbor' | 'consumption' | 'competition' | 'access';
-export interface ScoreComponent { factor: ScoreFactor; label: string; weight: number; raw: number; confidence: number; points: number; missing: boolean; detail: string; evidence: string[] }
+export interface ScoreComponent { factor: ScoreFactor; label: string; weight: number; raw: number; confidence: number; points: number; missing: boolean; detail: string; evidence: string[];
+  /** 추정값(인도 연도 추정 보유 행, 근거 없는 긴장도)이 들어간 항목 */
+  estimated?: boolean }
 export interface ScoreBreakdown {
   country: string; system: SystemKey; baseYear: number;
   gate: { passed: boolean; reason: string | null; evidence: string[] };

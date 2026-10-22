@@ -44,7 +44,7 @@ export function evidenceTable(s: ScoredCase) {
       승인필요: s.approvals.length ? s.approvals : ['없음'],
     },
     columns: ['항목', '비중', '원점수', '출처 신뢰도', '점수', '판단 내용', '근거 ID'],
-    rows: s.components.map(c => [c.label, c.weight, c.missing ? '자료 없음' : pct(c.raw), c.missing ? '—' : c.confidence, c.points, c.detail, c.evidence.join(', ') || '—']),
+    rows: s.components.map(c => [c.label, c.weight, c.missing ? '자료 없음' : `${pct(c.raw)}${c.estimated ? ' (추정)' : ''}`, c.missing ? '—' : c.confidence, c.points, c.detail, c.evidence.join(', ') || '—']),
   };
 }
 export function evidenceTableMarkdown(s: ScoredCase) {

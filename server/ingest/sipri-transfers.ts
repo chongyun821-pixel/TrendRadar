@@ -4,7 +4,7 @@
  * CLI: npm run ingest:sipri-transfers -- [--dry-run] [--year 2025] [--since 1985] [--file 내보낸.csv]
  */
 import type { InventoryRow, SignalRow, SystemKey } from '../../shared/types';
-import { baseYear, countryId, load, parseCsv, readInput, text, type IngestOptions } from './common';
+import { collectionYear, countryId, load, parseCsv, readInput, text, type IngestOptions } from './common';
 
 export const SIPRI_TRANSFERS_URL = 'https://atbackend.sipri.org/api/p/trades/trade-register-csv/?output=csv';
 export const SIPRI_TRANSFERS_SOURCE = { id: 'sipri_transfers', title: 'SIPRI Arms Transfers Database (trade register)', url: 'https://armstransfers.sipri.org/ArmsTransfer/TransferRegister', confidence: 1 };
@@ -80,7 +80,7 @@ export function normalizeTrades(trades: SipriTrade[], base: number) {
 }
 
 export async function ingestSipriTransfers(opts: IngestOptions = {}) {
-  const base = baseYear(opts), since = Number(opts.args?.since) || base - 40;
+  const base = collectionYear(opts), since = Number(opts.args?.since) || base - 40;
   const bytes = await readInput(opts, SIPRI_TRANSFERS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sipriBody(since, base)) });
   let csv = text(bytes);
   if (csv.trimStart().startsWith('{')) csv = text(Buffer.from(JSON.parse(csv).bytes, 'base64'), 'latin1'); // 백엔드는 {bytes: base64(CSV, Latin-1)}로 준다

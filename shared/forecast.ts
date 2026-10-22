@@ -1,5 +1,6 @@
-import type { Category, Forecast, ProgramRecord, Seed, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
+import type { Category, Forecast, ProgramRecord, Seed, SystemMeta, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
 import { seed as defaultSeed } from './data';
+import { isRecent, recentRange } from './base-year';
 
 export const DEFAULT_RATIO: [number, number] = [0.6, 1.0];
 /** 사업 규모(억 원) 로그 스케일 범위: 100억 ~ 50만억 */
@@ -29,8 +30,8 @@ export function sizeNorm(krw: [number, number]): number {
   return Math.max(0, Math.min(1, (Math.log10(mid) - SIZE_LOG_MIN) / (SIZE_LOG_MAX - SIZE_LOG_MIN)));
 }
 
-/** 신뢰도: 근거 수, 최신성, 추정값 개수 */
-export function confidenceOf(nSources: number, latestYear: number, estCount: number, base = new Date().getFullYear()): '상' | '중' | '하' {
+/** 신뢰도: 근거 수, 최신성(기준 연도 대비), 추정값 개수 */
+export function confidenceOf(nSources: number, latestYear: number, estCount: number, base: number): '상' | '중' | '하' {
   let p = Math.min(nSources, 4);
   p += latestYear >= base - 1 ? 2 : latestYear >= base - 4 ? 1 : 0;
   p -= Math.floor(estCount / 3); // estCount: 레코드 고유 추정 항목 수
@@ -39,7 +40,11 @@ export function confidenceOf(nSources: number, latestYear: number, estCount: num
 
 const r10 = (n: number) => Math.round(n);
 
-export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, base = new Date().getFullYear()): Forecast {
+/** 설계 수명에 실제 출처(systems.lifeSrc)가 하나라도 있으면 추정이 아니다 */
+export const lifeSourced = (sys: SystemMeta, data: Seed) => !!sys.lifeSrc?.some(id => data.sources[id]);
+
+/** 기준 연도는 data.meta.baseYear(shared/base-year.ts). base 인자는 같은 값을 명시할 때만 쓴다 */
+export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, base = seed.meta.baseYear): Forecast {
   const sys = seed.systems[rec.system];
   const c = seed.countries[rec.country];
   const life = sys.designLife;
@@ -47,7 +52,8 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
   const ratioEst = rec.ratio ? !!rec.ratioEst : true;
   const calc: string[] = [];
   let estCount = 0; // 레코드 고유 추정 항목 수 (설계 수명·교체 비율 기본값은 별도)
-  const baseEst = 1 + (ratioEst ? 1 : 0) + (sys.unitCostEst ? 1 : 0);
+  const lifeEst = !lifeSourced(sys, seed);
+  const baseEst = (lifeEst ? 1 : 0) + (ratioEst ? 1 : 0) + (sys.unitCostEst ? 1 : 0);
 
   const batches: BatchCalc[] = rec.batches.map(b => {
     const ext = b.lifeExt ?? 0;
@@ -138,7 +144,7 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
     id: rec.id, country: rec.country, countryKo: c?.ko ?? rec.country, flag: c?.flag ?? '', system: rec.system, systemKo: sys.ko, unit: sys.unit,
     status, window, remaining, category, score, qty, krw, size: status === 'none' ? 0 : sizeNorm(krw),
     confidence, nSources: sources.length, latestSource: latest, estCount,
-    current, batches, calc, sources, qtyEst, krwEst: qtyEst || sys.unitCostEst, lifeEst: true,
+    current, batches, calc, sources, qtyEst, krwEst: qtyEst || sys.unitCostEst, lifeEst,
   };
 }
 
@@ -188,42 +194,67 @@ export const evidenceId = {
   domestic: (r: DomesticRow) => `domestic_capability:${r.country}:${r.system}`,
 };
 
-/** 국방비 최근 3개 연도 전년 대비 증가율(%) 평균. yoy_pct가 없으면 usd_m 연속 연도로 계산하고, base를 주면 base-3년 이후 값만 쓴다(오래된 급증이 남지 않게) */
+/** 국방비 최근 3개 연도 전년 대비 증가율(%) 평균. yoy_pct가 없으면 usd_m 연속 연도로 계산하고, base를 주면 '최근 3년'(base-3..base, 기준 연도 포함 4개년) 값만 쓴다(오래된 급증이 남지 않게) */
 export function growth3y(budgets: BudgetRow[], base?: number): { value: number | null; rows: BudgetRow[] } {
   const sorted = [...budgets].sort((a, b) => a.year - b.year);
   const yoy = sorted.map((b, i) => {
     if (b.yoy_pct != null) return { row: b, v: b.yoy_pct };
     const prev = sorted[i - 1];
     return prev && prev.year === b.year - 1 && prev.usd_m && b.usd_m != null ? { row: b, v: (b.usd_m / prev.usd_m - 1) * 100 } : null;
-  }).filter((x): x is { row: BudgetRow; v: number } => !!x && (base == null || x.row.year >= base - 3)).slice(-3);
+  }).filter((x): x is { row: BudgetRow; v: number } => !!x && (base == null || isRecent(x.row.year, base))).slice(-3);
   return yoy.length ? { value: yoy.reduce((s, x) => s + x.v, 0) / yoy.length, rows: yoy.map(x => x.row) } : { value: null, rows: [] };
 }
 
-export function computeScore(input: ScoreInputs, base = new Date().getFullYear()): ScoreBreakdown {
+/**
+ * 인도 연도(delivered_year)가 없는 보유 행의 추정 규칙(노후화). retire_year가 있으면 그 값을 쓰고 추정하지 않는다.
+ * 1) 같은 모델 기존 기록 배치의 도입 연도 2) 같은 모델 계약·인도 신호의 가장 이른 연도(사업 연도)
+ * 3) 둘 다 없으면 기준 연도 − 설계 수명의 절반(수명 중간에 있는 전력으로 가정).
+ * 추정 행의 신뢰도는 원래 신뢰도에 근거 있는 추정(1·2) 0.7, 기본값(3) 0.4를 곱한다.
+ */
+export const INVENTORY_ESTIMATE = { derived: 0.7, default: 0.4 } as const;
+export type DeliveryBasis = 'batch' | 'signal' | 'default';
+const BASIS_KO: Record<DeliveryBasis, string> = { batch: '배치 도입 연도', signal: '계약·인도 신호', default: '기본값(수명 중간)' };
+export function estimateDelivered(i: InventoryRow, base: number, life: number, batches: BatchCalc[] = [], signals: SignalRow[] = []): { year: number; basis: DeliveryBasis } {
+  const batch = batches.filter(b => sameModel(b.model, i.model)).sort((a, b) => a.introYear - b.introYear)[0];
+  if (batch) return { year: batch.introYear, basis: 'batch' };
+  const years = signals.filter(s => s.system === i.system && ['contract', 'delivery'].includes(s.stage) && sameModel(s.model, i.model)).map(yearOf).filter(y => y > 0);
+  if (years.length) return { year: Math.min(...years), basis: 'signal' };
+  return { year: base - Math.round(life / 2), basis: 'default' };
+}
+
+/** 기준 연도 base는 data.meta.baseYear를 넘긴다(server/scoring.ts) */
+export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
   const w = { ...DEFAULT_WEIGHTS, ...(input.weights || {}) };
   const comps: ScoreComponent[] = [];
-  const add = (factor: ScoreFactor, raw: number, confidence: number, evidence: string[], detail: string, missing = false) => {
+  const add = (factor: ScoreFactor, raw: number, confidence: number, evidence: string[], detail: string, missing = false, estimated = false) => {
     const weight = w[factor] ?? 0, r = missing ? 0 : clamp01(raw), c = missing ? 0 : clamp01(confidence);
-    comps.push({ factor, label: SCORE_FACTORS.find(f => f.factor === factor)!.label, weight, raw: round1(r * 100) / 100, confidence: round1(c * 100) / 100, points: round1(weight * r * c), missing, detail, evidence });
+    comps.push({ factor, label: SCORE_FACTORS.find(f => f.factor === factor)!.label, weight, raw: round1(r * 100) / 100, confidence: round1(c * 100) / 100, points: round1(weight * r * c), missing, detail, evidence, ...(estimated ? { estimated } : {}) });
   };
   const signals = (input.signals || []).filter(s => s.system === input.system);
   const imminence: number[] = [];
 
-  // 도입 의사: 현재 열린 단계 중 가장 높은 단계
-  const open = signals.filter(s => STAGE_POINTS[s.stage] > 0 && (yearOf(s) >= base - 3 || (s.expected_year ?? 0) >= base));
+  // 도입 의사: 현재 열린 단계 중 가장 높은 단계. '최근 3년'(기준 연도 포함 4개년) 신호이거나 예상 시기가 기준 연도 이후인 신호
+  const open = signals.filter(s => STAGE_POINTS[s.stage] > 0 && (isRecent(yearOf(s), base) || (s.expected_year ?? 0) >= base));
   const best = open.sort((a, b) => STAGE_POINTS[b.stage] - STAGE_POINTS[a.stage] || (b.confidence ?? 0) - (a.confidence ?? 0))[0];
   if (best) { if (best.expected_year) imminence.push(best.expected_year); add('intent', STAGE_POINTS[best.stage] / 20, best.confidence ?? SOURCE_CONFIDENCE.news, [evidenceId.signal(best)], `${best.stage} 단계 (${best.model || '모델 미상'}${best.expected_year ? `, 예상 ${best.expected_year}년` : ''})`); }
-  else add('intent', 0, 0, [], '최근 3년 도입 의사 신호 없음', true);
+  else add('intent', 0, 0, [], `최근 3년(${recentRange(base)}) 도입 의사 신호 없음`, true);
 
   // 노후화: 보유 이력 → 없으면 기존 기록 예측
   const life = input.designLife ?? 30;
   const inv = (input.inventory || []).filter(i => i.system === input.system && (i.quantity ?? 0) > 0);
   if (inv.length) {
-    const rows = inv.map(i => ({ i, retire: i.retire_year ?? ((i.delivered_year ?? base) + (i.service_life ?? life)) }));
+    const rows = inv.map(i => {
+      const conf = i.confidence ?? SOURCE_CONFIDENCE.news;
+      if (i.retire_year != null) return { i, retire: i.retire_year, confidence: conf, basis: null };
+      const delivered = i.delivered_year != null ? { year: i.delivered_year, basis: null } : estimateDelivered(i, base, life, input.forecast?.batches, input.signals);
+      return { i, retire: delivered.year + (i.service_life ?? life), basis: delivered.basis, confidence: delivered.basis ? conf * INVENTORY_ESTIMATE[delivered.basis === 'default' ? 'default' : 'derived'] : conf };
+    });
     const first = Math.min(...rows.map(r => r.retire)), total = rows.reduce((s, r) => s + (r.i.quantity ?? 0), 0);
     const due = rows.filter(r => r.retire <= base + 10).reduce((s, r) => s + (r.i.quantity ?? 0), 0);
+    const estimated = rows.filter(r => r.basis), firstEst = rows.some(r => r.basis && r.retire === first);
+    const bases = (Object.keys(BASIS_KO) as DeliveryBasis[]).map(b => [b, estimated.filter(r => r.basis === b).length] as const).filter(([, n]) => n).map(([b, n]) => `${BASIS_KO[b]} ${n}`).join('·');
     imminence.push(Math.max(base, first));
-    add('aging', 0.7 * clamp01(1 - (first - base) / 15) + 0.3 * (due / Math.max(1, total)), confOf(inv), inv.map(evidenceId.inventory), `최초 퇴역 예상 ${first}년, 10년 내 교체 대상 ${due}/${total}`);
+    add('aging', 0.7 * clamp01(1 - (first - base) / 15) + 0.3 * (due / Math.max(1, total)), confOf(rows), inv.map(evidenceId.inventory), `최초 퇴역 예상 ${first}년${firstEst ? ' (추정)' : ''}, 10년 내 교체 대상 ${due}/${total}${estimated.length ? `, 인도 연도 추정 ${estimated.length}건(${bases})` : ''}`, false, estimated.length > 0);
   } else if (input.forecast && input.forecast.remaining != null && input.forecast.status !== 'none') {
     const f = input.forecast;
     imminence.push(f.window![0]);
@@ -244,12 +275,12 @@ export function computeScore(input: ScoreInputs, base = new Date().getFullYear()
   const near = (input.neighbors || []).filter(n => n.tension != null);
   if (near.length) {
     const scored = near.map(n => {
-      const buys = (input.neighborSignals || []).filter(s => s.country === n.neighbor && s.system === input.system && ['selection', 'contract', 'delivery'].includes(s.stage) && yearOf(s) >= base - 3);
+      const buys = (input.neighborSignals || []).filter(s => s.country === n.neighbor && s.system === input.system && ['selection', 'contract', 'delivery'].includes(s.stage) && isRecent(yearOf(s), base));
       const ng = growth3y((input.neighborBudgets || []).filter(b => b.country === n.neighbor), base);
       return { n, buys, ng, v: (n.tension! / 100) * (0.5 * Math.min(1, buys.length / 3) + 0.5 * clamp01((ng.value ?? 0) / 10)) };
     }).sort((a, b) => b.v - a.v);
-    const top = scored[0];
-    add('neighbor', top.v, confOf([top.n, ...top.buys]), [evidenceId.neighbor(top.n), ...top.buys.map(evidenceId.signal), ...top.ng.rows.map(evidenceId.budget)], `${top.n.neighbor} 긴장도 ${round1(top.n.tension!)}, 최근 3년 구매 ${top.buys.length}건, 국방비 증가율 ${top.ng.value == null ? '미상' : `${round1(top.ng.value)}%`}`);
+    const top = scored[0], tensionEst = !!(top.n.components as { estimated?: unknown } | null)?.estimated;
+    add('neighbor', top.v, confOf([top.n, ...top.buys]), [evidenceId.neighbor(top.n), ...top.buys.map(evidenceId.signal), ...top.ng.rows.map(evidenceId.budget)], `${top.n.neighbor} 긴장도 ${round1(top.n.tension!)}${tensionEst ? ' (추정)' : ''}, 최근 3년(${recentRange(base)}) 구매 ${top.buys.length}건, 국방비 증가율 ${top.ng.value == null ? '미상' : `${round1(top.ng.value)}%`}`, false, tensionEst);
   } else add('neighbor', 0, 0, [], '긴장도 산출 인접국 없음', true);
 
   // 소모 보충: 소모·공여량 대비 재고, 기존 공급사 수주잔고

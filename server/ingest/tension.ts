@@ -5,10 +5,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { NeighborRow } from '../../shared/types';
-import { computeTension, geoFeatures, landNeighbors, rivals, seaNeighbors, type Alliance, type Dispute } from '../../shared/tension';
+import { computeTension, estimateMissingTension, geoFeatures, landNeighbors, rivals, seaNeighbors, type Alliance, type Dispute } from '../../shared/tension';
 import { PROJECT_ROOT, repository } from '../store';
 import { selectRows } from '../collection';
-import { load, type IngestOptions } from './common';
+import { judgmentBaseYear, load, type IngestOptions } from './common';
 
 export const TENSION_SOURCE = { id: 'tension_v1', title: '인접국 긴장도 산출 v1(docs/데이터수집요구서.md 5장)', url: 'docs/데이터수집요구서.md', confidence: 1 };
 const readJson = (p: string) => JSON.parse(readFileSync(join(PROJECT_ROOT, p), 'utf8'));
@@ -16,8 +16,9 @@ const readJson = (p: string) => JSON.parse(readFileSync(join(PROJECT_ROOT, p), '
 export async function ingestTension(opts: IngestOptions = {}) {
   const now = opts.now || new Date().toISOString();
   const asOf = typeof opts.args?.['as-of'] === 'string' ? opts.args['as-of'] : new Date(Date.UTC(Number(now.slice(0, 4)), Number(now.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);
-  const base = Number(asOf.slice(0, 4));
   const repo = opts.repo || repository();
+  // '최근 3년' 창의 기준 연도는 meta.baseYear(적대 이벤트 12개월 창만 asOf 월 기준)
+  const base = await judgmentBaseYear(repo);
   await opts.progress?.('수집 자료 읽는 중');
   const [events, budgets, signals] = await Promise.all([selectRows(repo, 'pair_events'), selectRows(repo, 'budgets'), selectRows(repo, 'signals')]);
   const features = geoFeatures(readJson('data/ne_110m_admin_0_countries.geojson'));
@@ -30,15 +31,18 @@ export async function ingestTension(opts: IngestOptions = {}) {
   const since = `${base - 5}-${asOf.slice(5, 7)}`;
   for (const p of rivals(events, 3, 50, since)) if (!pairs.has(p.join('|'))) pairs.set(p.join('|'), 'rival');
   await opts.progress?.(`긴장도 계산 중: ${pairs.size}쌍`);
-  const rows: Partial<NeighborRow>[] = [];
+  const computed = [];
   for (const [key, kind] of pairs) {
     const [a, b] = key.split('|');
     for (const [country, neighbor] of [[a, b], [b, a]]) {
       const t = computeTension({ country, neighbor, base, events, budgets, signals, disputes, alliances }, asOf);
-      rows.push({ country, neighbor, kind, tension: t.tension, components: t.components, computed_at: now, confidence: t.confidence });
+      computed.push({ country, neighbor, kind, tension: t.tension, components: t.components as Record<string, any>, confidence: t.confidence, hasEvidence: t.hasEvidence });
     }
   }
-  const notes = [`기준 ${asOf}, 쌍 ${pairs.size}개(육상 ${[...pairs.values()].filter(k => k === 'land').length}, 해상 ${[...pairs.values()].filter(k => k === 'sea').length}, 경쟁국 ${[...pairs.values()].filter(k => k === 'rival').length})`];
+  const rows: Partial<NeighborRow>[] = estimateMissingTension(computed).map(({ hasEvidence: _, ...r }) => ({ ...r, computed_at: now }));
+  const estimated = computed.filter(r => !r.hasEvidence).length;
+  const notes = [`기준 ${asOf}(충돌·구매 ${base - 3}~${base}), 쌍 ${pairs.size}개(육상 ${[...pairs.values()].filter(k => k === 'land').length}, 해상 ${[...pairs.values()].filter(k => k === 'sea').length}, 경쟁국 ${[...pairs.values()].filter(k => k === 'rival').length})`];
+  if (estimated) notes.push(`근거 없는 방향 ${estimated}개는 추정 긴장도(근거 있는 쌍의 중앙값, 신뢰도 0.2)`);
   if (!events.length) notes.push('pair_events가 비어 있어 충돌·이벤트 요소가 0입니다. ucdp·gdelt를 먼저 실행하세요');
   return load(opts, TENSION_SOURCE, { neighbors: rows }, notes);
 }

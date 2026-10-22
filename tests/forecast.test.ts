@@ -12,7 +12,7 @@ describe('forecast basics', () => {
     expect(categoryOf(11)).toBe('blue'); expect(categoryOf(null)).toBe('gray');
   });
   it('임박도 점수는 남은 기간이 짧을수록 높다', () => { expect(imminenceScore(0)).toBeGreaterThan(imminenceScore(5)); expect(imminenceScore(0, 1, 3)).toBe(100); });
-  it('신뢰도', () => { expect(confidenceOf(4, 2026, 0)).toBe('상'); expect(confidenceOf(2, 2026, 3)).toBe('중'); expect(confidenceOf(1, 2015, 6)).toBe('하'); });
+  it('신뢰도', () => { expect(confidenceOf(4, 2026, 0, 2026)).toBe('상'); expect(confidenceOf(2, 2026, 3, 2026)).toBe('중'); expect(confidenceOf(1, 2015, 6, 2026)).toBe('하'); });
   it('규모 로그 스케일 0..1', () => { expect(sizeNorm([100, 100])).toBe(0); expect(sizeNorm([1e6, 1e6])).toBe(1); expect(sizeNorm([0, 0])).toBe(0); });
 });
 
@@ -35,14 +35,19 @@ describe('computeForecast', () => {
     const f = computeForecast({ ...rec, plan: { start: 2027, end: 2028, qty: [8, 12], text: 'p', src: [] } });
     expect(f.status).toBe('plan'); expect(f.qty).toEqual([8, 12]); expect(f.remaining).toBe(1);
   });
-  it('서버를 재시작하지 않아도 연도가 바뀌면 새 기준 연도로 계산', () => {
+  it('기준 연도는 시계가 아니라 meta.baseYear 하나만 따른다', () => {
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date('2027-01-01T12:00:00Z'));
-      expect(computeForecast(rec).window![0]).toBe(2027);
+      expect(seed.meta.baseYear).toBe(2026);
+      expect(computeForecast(rec).window![0]).toBe(2026);
       const report = writeReport({ country: '베트남', system: '자주포' });
-      expect('markdown' in report && report.markdown).toContain('기준 연도 2027');
+      expect('markdown' in report && report.markdown).toContain('기준 연도 2026');
     } finally { vi.useRealTimers(); }
+    const later = { ...JSON.parse(JSON.stringify(seed)), meta: { ...seed.meta, baseYear: 2030 } };
+    expect(computeForecast(rec, later).window![0]).toBe(2030);
+    const report = writeReport({ country: '베트남', system: '자주포' }, later);
+    expect('markdown' in report && report.markdown).toContain('기준 연도 2030');
   });
   it('같은 URL의 새 수집 버전을 사용하고 중복 근거는 한 번만 셈', () => {
     const data = JSON.parse(JSON.stringify(seed));

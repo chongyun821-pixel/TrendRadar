@@ -1,5 +1,6 @@
 import { seed, resolveCountry, resolveSystem, recordsBy, isGeneral } from './data';
-import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange } from './forecast';
+import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange, lifeSourced } from './forecast';
+import { baseYearOf } from './base-year';
 import type { Forecast, SystemKey, Batch, Seed } from './types';
 
 const est = (b: { est?: string[] }, f: string) => (b.est?.includes(f) ? ' (추정)' : '');
@@ -28,12 +29,13 @@ export function searchPrograms(a?: { country?: string; system?: string }) {
 export function getLifespan(a?: { system?: string; model?: string }) {
   const system = resolveSystem(a?.system);
   const model = (a?.model ?? '').toLowerCase();
-  const systems = (system ? [system] : (Object.keys(seed.systems) as SystemKey[])).map(k => ({
-    system: sName(k), designLife: seed.systems[k].designLife, estimate: true, note: '체계별 기본 설계 수명(추정). 배치별 MRO 연장은 별도 반영',
-  }));
+  const systems = (system ? [system] : (Object.keys(seed.systems) as SystemKey[])).map(k => {
+    const sourced = lifeSourced(seed.systems[k], seed);
+    return { system: sName(k), designLife: seed.systems[k].designLife, estimate: !sourced, ...(sourced ? { sources: srcList(seed.systems[k].lifeSrc!) } : {}), note: sourced ? '출처가 있는 설계 수명. 배치별 MRO 연장은 별도 반영' : '체계별 기본 설계 수명(추정, 출처 없음). 배치별 MRO 연장은 별도 반영' };
+  });
   const models = model ? seed.records.flatMap(r => r.batches.filter(b => b.model.toLowerCase().includes(model)).map(b => ({
     country: cName(r.country), model: b.model, introYear: b.introYear, lifeExt: b.lifeExt ?? 0,
-    replacementYear: b.introYear + seed.systems[r.system].designLife + (b.lifeExt ?? 0), estimate: !!b.est?.length,
+    replacementYear: b.introYear + seed.systems[r.system].designLife + (b.lifeExt ?? 0), estimate: !!b.est?.length || !lifeSourced(seed.systems[r.system], seed),
   }))) : [];
   return { systems, models };
 }
@@ -78,7 +80,7 @@ export function listForecasts(a?: { system?: string; limit?: number }) {
 const STATUS_KO: Record<Forecast['status'], string> = { open: '교체 수요(미계약)', plan: '공개 사업 계획', next: '현 사업 계약 완료 → 후속 주기', none: '데이터 부족' };
 
 export function writeReport(a?: { country?: string; system?: string }, data: Seed = seed): { markdown: string; country?: string; system?: SystemKey } | { error: string } {
-  const baseYear = new Date().getFullYear();
+  const baseYear = baseYearOf(data);
   const { country, system } = args(a);
   if (!country) return { error: '국가를 찾지 못함' };
   // 알 수 없는 체계 이름을 전체 체계 보고서로 바꾸지 않는다(일반·생략만 전체)
@@ -107,7 +109,7 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
     if (r.plan) L.push(`- 사업 계획: ${r.plan.text}`);
     for (const sg of r.signals ?? []) L.push(`- 동향: ${sg.year} ${sg.text}`);
     L.push(`### 3. 수명·MRO`);
-    L.push(`- 설계 수명: ${sys.designLife}년 (체계 기본값, 추정)`);
+    L.push(`- 설계 수명: ${sys.designLife}년 (${f.lifeEst ? '체계 기본값, 추정' : `출처: ${(sys.lifeSrc || []).map(id => data.sources[id]?.t).filter(Boolean).join(', ')}`})`);
     if (r.mro?.length) for (const m of r.mro) L.push(`- ${m.year}${est(m, 'year')} ${m.text}${m.lifeExt ? ` → 수명 +${m.lifeExt}년${est(m, 'lifeExt')}` : ''}`);
     else L.push(`- 확인된 MRO 기록 없음`);
     L.push(`### 4. 예측 근거와 계산`);
@@ -127,6 +129,7 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
     L.push(`### 6. 출처`);
     for (const so of f.sources) L.push(`- [${so.t}](${so.u})`);
     for (const id of sys.costSrc) { const so = data.sources[id]; if (so && !f.sources.includes(so)) L.push(`- [${so.t}](${so.u}) (단가)`); }
+    for (const id of sys.lifeSrc || []) { const so = data.sources[id]; if (so && !f.sources.includes(so)) L.push(`- [${so.t}](${so.u}) (수명)`); }
     L.push(`\n_예측은 공개 자료 기반 범위 추정이며 확정 정보가 아님. "추정" 표기 값은 출처 없음._`);
     parts.push(L.join('\n'));
   }

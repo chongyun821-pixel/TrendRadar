@@ -1,11 +1,18 @@
 /** 인접국 쌍과 긴장도(0~100) 자동 산출 (요구서 5장). 지리 계산과 점수식은 순수 함수다. */
 import type { BudgetRow, PairEventRow, SignalRow } from './types';
 import { growth3y } from './forecast';
+import { isRecent } from './base-year';
 
 export const TENSION_WEIGHTS = { conflict: 35, events: 25, arms: 20, territory: 20 } as const;
 export const ALLIANCE_DISCOUNT = 0.3;
 /** 해상 인접 기준 거리(km). 1:110m 경계의 꼭짓점 간 거리라 실제 해안선보다 다소 길게 잡는다 */
 export const SEA_NEIGHBOR_KM = 400;
+/**
+ * 근거가 하나도 없는 쌍(UCDP·GDELT·분쟁 목록·구매 신호·국방비 증가율 모두 없음)의 긴장도 추정 규칙.
+ * 같은 산출에서 근거가 있는 쌍의 긴장도 중앙값을 쓴다(두 나라 중 한쪽이 들어간 쌍 우선, 없으면 전체). 근거 있는 쌍이 하나도 없으면 DEFAULT.
+ * 같은 동맹이면 30% 감산하고, 신뢰도는 CONFIDENCE(정적 분쟁 목록 0.4보다 낮음)로 둔다.
+ */
+export const TENSION_ESTIMATE = { DEFAULT: 10, CONFIDENCE: 0.2 } as const;
 
 export interface GeoFeature { id: string; polygons: number[][][][] } // [폴리곤][링][점][lon,lat]
 /** Natural Earth GeoJSON → 국가 ID(ADM0_A3, 앱 지도와 같은 ID)별 폴리곤 */
@@ -80,7 +87,8 @@ const monthsBack = (base: string, n: number) => { const [y, m] = base.split('-')
  */
 export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
   const { country: a, neighbor: b } = p;
-  const ucdp = p.events.filter(e => e.source.startsWith('ucdp') && pairOf(e, a, b) && Number(e.period) >= p.base - 3);
+  // 충돌·구매는 '최근 3년'(기준 연도 포함 4개년, base-3..base), 적대 이벤트는 asOf까지 12개월
+  const ucdp = p.events.filter(e => e.source.startsWith('ucdp') && pairOf(e, a, b) && isRecent(Number(e.period), p.base));
   const fatal = ucdp.reduce((s, e) => s + (e.fatalities || 0), 0);
   const conflict = clamp01(Math.log10(1 + fatal) / 3); // 1,000명 이상이면 최대
   const from = monthsBack(asOf, 11);
@@ -89,12 +97,13 @@ export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
   const gold = n ? gd.reduce((s, e) => s + (e.goldstein || 0) * (e.events || 0), 0) / n : 0;
   const events = gd.length ? clamp01(0.6 * Math.log10(1 + n) / Math.log10(5001) + 0.4 * clamp01(-gold / 10)) : 0;
   const ga = growth3y(p.budgets.filter(x => x.country === a), p.base), gb = growth3y(p.budgets.filter(x => x.country === b), p.base);
-  const buys = p.signals.filter(s => (s.country === a || s.country === b) && ['selection', 'contract', 'delivery'].includes(s.stage) && (Number(String(s.published_at || '').slice(0, 4)) || s.expected_year || 0) >= p.base - 3);
+  const buys = p.signals.filter(s => (s.country === a || s.country === b) && ['selection', 'contract', 'delivery'].includes(s.stage) && isRecent(Number(String(s.published_at || '').slice(0, 4)) || s.expected_year || 0, p.base));
   const growth = [ga.value, gb.value].filter((v): v is number => v != null);
   const arms = clamp01(0.5 * clamp01((growth.length ? growth.reduce((s, v) => s + v, 0) / growth.length : 0) / 10) + 0.5 * Math.min(1, buys.length / 5));
   const dispute = p.disputes.find(d => (d.a === a && d.b === b) || (d.a === b && d.b === a));
   const territory = clamp01(dispute?.intensity ?? 0);
   const alliance = p.alliances.find(x => x.members.includes(a) && x.members.includes(b));
+  const hasEvidence = ucdp.length + gd.length + buys.length + ga.rows.length + gb.rows.length > 0 || !!dispute;
   const W = TENSION_WEIGHTS;
   const before = W.conflict * conflict + W.events * events + W.arms * arms + W.territory * territory;
   const tension = r1(before * (alliance ? 1 - ALLIANCE_DISCOUNT : 1));
@@ -108,7 +117,24 @@ export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
       territory: { weight: W.territory, raw: territory, points: r1(W.territory * territory), dispute: dispute?.name ?? null, evidence: dispute?.url ? [dispute.url] : [] },
       alliance: alliance ? { name: alliance.name, discount: ALLIANCE_DISCOUNT, before: r1(before) } : null,
     },
-    /** 근거가 된 자료의 최소 신뢰도. 자료가 없으면 영토 분쟁 정적 목록(위키백과 기준) 0.4 */
-    confidence: Math.min(...[...ucdp, ...gd].map(e => e.confidence ?? 1), dispute ? 0.4 : 1, 1),
+    /** 근거가 된 자료(충돌·이벤트·구매 신호·국방비)의 최소 신뢰도. 영토 분쟁 정적 목록(위키백과 기준)은 0.4. 근거가 없으면 null(estimateMissingTension이 추정한다) */
+    confidence: hasEvidence ? Math.min(...[...ucdp, ...gd, ...buys, ...ga.rows, ...gb.rows].map(e => e.confidence ?? 1), dispute ? 0.4 : 1, 1) : null,
+    hasEvidence,
   };
+}
+
+/** 근거 없는 쌍에 추정 긴장도를 채운다(TENSION_ESTIMATE 규칙). components.estimated에 추정 근거를 남긴다 */
+export function estimateMissingTension<T extends { country: string; neighbor: string; tension: number; confidence: number | null; hasEvidence: boolean; components: Record<string, any> }>(rows: T[]): T[] {
+  const known = rows.filter(r => r.hasEvidence);
+  const median = (v: number[]) => { const s = [...v].sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  return rows.map(r => {
+    if (r.hasEvidence) return r;
+    const near = known.filter(k => [k.country, k.neighbor].some(c => c === r.country || c === r.neighbor));
+    const pool = near.length ? near : known;
+    const baseline = pool.length ? median(pool.map(k => k.tension)) : TENSION_ESTIMATE.DEFAULT;
+    const alliance = r.components.alliance;
+    const tension = r1(baseline * (alliance ? 1 - ALLIANCE_DISCOUNT : 1));
+    const rule = near.length ? '두 나라가 들어간 근거 있는 쌍의 중앙값' : pool.length ? '근거 있는 전체 쌍의 중앙값' : '기본값';
+    return { ...r, tension, confidence: TENSION_ESTIMATE.CONFIDENCE, components: { ...r.components, ...(alliance ? { alliance: { ...alliance, before: r1(baseline) } } : {}), estimated: { rule, baseline: r1(baseline), pairs: pool.length } } };
+  });
 }

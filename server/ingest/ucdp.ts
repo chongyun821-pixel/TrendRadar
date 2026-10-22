@@ -6,7 +6,7 @@
  */
 import { unzipSync, strFromU8 } from 'fflate';
 import type { PairEventRow } from '../../shared/types';
-import { baseYear, countryId, load, parseCsv, readInput, type IngestOptions } from './common';
+import { collectionYear, countryId, load, parseCsv, readInput, type IngestOptions } from './common';
 
 export const UCDP_BRD_URL = 'https://ucdp.uu.se/downloads/brd/ucdp-brd-dyadic-261-csv.zip';
 export const UCDP_SOURCE = { id: 'ucdp_brd', title: 'UCDP Battle-Related Deaths Dataset (dyadic) v26.1', url: 'https://ucdp.uu.se/downloads/', confidence: 1 };
@@ -38,7 +38,7 @@ export function normalizeUcdp(csv: string, since: number) {
 }
 
 export async function ingestUcdp(opts: IngestOptions = {}) {
-  const since = Number(opts.args?.since) || baseYear(opts) - 10;
+  const since = Number(opts.args?.since) || collectionYear(opts) - 10;
   const url = typeof opts.args?.url === 'string' ? opts.args.url : UCDP_BRD_URL;
   const bytes = await readInput(opts, url);
   let csv: string;
