@@ -26,7 +26,8 @@ describe('코드 점검 수정', () => {
   });
   it('robots.txt의 빈 User-agent는 이 수집기 전용 규칙으로 보지 않는다', () => {
     expect(robotsAllowed('User-agent:\nDisallow: /\n\nUser-agent: *\nAllow: /', '/page')).toBe(true);
-    expect(robotsAllowed('User-agent: TrendRadar\nDisallow: /x', '/x')).toBe(false);
+    expect(robotsAllowed('User-agent: ProcurementRadar\nDisallow: /x', '/x')).toBe(false);
+    expect(robotsAllowed('User-agent: TrendRadar\nDisallow: /x\n\nUser-agent: *\nAllow: /', '/x')).toBe(true); // 예전 이름은 더 이상 이 수집기가 아니다
   });
   it('판단 점수의 노후화는 점수와 같은 기준 연도의 예측을 쓴다', async () => {
     const repo = repository(), data = await repo.data();

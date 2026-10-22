@@ -22,7 +22,10 @@ export function publicAddress(address: string) {
   const [a, b] = address.split('.').map(Number);
   return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && [0, 168].includes(b)) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && [18, 19].includes(b)));
 }
-const USER_AGENT = 'TrendRadar/1.0';
+/** 원문 수집기 이름: 앱 이름(무기조달사업예상)의 ASCII 표기. package.json 이름 procurement-radar를 제품 토큰으로 쓴 것이다(HTTP 헤더는 ASCII만 허용) */
+export const USER_AGENT = 'ProcurementRadar/1.0';
+/** robots.txt에서 이 수집기 전용 규칙으로 보는 User-agent 이름(소문자) */
+const ROBOTS_AGENT = 'procurementradar';
 const MAX_BYTES = 10 * 1024 * 1024;
 async function download(url: URL, signal: AbortSignal): Promise<{ status: number; headers: import('node:http').IncomingHttpHeaders; bytes: Buffer }> {
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !['', '80', '443'].includes(url.port)) throw new Error('공개 HTTP 또는 HTTPS 주소만 지원합니다');
@@ -56,7 +59,7 @@ export function robotsAllowed(text: string, path: string) {
     } else if (value) group.rules.push({ allow: key.toLowerCase() === 'allow', path: value });
   }
   groups.push(group);
-  const specific = groups.filter(g => g.agents.some(a => a && a !== '*' && 'trendradar'.includes(a)));
+  const specific = groups.filter(g => g.agents.some(a => a && a !== '*' && (ROBOTS_AGENT.includes(a) || a === 'procurement-radar')));
   const selected = specific.length ? specific : groups.filter(g => g.agents.includes('*'));
   const matches = selected.flatMap(g => g.rules).filter(rule => {
     const expr = rule.path.split('*').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*').replace(/\\\$$/, '$');
