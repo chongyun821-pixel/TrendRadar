@@ -11,6 +11,14 @@ export type RunInfo = { id: string; status: string; error?: string; started_at?:
 export type Conversation = { id: string; title: string; messages: Message[]; queued?: QueuedMessage[]; reportEntries?: ReportEntry[]; files: { id: string; name: string; kind: string; error?: string }[]; runs: RunInfo[] };
 export type ModelInfo = { id: string; name: string; available: boolean };
 
+/**
+ * ＋ 메뉴 「대화 자료」 목록: 사용자가 올린 파일(kind=attachment)만 보인다.
+ * 추출 텍스트·수집 원문·보고서·생성 문서·기록은 숨길 뿐 지우지 않으며, 모델의 작업 폴더 도구는 그대로 모두 본다.
+ */
+export const uploadedFiles = <T extends { kind: string }>(files: T[]) => files.filter(f => f.kind === 'attachment');
+/** 저장 이름 attachments/<UUID>-원래이름 → 원래 이름 */
+export const uploadedName = (name: string) => name.split('/').at(-1)!.replace(/^[0-9a-f]{8}-[0-9a-f-]{27}-/i, '');
+
 export async function api(path: string, options?: RequestInit): Promise<any> {
   const r = await fetch(`/api${path}`, options);
   const data = await r.json();

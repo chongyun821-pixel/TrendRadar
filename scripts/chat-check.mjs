@@ -91,7 +91,10 @@ try {
   await page.unroute('**/api/conversations/*');
   await page.screenshot({ path: 'shots/14-composer-meta-rename.png' });
   await page.click('#attachButton');
-  assert.ok(await page.locator('#workspaceFiles a').count() >= 3);
+  // 대화 자료 목록은 사용자가 올린 파일만(보고서·추출 텍스트 등은 숨김)
+  assert.deepEqual((await page.locator('#workspaceFiles a').allTextContents()).sort(), ['검증-첨부.txt', '드롭-첨부.txt']);
+  assert.equal(await page.locator('#fileCount').textContent(), '2');
+  assert.equal(await page.locator('.m.report').count() > 0, true);
   assert.ok((await page.locator('.panel').boundingBox()).height > 200);
   await page.screenshot({ path: 'shots/7-history-attachments-desktop.png' });
   await page.fill('#q', '/sessions'); await page.press('#q', 'Enter'); await page.press('#q', 'Enter'); assert.equal(await page.locator('.m').count(), 0);
@@ -154,7 +157,7 @@ try {
   assert.equal(await page.locator('.status-signal, .status-clock').count(), 0);
   await page.unroute('**/api/runs/*');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', activityStages: 'pass', compactStatus: 'pass', minimalInput: 'pass', elapsedTime: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', metaLabel: 'pass', slashAutocomplete: 'pass', modelLabelClick: 'pass', rename: 'pass', errors }));
+  console.log(JSON.stringify({ history: 'pass', attachments: 'pass', uploadedOnly: 'pass', dragDrop: 'pass', popovers: 'pass', statusInside: 'pass', activityStages: 'pass', compactStatus: 'pass', minimalInput: 'pass', elapsedTime: 'pass', squareStop: 'pass', reload: 'pass', modelSwitch: 'pass', delete: 'pass', mobile: 'pass', metaLabel: 'pass', slashAutocomplete: 'pass', modelLabelClick: 'pass', rename: 'pass', errors }));
 } finally {
   for (const id of ids) await page.request.delete(`${base}/api/conversations/${id}`);
   await browser.close();

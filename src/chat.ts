@@ -7,7 +7,7 @@ import { createChatStatus, toolActivity } from './chat-status';
 import { createPicker } from './picker';
 import { slashSuggestions, modelStep, parseSlash, readChoice, type PickItem } from './slash';
 import { checkChoice, choiceLabel, type ModelChoice } from '../shared/model-options';
-import { api, post, chatBody, pickModel, isActiveStatus, latestRun, runStatusText, type Conversation, type ModelInfo, type QueuedMessage, type ReportEntry, type RunInfo } from './chat-api';
+import { api, post, chatBody, uploadedFiles, uploadedName, pickModel, isActiveStatus, latestRun, runStatusText, type Conversation, type ModelInfo, type QueuedMessage, type ReportEntry, type RunInfo } from './chat-api';
 import { createMessageList } from './chat-messages';
 import { bindTitleEditor } from './chat-title';
 import { createUploader } from './chat-upload';
@@ -173,15 +173,13 @@ export function initChat(o: ChatOpts) {
   function markProgrammaticScroll() { programmaticScroll = list.scrollTop; }
   function renderFiles(c: Conversation) {
     const box = get('#workspaceFiles'); box.replaceChildren();
-    const visible = c.files.filter(f => f.kind !== 'tool-log' && f.kind !== 'extracted');
+    const visible = uploadedFiles(c.files);
     const count = get('#fileCount'); count.textContent = String(visible.length); count.hidden = !visible.length;
     if (!visible.length) box.textContent = '추가한 자료가 없습니다.';
     for (const f of visible) {
       const a = document.createElement('a'); a.href = `/api/conversations/${c.id}/files/${f.id}`;
-      const name = f.name.split('/').at(-1)!.replace(/^[0-9a-f]{8}-[0-9a-f-]{27}-/i, '');
-      const label = f.kind === 'report' && /^[0-9a-f-]{36}\.md$/i.test(name) ? '국가 보고서.md' : name;
-      a.textContent = `${f.kind === 'document' ? '↓ ' : ''}${label}${f.error ? ' · 추출 오류' : ''}`;
-      a.title = f.error || f.name; a.download = ''; a.classList.toggle('word-file', f.kind === 'document'); box.appendChild(a);
+      a.textContent = `${uploadedName(f.name)}${f.error ? ' · 추출 오류' : ''}`;
+      a.title = f.error || f.name; a.download = ''; box.appendChild(a);
     }
   }
   function renderConversation(c: Conversation, activateLatestReport = true) {
