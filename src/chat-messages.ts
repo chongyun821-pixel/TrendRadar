@@ -13,6 +13,10 @@ export function createMessageList(list: HTMLElement) {
     list.appendChild(div); scrollToBottom();
     return div;
   }
+  function addReport(entry: ReportEntry) {
+    const div = add('report', md(entry.markdown)); div.dataset.reportId = entry.id;
+    return div;
+  }
   function renderMessage(message: Message) {
     if (message.role === 'user') { add('user', md(message.text)); return; }
     for (const [index, report] of (message.reports || []).entries()) {
@@ -69,7 +73,12 @@ export function createMessageList(list: HTMLElement) {
   }
   function render(c: Conversation, outbox: QueuedMessage[], onCancel: Parameters<typeof renderQueued>[2]) {
     reportEntries = c.reportEntries || [];
-    list.replaceChildren(); c.messages.forEach(renderMessage);
+    list.replaceChildren();
+    // 지도에서 연 보고서(viewed)는 메시지가 없으므로 만든 시각 순서로 메시지 사이에 그린다
+    const viewed = reportEntries.filter(r => r.viewed);
+    const flush = (before?: string) => { while (viewed.length && (!before || viewed[0].createdAt < before)) addReport(viewed.shift()!); };
+    for (const message of c.messages) { if (message.created_at) flush(message.created_at); renderMessage(message); }
+    flush();
     queueSignature = ''; renderQueued(c.queued || [], outbox, onCancel);
     if (!list.childNodes.length) {
       const empty = document.createElement('div'); empty.className = 'conversation-empty';
@@ -80,7 +89,7 @@ export function createMessageList(list: HTMLElement) {
   }
   function clear() { list.replaceChildren(); queueSignature = ''; reportEntries = []; }
   return {
-    add, render, renderQueued, promote, clear, scrollToBottom,
+    add, addReport, render, renderQueued, promote, clear, scrollToBottom,
     resetQueue: () => { queueSignature = ''; },
     removeEmpty: () => list.querySelector('.conversation-empty')?.remove(),
     get reportEntries() { return reportEntries; },

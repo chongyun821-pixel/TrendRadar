@@ -8,6 +8,7 @@ import type { ChatIn, ChatOut } from './agent';
 import type { Env } from './env';
 import { runCommand } from '../src/commands';
 import { saveAppContext, reportTarget } from './app-context';
+import { attachedReports, reportAttachmentText } from './viewed-reports';
 
 const globals = globalThis as typeof globalThis & {
   __radarRuns?: Map<string, { controller: AbortController; done: Promise<void>; finished: Promise<void> }>;
@@ -68,7 +69,7 @@ function dispatchQueue(conversationId: string, env: Env) {
         }
         const input: ChatIn = JSON.parse(saved.data);
         await repo.run("UPDATE runs SET status='running',started_at=?,owner_pid=? WHERE id=? AND status='queued'", now(), process.pid, row.id);
-        await repo.message(conversationId, 'user', input.messages[0].text, input.appContext ? { appContext: input.appContext } : {});
+        await repo.message(conversationId, 'user', input.messages[0].text, { ...(input.appContext ? { appContext: input.appContext } : {}), ...(input.reportIds?.length ? { reportIds: input.reportIds } : {}) });
         if (input.appContext) await repo.event(row.id, 'app.context', input.appContext);
         return { input, runId: row.id };
       });
@@ -89,7 +90,8 @@ export async function startRun(input: ChatIn, env: Env) {
   const choice = parseModelChoice(input.model, input.options);
   const runId = randomUUID();
   const appContext = input.appContext ? await saveAppContext(repo, { ...input.appContext, conversationId }) : undefined;
-  const request: ChatIn = { conversationId, model: choice?.provider, ...(choice?.model || choice?.effort ? { options: { model: choice.model, effort: choice.effort } } : {}), messages: [{ role: 'user', text: last.text }], state: input.state, appContext };
+  const reportIds = (await attachedReports(repo, conversationId, input.reportIds)).map(r => r.id);
+  const request: ChatIn = { conversationId, model: choice?.provider, ...(choice?.model || choice?.effort ? { options: { model: choice.model, effort: choice.effort } } : {}), messages: [{ role: 'user', text: last.text }], state: input.state, appContext, ...(reportIds.length ? { reportIds } : {}) };
   await queueTransaction(async () => {
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversationId, input.model || DEFAULT_MODEL, 'queued', now(), process.pid);
     await repo.event(runId, 'run.queued', request);
@@ -143,7 +145,10 @@ async function answer(input: ChatIn, env: Env, runId: string, signal: AbortSigna
   const local = runCommand(text, names);
   if (/^[!！]\s*(?:모델|model)(?:\s|$)/i.test(text)) return { snapshot, local: true, out: { reply: `선택 모델: ${input.model || DEFAULT_MODEL}`, reports: [], actions: [], tools: ['model'] } as ChatOut };
   if (local) return { snapshot, local: true, out: { reply: local.text || '', reports: local.report ? [local.report] : [], actions: local.actions, tools: ['command'] } as ChatOut };
-  const messages = conversation.messages.map((m: any) => ({ role: m.role === 'user' ? 'user' as const : 'model' as const, text: m.text + (m.reports?.length ? `\n보고서:\n${m.reports.join('\n')}` : '') }));
+  // 지난 메시지의 첨부 보고서는 파일 위치만, 이번 요청의 첨부 보고서는 본문까지 넘긴다
+  const messages = conversation.messages.map((m: any) => ({ role: m.role === 'user' ? 'user' as const : 'model' as const, text: m.text + (m.reports?.length ? `\n보고서:\n${m.reports.join('\n')}` : '') + (m.reportIds?.length ? `\n[첨부 보고서: ${m.reportIds.map((id: string) => `reports/${id}.md`).join(', ')}]` : '') }));
+  const attached = await attachedReports(repo, conversationId, input.reportIds);
+  if (attached.length && messages.length) messages[messages.length - 1].text = `${input.messages[0].text}\n\n${reportAttachmentText(attached)}`;
   const files = repo.files(conversationId);
   if (files.length) messages[messages.length - 1].text += `\n\n[대화 작업 파일 목록: ${JSON.stringify(files)}. 필요한 파일은 workspace_read로 읽으세요.]`;
   return { snapshot, local: false, out: await chatWith({ ...input, conversationId, runId, signal, messages }, env) };

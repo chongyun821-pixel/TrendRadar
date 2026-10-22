@@ -10,7 +10,8 @@ import { repository, hash } from './store';
 import { startRun, stopRun, stopConversation } from './runs';
 import { attach } from './attachments';
 import { bodyLimit } from 'hono/body-limit';
-import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand, reportTarget } from './app-context';
+import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand } from './app-context';
+import { reportEntry, saveViewedReport } from './viewed-reports';
 import { TOOL_DEFS } from './agent';
 import { executeTool } from './tool-session';
 import { scoreSystem, scoreSummary } from './scoring';
@@ -45,7 +46,13 @@ app.post('/conversations', async c => c.json(await repository().createConversati
 app.get('/conversations/:id', async c => {
   const repo = repository(), id = c.req.param('id');
   const [conversation, reports] = await Promise.all([repo.conversation(id), repo.all('SELECT * FROM reports WHERE conversation_id=? ORDER BY created_at,id', id)]);
-  return c.json({ ...conversation, reportEntries: reports.map(r => ({ id: r.id, ...reportTarget(r.markdown), kind: 'country-analysis', basisDate: r.basis_date, dataVersion: r.data_version, createdAt: r.created_at, markdown: r.markdown })) });
+  return c.json({ ...conversation, reportEntries: reports.map(reportEntry) });
+});
+/** 지도에서 연 보고서: 채팅 요청 없이 저장해 표시하고, 다음 메시지에 첨부한다 */
+app.post('/conversations/:id/reports', async c => {
+  const body = await c.req.json().catch(() => ({}));
+  try { return c.json(await saveViewedReport(repository(), c.req.param('id'), body ?? {}), 201); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, 400); }
 });
 app.post('/app-context', async c => c.json(await saveAppContext(repository(), await c.req.json())));
 app.get('/app-context/:screen', async c => c.json(await readAppContext(repository(), c.req.param('screen')), 200, { 'cache-control': 'no-store' }));

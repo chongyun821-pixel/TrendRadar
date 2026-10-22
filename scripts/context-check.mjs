@@ -93,8 +93,14 @@ try {
   await page.waitForFunction(() => { const point = window.__globe.project(45, 24); return point.x > 0 && point.x < innerWidth && point.y > 100 && point.y < innerHeight - 100 && window.__globe.pick(point.x, point.y) === 'SAU'; });
   let point = await page.evaluate(() => window.__globe.project(45, 24));
   await page.mouse.click(point.x, point.y);
+  // 보고서 칩: 채팅 요청 없이 보고서를 띄우고 다음 메시지 첨부로 쌓는다
+  const chatCount = captures.length;
   await page.locator('#tip.pinned button[data-report-country="SAU"][data-report-system="ifv"]').click();
-  await finished();
+  await page.waitForFunction(() => window.__app.getAppContext().report?.system === 'ifv' && document.querySelectorAll('#attachments .chip').length === 1);
+  assert.equal(captures.length, chatCount, '보고서 클릭이 채팅 요청을 보냄');
+  assert.equal(await page.locator('.m.user').count(), 0);
+  assert.equal(await page.locator('.m.report').count(), 1);
+  assert.match(await page.textContent('#attachments'), /사우디아라비아 보병전투차 보고서|사우디아라비아 .+ 보고서/);
   assert.equal((await state()).mode, 'ifv'); assert.equal((await state()).report.country, 'SAU'); assert.equal((await state()).report.system, 'ifv');
   assert.equal(await page.locator('#modes button[data-sys="ifv"]').getAttribute('class'), 'on');
   await page.screenshot({ path: join(folder, 'saudi-report-desktop.png') });
@@ -103,14 +109,28 @@ try {
   await page.evaluate(() => { window.__app.setMode(null); window.__app.focusCountry('SAU'); });
   await page.waitForFunction(() => { const point = window.__globe.project(45, 24); return !window.__globe.camAnim && point.x > 0 && point.x < innerWidth && point.y > 100 && point.y < innerHeight - 100 && window.__globe.pick(point.x, point.y) === 'SAU'; });
   point = await page.evaluate(() => window.__globe.project(45, 24)); await page.mouse.click(point.x, point.y);
-  await page.locator('#tip.pinned button[data-report-country="SAU"][data-report-system="sam"]').click(); await finished();
+  await page.locator('#tip.pinned button[data-report-country="SAU"][data-report-system="sam"]').click();
+  await page.waitForFunction(() => window.__app.getAppContext().report?.system === 'sam' && document.querySelectorAll('#attachments .chip').length === 2);
+  assert.equal(captures.length, chatCount, '보고서 클릭이 채팅 요청을 보냄');
   assert.equal((await state()).mode, 'sam'); assert.equal((await state()).report.system, 'sam');
+  const samReport = (await state()).report.id;
+  // 첨부 칩은 눌러 뺄 수 있고, 남은 보고서는 다음 메시지와 함께 간다
+  await page.locator('#attachments .chip').first().click();
+  assert.equal(await page.locator('#attachments .chip').count(), 1);
+  await page.fill('#q', '!help'); await page.press('#q', 'Enter'); await finished();
+  assert.deepEqual(captures.at(-1).reportIds, [samReport]);
+  assert.equal(captures.at(-1).appContext.report.id, samReport);
+  assert.match(captures.at(-1).messages[0].text, /첨부: 사우디아라비아 .+ 보고서$/);
+  assert.equal(await page.locator('#attachments .chip').count(), 0);
+  await page.reload(); await page.waitForSelector('body.ready');
+  await page.waitForFunction(() => document.querySelectorAll('.m.report').length === 2);
+  assert.equal(await page.locator('#attachments .chip').count(), 0);
   await page.waitForFunction(() => { const panel = document.querySelector('.panel'); return getComputedStyle(panel).opacity === '1' && panel.getAnimations().every(animation => animation.playState === 'finished'); });
   await page.screenshot({ path: join(folder, 'mobile.png') });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: join(folder, 'desktop.png') });
   assert.deepEqual(errors, []);
-  const receipt = { emptyToolConversation: 'pass', continueToolConversation: 'pass', screenContext: 'pass', reportSelection: 'pass', requestSnapshot: 'pass', viewedReport: 'pass', mapCommand: 'pass', staleCommand: 'pass', modelSelection: 'pass', conversationSwitch: 'pass', saudiReportDesktop: 'pass', saudiReportMobile: 'pass', mobile: 'pass', errors, switchedCommand: switched.commandId };
+  const receipt = { emptyToolConversation: 'pass', continueToolConversation: 'pass', screenContext: 'pass', reportSelection: 'pass', requestSnapshot: 'pass', viewedReport: 'pass', mapCommand: 'pass', staleCommand: 'pass', modelSelection: 'pass', conversationSwitch: 'pass', saudiReportDesktop: 'pass', saudiReportMobile: 'pass', reportClickNoChat: 'pass', reportAttachment: 'pass', mobile: 'pass', errors, switchedCommand: switched.commandId };
   writeFileSync(join(folder, 'result.json'), JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify({ ...receipt, folder }));
 } finally {

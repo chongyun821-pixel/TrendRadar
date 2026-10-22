@@ -130,8 +130,9 @@ async function boot() {
     if (!button) return;
     const country = button.dataset.reportCountry!, system = button.dataset.reportSystem as SystemKey;
     if (!SYSTEM_KEYS.includes(system) || !findRecord(country, system)) return;
+    // 보고서는 채팅 요청 없이 바로 보여주고 다음 메시지에 첨부한다
     setMode(system); focusCountry(country); chat.open();
-    void chat.send(`!보고서 ${country} ${system}`);
+    void chat.viewReport(country, system);
   });
   addEventListener('keydown', e => { if (e.key === 'Escape') { unpin(); chat.collapse(); } });
   applyMode();

@@ -7,10 +7,11 @@ import { createChatStatus, toolActivity } from './chat-status';
 import { createPicker } from './picker';
 import { slashSuggestions, modelStep, parseSlash, readChoice, type PickItem } from './slash';
 import { checkChoice, choiceLabel, type ModelChoice } from '../shared/model-options';
-import { api, post, chatBody, pickModel, isActiveStatus, latestRun, runStatusText, type Conversation, type ModelInfo, type QueuedMessage, type RunInfo } from './chat-api';
+import { api, post, chatBody, pickModel, isActiveStatus, latestRun, runStatusText, type Conversation, type ModelInfo, type QueuedMessage, type ReportEntry, type RunInfo } from './chat-api';
 import { createMessageList } from './chat-messages';
 import { bindTitleEditor } from './chat-title';
 import { createUploader } from './chat-upload';
+import { createReportAttachments } from './chat-attachments';
 import { createScreenCommands, type ScreenCommand } from './screen-commands';
 
 export { pickModel, type ModelInfo };
@@ -185,6 +186,8 @@ export function initChat(o: ChatOpts) {
   }
   function renderConversation(c: Conversation, activateLatestReport = true) {
     queuedMessages = c.queued || [];
+    const missing = viewedReports.filter(r => !c.reportEntries?.some(e => e.id === r.id));
+    if (missing.length) c = { ...c, reportEntries: [...(c.reportEntries || []), ...missing] };
     messages.render(c, visibleOutbox(queuedMessages, c.runs), cancelQueued);
     if (currentReport && !messages.reportEntries.some(r => r.id === currentReport!.id)) currentReport = null;
     titleEl.textContent = c.title;
@@ -220,6 +223,27 @@ export function initChat(o: ChatOpts) {
       renderFiles(conversation); await refreshHistory();
     },
   });
+
+  /* ───────── 지도에서 연 보고서: 채팅 요청 없이 표시하고 다음 메시지에 첨부 ───────── */
+  const reportAttachments = createReportAttachments(get('#attachments'));
+  /** 이 화면에서 연 보고서. 서버 저장본을 받기 전에 다시 그려도 사라지지 않게 한다 */
+  let viewedReports: ReportEntry[] = [];
+  const reportLabel = (entry: ReportRef) => [entry.country ? o.names[entry.country] || entry.country : null, entry.system ? seed.systems[entry.system]?.ko : null, '보고서'].filter(Boolean).join(' ');
+  async function viewReport(country: string, system: SystemKey | null) {
+    const token = view;
+    try {
+      const id = await ensureConversation(token);
+      const entry: ReportEntry = await api(`/conversations/${id}/reports`, post({ country, system }));
+      if (token !== view) return;
+      if (!viewedReports.some(r => r.id === entry.id)) viewedReports.push(entry);
+      if (!messages.reportEntries.some(r => r.id === entry.id)) messages.reportEntries = [...messages.reportEntries, entry];
+      let element = list.querySelector<HTMLElement>(`.m.report[data-report-id="${CSS.escape(entry.id)}"]`);
+      if (!element) { messages.removeEmpty(); element = messages.addReport(entry); }
+      activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop; markProgrammaticScroll();
+      reportAttachments.add({ id: entry.id, label: reportLabel(entry) });
+      void syncContext().catch(() => {});
+    } catch (error) { if (token === view) showError(error); }
+  }
 
   /* ───────── 대화 목록·전환 ───────── */
   /** 대화 캐시: 전환 즉시 마지막으로 받은 내용을 보여주고 최신 내용은 뒤에서 받는다 */
@@ -306,6 +330,8 @@ export function initChat(o: ChatOpts) {
   }
   /** 화면 전환 공통: 진행 표시·전송 대상·자료 상태를 대화에 맞게 초기화한다 */
   function resetSession(id: string | null) {
+    // 보고서 첨부는 그 대화의 다음 메시지에만 붙는다
+    if (id !== conversationId || !id) { reportAttachments.clear(); viewedReports = []; }
     conversationId = id; activeRun = null; busy(false);
     deliveryTarget = newTarget(id); queuedMessages = []; messages.resetQueue();
     currentReport = null; activeView = 'map';
@@ -439,7 +465,7 @@ export function initChat(o: ChatOpts) {
   /* ───────── 전송 ───────── */
   async function send(text: string) {
     if (uploader.task) await uploader.task;
-    if (!text.trim() && !uploader.names.length) return;
+    if (!text.trim() && !uploader.names.length && !reportAttachments.items.length) return;
     const slash = parseSlash(text);
     if (slash) {
       clearInput(); updateSendButton(); open();
@@ -453,7 +479,8 @@ export function initChat(o: ChatOpts) {
     }
     const wasBusy = sending, token = sending ? view : ++view, target = deliveryTarget;
     const selectedChoice = choice, state = { ...o.getState() }, appContext = appSnapshot();
-    if (uploader.names.length) { text += `\n\n첨부: ${uploader.names.join(', ')}`; uploader.names.length = 0; }
+    const typed = text, files = [...uploader.names], reports = reportAttachments.take(), attached = [...files, ...reports.map(r => r.label)];
+    if (attached.length) { text = `${text.trim() ? `${text}\n\n` : ''}첨부: ${attached.join(', ')}`; uploader.names.length = 0; }
     // 낙관적 표시: 보내는 즉시 「전송 중」으로 보이고, 서버 저장본으로 다시 그릴 때 한 번에 바꾼다.
     const entry: OutboxEntry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
     const dropEntry = () => { target.outbox = target.outbox.filter(message => message !== entry); };
@@ -470,7 +497,7 @@ export function initChat(o: ChatOpts) {
           const comparable = (value: AppContext) => { const { version: _version, conversationId: _conversation, ...rest } = value; return JSON.stringify(rest); };
           if (comparable(current) === comparable(appContext)) requestContext.version = current.version;
         }
-        const accepted = await api('/chat', post(chatBody(selectedChoice, id, text, state, requestContext)));
+        const accepted = await api('/chat', post(chatBody(selectedChoice, id, text, state, requestContext, reports.map(r => r.id))));
         entry.runId = accepted.runId;
         // 접수 전에 중지를 눌렀으면 바로 취소한다(대기 중이면 실행하지 않는다).
         if (entry.cancelled) await api(`/runs/${accepted.runId}/stop`, post()).catch(showError);
@@ -486,7 +513,9 @@ export function initChat(o: ChatOpts) {
         dropEntry();
         if (token === view) {
           showError(error);
-          if (!input.value) { input.value = text; resizeInput(); }
+          if (!input.value) { input.value = typed; resizeInput(); }
+          for (const report of reports) reportAttachments.add(report);
+          if (!uploader.names.length) uploader.names.push(...files);
         }
       } finally {
         target.pending--;
@@ -506,7 +535,7 @@ export function initChat(o: ChatOpts) {
     if (!id || !seed.records.some(r => r.country === id)) return;
     const label = `${o.names[id] || id}${o.modeKo() ? ` ${o.modeKo()}` : ''} 보고서`;
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
-    button.onclick = () => { void send(`!보고서 ${o.names[id] || id} ${o.modeKo() || ''}`); };
+    button.onclick = () => { open(); void viewReport(id, o.getState().mode); };
     box.appendChild(button); box.classList.add('show');
   }
 
@@ -534,5 +563,5 @@ export function initChat(o: ChatOpts) {
   }
   const screen = createScreenCommands({ screenId, snapshot: appSnapshot, sync: syncContext, apply: applyCommand });
   screen.start();
-  return { send, suggest, collapse, open, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
+  return { send, viewReport, suggest, collapse, open, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }

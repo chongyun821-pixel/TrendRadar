@@ -4,7 +4,8 @@ import type { ModelChoice } from '../shared/model-options';
 
 export type Download = { id: string; name: string; url: string };
 export type Message = { role: string; text: string; reports?: string[]; reportRefs?: (ReportRef | null)[]; created_at?: string; files?: Download[]; model?: string; error?: string };
-export type ReportEntry = ReportRef & { markdown: string; createdAt: string };
+/** viewed: 지도에서 직접 연 보고서(메시지 없이 대화 목록에 그린다) */
+export type ReportEntry = ReportRef & { markdown: string; createdAt: string; viewed?: boolean };
 export type QueuedMessage = { id: string; text: string };
 export type RunInfo = { id: string; status: string; error?: string; started_at?: string; ended_at?: string };
 export type Conversation = { id: string; title: string; messages: Message[]; queued?: QueuedMessage[]; reportEntries?: ReportEntry[]; files: { id: string; name: string; kind: string; error?: string }[]; runs: RunInfo[] };
@@ -25,11 +26,12 @@ export const latestRun = (c: Conversation) => [...c.runs].sort((a, b) => (b.ende
 export const runStatusText = (run: { status: string; error?: string | null }) => run.error || (run.status === 'completed' ? '완료' : run.status === 'cancelled' ? '작업 중지됨' : run.status);
 
 /** /api/chat 본문: 선택한 제공자(model)와 CLI 모델·추론 강도(options)를 요청마다 보낸다 */
-export function chatBody(choice: ModelChoice, conversationId: string, text: string, state: unknown, appContext: unknown) {
+export function chatBody(choice: ModelChoice, conversationId: string, text: string, state: unknown, appContext: unknown, reportIds: string[] = []) {
   return {
     conversationId, model: choice.provider,
     ...(choice.model || choice.effort ? { options: { model: choice.model, effort: choice.effort } } : {}),
     messages: [{ role: 'user', text }], state, appContext,
+    ...(reportIds.length ? { reportIds } : {}),
   };
 }
 
