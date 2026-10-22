@@ -12,7 +12,10 @@ process.stdin.on('end', () => {
   const promptFile = args[args.indexOf('--prompt-file') + 1];
   const prompt = codex ? Buffer.concat(chunks).toString('utf8') : readFileSync(promptFile, 'utf8');
   const reply = `ARGS ${JSON.stringify(args.filter(a => !a.includes('\n')).slice(0, 40))}`;
-  if (prompt.slice(prompt.lastIndexOf('사용자: ')).includes('멈춤')) {
+  const lastUser = prompt.slice(prompt.lastIndexOf('사용자: '));
+  // 「실패」: 오류로 끝나는 실행(채팅 창 자동 펼침 검증용)
+  if (lastUser.includes('실패')) { process.stderr.write('fake cli failure\n'); process.exit(3); }
+  if (lastUser.includes('멈춤')) {
     process.on('SIGTERM', () => {});
     const child = spawn(process.execPath, ['-e', "process.on('SIGTERM',()=>{});setInterval(()=>{},1000)"], { stdio: ['ignore', 'inherit', 'inherit'] });
     writeFileSync('fake-cli.pids', JSON.stringify([process.pid, child.pid]));

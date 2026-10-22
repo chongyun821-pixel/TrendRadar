@@ -402,6 +402,8 @@ export function initChat(o: ChatOpts) {
           if (mayChangeView) exec(run.result?.actions);
           renderConversation(c, mayChangeView);
           progress.set(runStatusText(run));
+          // 접힌 창도 최종 답변이나 오류는 펼쳐 보여준다(사용자 중지·취소는 그대로 둔다)
+          if (run.status === 'failed' || (run.status === 'completed' && run.result?.reply)) open();
           followConversation(c, token);
           await o.refreshData(); await refreshHistory(); return;
         }
