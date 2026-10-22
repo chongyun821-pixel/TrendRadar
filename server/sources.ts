@@ -83,6 +83,17 @@ export async function fetchPublic(raw: string, signal: AbortSignal) {
 export const sourceNetwork = { fetch: fetchPublic };
 const decode = (text: string) => text.replace(/&#(x[0-9a-f]+|\d+);/gi, (_, value) => { const n = value[0].toLowerCase() === 'x' ? parseInt(value.slice(1), 16) : Number(value); return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : ''; }).replace(/&nbsp;/gi, ' ').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 export const htmlText = (html: string) => decode(html.replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1>/gi, '').replace(/<\/(p|div|h[1-6]|li|tr|section|article)>|<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, ' ')).replace(/[ \t]+/g, ' ').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+/** 문서 뷰어만 있는 보도자료의 첨부 원문 후보. 본문 대신 메뉴를 근거로 저장하지 않는다. */
+export function documentAttachments(html: string, base: string) {
+  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)].flatMap(match => {
+    const title = htmlText(match[2]);
+    if (!/\.(pdf|hwpx?|docx?)(?:\s|$)/i.test(title)) return [];
+    try {
+      const url = new URL(decode(match[1]), base);
+      return url.origin === new URL(base).origin && !url.username && !url.password && ['https:', 'http:'].includes(url.protocol) ? [{ title, url: url.href }] : [];
+    } catch { return []; }
+  }).slice(0, 10);
+}
 export async function sourceTool(name: string, a: Record<string, any>): Promise<unknown> {
   const ctx = await execution(), repo = ctx.repo;
   if (name === 'read_source') {
@@ -125,6 +136,11 @@ export async function sourceTool(name: string, a: Record<string, any>): Promise<
       try { text = (await parser.getText()).text; } finally { await parser.destroy(); }
     } else if (/^text\//.test(response.mime) || /json|xml/.test(response.mime)) {
       const source = new TextDecoder('utf-8', { fatal: true }).decode(response.bytes);
+      if (response.mime === 'text/html' && /<iframe\b[^>]*(?:id=["']content_press["']|docViewer\/iframe_skin)/i.test(source)) {
+        const attachments = documentAttachments(source, response.url);
+        return { status: 'needs_attachment', error: '본문은 별도 문서 뷰어에 있습니다. 현재 HTML의 메뉴·제목은 원문 근거로 쓰지 마세요.', attachments, originalPath: raw.name,
+          nextStep: '첨부 PDF를 collect_source로 수집하세요. 접근 실패 시 기본 웹 도구나 Firecrawl로 원문을 읽고 save_source로 보존하세요.' };
+      }
       text = response.mime === 'text/html' ? htmlText(source) : source;
     } else throw new Error('원본은 보존했지만 이 자료 형식의 텍스트 추출은 지원하지 않습니다');
     if (!text.trim()) throw new Error('읽을 수 있는 원문이 없습니다. 동적 화면이나 스캔 문서는 기본 도구로 확인하세요');

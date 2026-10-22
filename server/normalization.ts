@@ -4,10 +4,11 @@ import { resolveCountry, resolveSystem } from '../shared/data';
 import { execution } from './execution';
 import { submissionSchema, submitResearch, supplierId } from './research';
 import type { ToolDef } from './agent';
+import { catalogCountry, catalogMetadata } from '../shared/countries';
 
 const S = (description: string) => ({ type: 'string' as const, description });
 export const NORMALIZATION_DEFS: ToolDef[] = [
-  { name: 'normalize_procurement_data', description: '기존 조달 기록과 새 자료를 정제하고 병합한다. 상충 값은 자동 채택하지 않으며 운영 데이터에는 반영하지 않는다', properties: { payload: S('JSON: record(부분 가능), signalRows?(signals 추출 행), expectedVersion?, sources, evidence, reason, asOf, replaceFields?(배열 교체), removeFields?(명시적 항목 제거)') }, required: ['payload'] },
+  { name: 'normalize_procurement_data', description: '기존 조달 기록과 새 자료를 정제·병합한다. 저장하지 않는다. 실패하면 errors와 repair의 실제 출처 메타데이터·양식으로 고쳐 재호출한다', properties: { payload: S('JSON: record{country,system,batches:[{model,introYear:number|null,qty:number|null,est:string[],src:string[]}]}, expectedVersion?, sources:{출처ID:Source객체}(배열 아님), evidence:[{path:"batches",sourceId:"출처ID",quote:"원문 인용"}], reason, asOf(조사 기준일). Source는 t,u,y,publishedAt,collectedAt,filePath,hash,kind. est는 boolean이 아닌 추정 필드 이름 배열. evidence.path는 파일 경로가 아닌 변경 필드. replaceFields?, removeFields?, signalRows?') }, required: ['payload'] },
   { name: 'validate_research', description: '조사 결과의 형식, 원문 인용, 중복 및 버전을 사전 검사한다. 반영하지 않으며 의미 검토는 별도로 필요하다', properties: { payload: S('정제한 조사 제출 JSON') }, required: ['payload'] },
   { name: 'apply_research', description: '원문 근거와 최신 버전 및 실행 상태를 다시 검사하고 기존 자료와 새 자료를 통합한다. 변경 이력과 예측을 함께 저장한다', properties: { payload: S('검토한 조사 제출 JSON') }, required: ['payload'] },
 ];
@@ -29,6 +30,9 @@ export async function normalizationTool(name: string, a: Record<string, any>): P
   const changes: { path: string; before: unknown; after: unknown }[] = [];
   const conflicts: { path: string; previous: unknown; incoming: unknown }[] = [];
   const normalize = (value: any, path: string): any => {
+    if (typeof value === 'string' && /^record\.(batches\.\d+\.(qty|introYear)|awarded\.qty|plan\.qty)$/.test(path) && /^(?:미확인|비공개|미공개|알 수 없음|unknown|undisclosed|not disclosed|n\/?a|0{2,}|x{2,})(?:문|대|척|기|발|개|년)?$/i.test(value.trim())) {
+      changes.push({ path, before: value, after: null }); return null;
+    }
     if (Array.isArray(value)) return value.map((v, i) => {
       if (typeof v === 'string' && /\.(qty|ratio)$/.test(path)) {
         const numeric = v.trim().replaceAll(',', '').match(/^([0-9]+(?:\.[0-9]+)?)\s*(대|문|척|기|발|개)?$/);
@@ -86,9 +90,23 @@ export async function normalizationTool(name: string, a: Record<string, any>): P
     if (typeof next.supplier === 'string') next.supplier = supplierId(next.supplier);
     return next;
   }) : undefined;
-  const candidate = { record: rec, ...(signalRows ? { signalRows } : {}), expectedVersion: row?.version || 0, sources: input.sources || {}, evidence: input.evidence || [], reason: input.reason, asOf: input.asOf, rulesVersion: 'normalization-v1' as const, ...(input.countryMeta ? { countryMeta: input.countryMeta } : {}) };
+  const catalog = catalogCountry(country);
+  const countryMeta = input.countryMeta || (!data.countries[country] && catalog ? catalogMetadata(catalog) : undefined);
+  const candidate = { record: rec, ...(signalRows ? { signalRows } : {}), expectedVersion: row?.version || 0, sources: input.sources || {}, evidence: input.evidence || [], reason: input.reason, asOf: input.asOf, rulesVersion: 'normalization-v1' as const, ...(countryMeta ? { countryMeta } : {}) };
   const parsed = submissionSchema.safeParse(candidate);
-  const result = { ok: conflicts.length === 0 && parsed.success, rulesVersion: 'normalization-v1', payload: parsed.success && !conflicts.length ? parsed.data : null, candidate, changes, conflicts, errors: parsed.success ? [] : parsed.error.issues, semanticReviewRequired: true, warnings: ['원문이 주장을 입증하는지 검토하세요. 금액의 통화 환산은 자동 수행하지 않습니다.'] };
+  let repair: Record<string, unknown> | undefined;
+  if (!parsed.success) {
+    const originals = await ctx.repo.all("SELECT name,url,published_at,collected_at,hash FROM artifacts WHERE conversation_id=? AND kind IN ('original','attachment','extracted') AND status='ok' ORDER BY rowid DESC LIMIT 5", ctx.conversationId);
+    const sourceCandidates = originals.filter(s => s.url).map(s => ({ sourceId: `source-${s.hash.slice(0, 16)}`, source: { t: s.url, u: s.url, y: s.published_at ? Number(s.published_at.slice(0, 4)) : 0, publishedAt: s.published_at || null, collectedAt: s.collected_at, filePath: s.name, hash: s.hash, kind: 'original' } }));
+    const first = sourceCandidates[0], id = first?.sourceId || '원문출처ID';
+    repair = {
+      instructions: 'errors의 path를 수정하고 같은 요청에서 다시 normalize_procurement_data→validate_research→apply_research로 진행하세요. 사용자에게 양식 수정 허락을 다시 묻지 마세요. sources는 ID→객체 사전, est는 필드명 배열, src는 출처ID 배열이며 evidence.path는 batches 같은 변경 필드입니다. sourceCandidates는 실제 저장된 원문의 메타데이터입니다. 내용을 read_source로 확인한 출처만 사용하세요.',
+      sourceCandidates,
+      example: { record: { country, system, batches: [{ model: '원문에서 확인한 장비명으로 교체', introYear: null, qty: null, est: [], src: [id] }], src: [id] }, expectedVersion: row?.version || 0,
+        sources: first ? { [id]: first.source } : {}, evidence: [{ path: 'batches', sourceId: id, quote: '보존 원문에 있는 정확한 인용문으로 교체' }], reason: '실제 변경 이유로 교체', asOf: new Date().toISOString().slice(0, 10) },
+    };
+  }
+  const result = { ok: conflicts.length === 0 && parsed.success, rulesVersion: 'normalization-v1', payload: parsed.success && !conflicts.length ? parsed.data : null, candidate, changes, conflicts, errors: parsed.success ? [] : parsed.error.issues, ...(repair ? { repair } : {}), semanticReviewRequired: true, warnings: ['원문이 주장을 입증하는지 검토하세요. 금액의 통화 환산은 자동 수행하지 않습니다.'] };
   const artifact = await ctx.repo.artifact(ctx.conversationId, `analysis/normalization-${randomUUID()}.json`, JSON.stringify({ original, ...result }, null, 2), { runId: ctx.runId, kind: 'normalization', mime: 'application/json' });
   return { ...result, auditPath: artifact.name, knownCountries: Object.keys(data.countries).length };
 }

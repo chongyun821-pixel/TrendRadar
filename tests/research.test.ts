@@ -57,7 +57,7 @@ describe('SQLite 조사 반영', () => {
       const p = await payload(f);
       const search: any = await researchTool('save_source', { url: 'https://example.org/test', content: '요약만 있음', kind: 'search' });
       await expect(submitResearch({ ...p, sources: { 'test-source': { ...p.sources['test-source'], filePath: search.filePath, hash: search.hash } } })).rejects.toThrow(/원문 근거/);
-      p.record.batches[0].qty += 1;
+      p.record.batches[0].qty = p.record.batches[0].qty! + 1;
       await expect(submitResearch(p)).rejects.toThrow(/batches: 변경 근거/);
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(0);
       expect(await f.repo.revision()).toBe(1);

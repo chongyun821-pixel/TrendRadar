@@ -4,9 +4,9 @@ export const SYSTEM_KEYS = ['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk'] as con
 export type Category = 'red' | 'orange' | 'yellow' | 'blue' | 'gray';
 
 export interface Source { t: string; u: string; y: number; publishedAt?: string | null; collectedAt?: string; filePath?: string; hash?: string; kind?: 'original' | 'search' | 'attachment'; excerpt?: string }
-export interface Batch { model: string; introYear: number; qty: number; lifeExt?: number; covered?: boolean; est?: string[]; note?: string; src: string[] }
-export interface Awarded { year: number; text: string; qty: number; deliveryEnd: number; covers: number; est?: string[]; src: string[] }
-export interface Plan { start: number; end: number; qty: [number, number]; text: string; est?: string[]; src: string[] }
+export interface Batch { model: string; introYear: number | null; qty: number | null; primary?: boolean; status?: 'in_service' | 'retired' | 'planned'; lifeExt?: number; covered?: boolean; est?: string[]; note?: string; src: string[] }
+export interface Awarded { year: number; text: string; qty: number | null; deliveryEnd: number; covers: number; est?: string[]; src: string[] }
+export interface Plan { start: number; end: number; qty: [number, number] | null; text: string; est?: string[]; src: string[] }
 export interface Mro { year: number; text: string; lifeExt: number; est?: string[]; src: string[] }
 export interface Signal { year: number; text: string; src: string[] }
 export interface ProgramRecord {
@@ -28,12 +28,12 @@ export interface Seed {
   records: ProgramRecord[];
 }
 
-export interface BatchCalc { model: string; introYear: number; qty: number; life: number; ext: number; year: number; est: string[] }
+export interface BatchCalc { model: string; introYear: number | null; qty: number | null; life: number; ext: number; year: number | null; primary?: boolean; status?: Batch['status']; est: string[] }
 export interface Forecast {
   id: string; country: string; countryKo: string; flag: string; system: SystemKey; systemKo: string; unit: string;
   status: 'open' | 'plan' | 'next' | 'none';
   window: [number, number] | null; remaining: number | null; category: Category; score: number;
-  qty: [number, number]; krw: [number, number]; size: number; // size = 0..1 (log scale)
+  qty: [number, number] | null; krw: [number, number] | null; size: number; // 미확인 수량·금액은 null. size = 0..1 (log scale)
   confidence: '상' | '중' | '하'; nSources: number; latestSource: number; estCount: number;
   current: BatchCalc | null; batches: BatchCalc[];
   calc: string[]; sources: Source[];

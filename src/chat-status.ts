@@ -2,6 +2,8 @@ type Activity = { message: string; startedAt?: string };
 
 export function toolActivity(name: string): string {
   const tool = name.toLowerCase().split(/__|\//).at(-1) || '';
+  if (/find_country|get_country_data_status/.test(tool)) return '국가 자료 확인 중';
+  if (/add_country/.test(tool)) return '국가 등록 중';
   if (/list_ingest_sources|run_ingest|get_ingest_run/.test(tool)) return '공개 자료 수집 중';
   if (/search_sources|firecrawl_search|web_search|x_search|xsearch/.test(tool)) return '자료 검색 중';
   if (/collect_source|firecrawl_scrape|read_source|source_read/.test(tool)) return '원문 확인 중';
@@ -9,7 +11,7 @@ export function toolActivity(name: string): string {
   if (/research_procurement/.test(tool)) return '조사 준비 중';
   if (/normalize_procurement_data/.test(tool)) return '데이터 정리 중';
   if (/validate_research/.test(tool)) return '조사 결과 검토 중';
-  if (/apply_research|submit_research|update_assumptions/.test(tool)) return '데이터 반영 중';
+  if (/apply_research|submit_research|update_assumptions|save_equipment/.test(tool)) return '데이터 반영 중';
   if (/calculate_forecast|get_forecast|list_forecasts|get_lifespan/.test(tool)) return '예상 시기와 규모 계산 중';
   if (/write_report|prepare_report|get_report_template/.test(tool)) return '보고서 준비 중';
   if (/publish_artifact/.test(tool)) return '보고서 보관 중';

@@ -14,6 +14,18 @@
 
 `query_procurement`는 저장된 기록과 구조화된 예측을 조회한다. `calculate_forecast`는 계산 결과를 제공하고 `get_country_analysis`는 기존 6절 분석도 함께 제공한다. `search_programs`, `get_forecast`, `forecast`, `write_report` 등 기존 이름도 유지한다. `write_report`는 기존 국가 보고서를 대화에 표시하는 기능이다.
 
+## 국가 추가
+
+`find_country(country)`는 지도 국가·지역 목록에서 한국어·영문 이름 또는 코드를 찾아 등록 여부와 조사된 체계를 조회한다. 부분 이름은 후보만 반환한다. `add_country(country)`는 정확히 일치하는 국가를 Supabase의 `countries`에 등록하고 변경 이력과 데이터 버전을 함께 갱신한다. 이름·국기·위치는 저장소의 Natural Earth 자료에서 가져온다. 기존 국가는 정보와 조사 기록을 보존하며 재요청해도 중복 생성하지 않는다. 현재 목록은 지도와 같은 177개 국가·지역이며 `npm run data:countries`로 지도와 국가 목록을 함께 재생성한다.
+
+사용자가 “독일을 추가해줘”라고 요청하면 조회·등록 후 운영 DB의 전체 무기체계에서 부족한 보유·도입·사업 자료를 조사한다. 특정 체계를 지정했으면 그 범위를 따르고, 명시적으로 국가명만 등록하라고 한 경우에는 조사를 생략한다. 신규 국가도 `research_procurement`와 정제 단계에서 국가 이름·코드 및 메타데이터를 해석한다. 등록과 조사 반영은 공통 API의 데이터 버전을 갱신하므로 앱이 변경을 불러온다.
+
+`get_country_data_status(country, system?)`는 record 존재가 아니라 현재 운용 장비·교체 시기·수량·원문 근거를 검사하고 체계별 `missing`을 반환한다. `add_country`의 `researchRequired`도 이 검사에 따른다. `research_procurement`는 같은 국가·체계의 `inventoryHistory`와 지도 표시 필드 안내를 반환한다. 과거 인도량을 현재 보유량으로 자동 합산하지 않는다. 사업 설명만 저장하면 `partial`이며, 마지막 완결성 검사에서 누락을 확인하고 미공개·접근 실패와 남은 조사를 구분한다.
+
+`batches`의 `qty`·`introYear`와 `plan.qty`·`awarded.qty`는 미확인이면 `null`이다. `primary`와 `status: in_service|retired|planned`로 주력과 운용 상태를 기록한다. 수량이 없어도 도입 연도나 공개 계획으로 시기를 추정하며, 수량·금액은 `null`로 반환한다. 퇴역·도입 예정 장비를 현역 교체 수요로 계산하지 않는다. 첨부 문서 뷰어만 있는 정부 페이지는 `collect_source`가 `needs_attachment`와 원문 첨부 주소를 돌려준다. 메뉴 HTML 대신 첨부 원문을 읽는다.
+
+단일 장비 보유 자료는 `save_equipment(country, system, model, filePath, quote, introYear?, qty?, primary?, status?, introYearEstimated?, note?, title?)`로 반영할 수 있다. 서버가 현재 대화의 원문 파일·해시·인용문을 검사하고 실제 출처 메타데이터로 정제·사전 검증·반영·이력 저장·예측 계산을 수행한다. 미확인 연도와 수량은 생략한다. 기존에 확인된 값을 미확인으로 지우지 않으며, 기존 수량과 충돌하면 전체 조사 양식에서 비교·정정한다. 복합 정제 양식 오류 시에는 `repair`에 실제 보존 원문 메타데이터와 수정 예시가 반환된다. 이미 반영을 요청받았으면 같은 요청 안에서 양식을 고쳐 진행한다.
+
 ## 화면 맥락과 제어
 
 앱은 화면별 식별자를 만들고 메시지 전송 시 무기체계 필터, 선택 국가, 2D/3D 지도 상태, 활성 자료 화면, 보고서 식별자와 기준일 및 데이터 버전을 보존한다. 현재 앱에 없는 필터를 임의로 생성하지 않는다. 열린 국가 보고서는 서버의 보존 정보와 대조한다. 이 화면 맥락은 모든 모델(그록 빌드·코덱스·지피티·네모트론)의 지시문에 요청마다 JSON으로 들어가고, 보고서가 열려 있으면 원문 위치(작업 폴더 `reports/<보고서 ID>.md`)도 함께 알린다.

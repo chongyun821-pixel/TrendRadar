@@ -24,7 +24,7 @@ describe('computeForecast', () => {
     expect(f.status).toBe('open');
     expect(f.window![0]).toBe(2026); // 1980+35 = 2015 → 이미 경과
     expect(f.qty).toEqual([60, 100]); // B(2045)는 제외, 100 × 0.6~1.0
-    expect(f.krw[0]).toBe(60 * seed.systems.sph.unitCost[0]);
+    expect(f.krw![0]).toBe(60 * seed.systems.sph.unitCost[0]);
     expect(f.category).toBe('red');
   });
   it('계약 완료 시 후속 주기(인도 완료 + 수명)', () => {
@@ -34,6 +34,30 @@ describe('computeForecast', () => {
   it('공개 계획이 있으면 계획을 따른다', () => {
     const f = computeForecast({ ...rec, plan: { start: 2027, end: 2028, qty: [8, 12], text: 'p', src: [] } });
     expect(f.status).toBe('plan'); expect(f.qty).toEqual([8, 12]); expect(f.remaining).toBe(1);
+  });
+  it('수량이 비공개여도 장비와 도입 연도로 시기를 계산하고 수량·금액은 null로 유지한다', () => {
+    const f = computeForecast({ ...rec, batches: [{ model: '확인 장비', introYear: 2000, qty: null, src: ['vnm_list'] }] });
+    expect(f.current?.model).toBe('확인 장비'); expect(f.window).toEqual([2033, 2038]);
+    expect(f.qty).toBeNull(); expect(f.krw).toBeNull(); expect(f.size).toBe(0);
+    expect(f.calc.join(' ')).toContain('수량 미확인');
+  });
+  it('연도가 없으면 장비명만 표시하고 날짜나 0원 사업을 지어내지 않는다', () => {
+    const f = computeForecast({ ...rec, batches: [{ model: '연도 미상 장비', introYear: null, qty: 10, src: [] }] });
+    expect(f.current?.model).toBe('연도 미상 장비'); expect(f.current?.year).toBeNull();
+    expect(f.window).toBeNull(); expect(f.qty).toBeNull(); expect(f.krw).toBeNull();
+  });
+  it('주력 장비와 가장 오래된 교체 대상을 구분하고 퇴역·도입 예정 장비는 제외한다', () => {
+    const f = computeForecast({ ...rec, batches: [
+      { model: '퇴역 장비', introYear: 1970, qty: 9000, status: 'retired', src: [] },
+      { model: '도입 예정', introYear: 2030, qty: 3000, status: 'planned', src: [] },
+      { model: '구형 운용', introYear: 1980, qty: 100, src: [] },
+      { model: '현재 주력', introYear: 2000, qty: null, primary: true, src: [] },
+    ] });
+    expect(f.current?.model).toBe('현재 주력'); expect(f.window?.[0]).toBe(2026); expect(f.qty).toEqual([60, 100]);
+  });
+  it('수량 없는 공개 계획도 일정과 미확인 규모를 분리한다', () => {
+    const f = computeForecast({ ...rec, plan: { start: 2027, end: 2030, qty: null, text: '수량 미공개 계획', src: [] } });
+    expect(f.status).toBe('plan'); expect(f.window).toEqual([2027, 2030]); expect(f.qty).toBeNull(); expect(f.krw).toBeNull();
   });
   it('기준 연도는 시계가 아니라 meta.baseYear 하나만 따른다', () => {
     vi.useFakeTimers();
@@ -63,7 +87,7 @@ describe('computeForecast', () => {
   it('시드 데이터 전체가 계산되고 모든 출처 id가 존재', () => {
     const fs = allForecasts(); expect(fs.length).toBe(seed.records.length);
     for (const r of seed.records) for (const id of [...r.src, ...r.batches.flatMap(b => b.src)]) expect(seed.sources[id], id).toBeTruthy();
-    for (const f of fs) { expect(f.qty[0]).toBeLessThanOrEqual(f.qty[1]); expect(f.krw[0]).toBeLessThanOrEqual(f.krw[1]); }
+    for (const f of fs) { if (f.qty) expect(f.qty[0]).toBeLessThanOrEqual(f.qty[1]); if (f.krw) expect(f.krw[0]).toBeLessThanOrEqual(f.krw[1]); }
   });
 });
 

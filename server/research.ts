@@ -17,6 +17,8 @@ import { upsertRows } from './collection';
 import { scoreCase } from './scoring';
 import type { Repository } from './store';
 import type { SignalRow } from '../shared/types';
+import { catalogCountry, catalogMetadata } from '../shared/countries';
+import { procurementCoverage } from '../shared/completeness';
 
 const str = (description: string) => ({ type: 'string' as const, description });
 export const RESEARCH_DEFS: ToolDef[] = [
@@ -40,11 +42,11 @@ const est = refs.optional();
 const year = z.number().int().min(1800).max(2300);
 const count = z.number().nonnegative();
 const range = z.tuple([count, count]).refine(a => a[0] <= a[1], '범위 순서 오류');
-const batch = z.object({ model: z.string().min(1), introYear: year, qty: count, lifeExt: count.optional(), covered: z.boolean().optional(), est, note: z.string().optional(), src: refs });
+const batch = z.object({ model: z.string().min(1), introYear: year.nullable().default(null), qty: count.nullable().default(null), primary: z.boolean().optional(), status: z.enum(['in_service', 'retired', 'planned']).optional(), lifeExt: count.optional(), covered: z.boolean().optional(), est, note: z.string().optional(), src: refs });
 export const recordSchema = z.object({
   id: z.string().min(1), country: z.string().regex(/^[A-Z]{3}$/), system: z.enum(SYSTEM_KEYS), batches: z.array(batch), src: refs,
-  awarded: z.object({ year, text: z.string(), qty: count, deliveryEnd: year, covers: z.number().min(0).max(1), est, src: refs }).optional(),
-  plan: z.object({ start: year, end: year, qty: range, text: z.string(), est, src: refs }).refine(p => p.start <= p.end).optional(),
+  awarded: z.object({ year, text: z.string(), qty: count.nullable(), deliveryEnd: year, covers: z.number().min(0).max(1), est, src: refs }).optional(),
+  plan: z.object({ start: year, end: year, qty: range.nullable(), text: z.string(), est, src: refs }).refine(p => p.start <= p.end).optional(),
   mro: z.array(z.object({ year, text: z.string(), lifeExt: count, est, src: refs })).optional(),
   signals: z.array(z.object({ year, text: z.string(), src: refs })).optional(), ratio: range.refine(r => r[1] <= 1).optional(), ratioEst: z.boolean().optional(),
   projects: z.array(z.object({ id: z.string().min(1), buyer: z.string(), supplier: z.string(), stage: z.enum(['consideration','plan','tender','contract','delivery','cancelled']), text: z.string(), qty: count.optional(), amount: count.optional(), currency: z.string().optional(), src: refs })).optional(),
@@ -151,7 +153,8 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     for (const id of sourceIds(rec)) if (!allSources[id]) throw new Error(`없는 출처 ${id}`);
     for (const e of p.evidence) if (!sourceIds(rec).includes(e.sourceId)) throw new Error('변경 근거를 record src에도 연결하세요');
     for (const r of p.signalRows || []) if (!allSources[r.sourceId]) throw new Error(`signalRows: 없는 출처 ${r.sourceId}`);
-    if (options.dryRun) return { ok: true, valid: true, changed, expectedVersion: p.expectedVersion, rulesVersion: 'normalization-v1', semanticReviewRequired: true, ...(p.signalRows ? { signalRows: p.signalRows.length } : {}) };
+    const coverage = procurementCoverage(rec, data, rec.system);
+    if (options.dryRun) return { ok: true, valid: true, changed, coverage, expectedVersion: p.expectedVersion, rulesVersion: 'normalization-v1', semanticReviewRequired: true, ...(p.signalRows ? { signalRows: p.signalRows.length } : {}) };
     if (p.countryMeta && !data.countries[rec.country]) await repo.run('INSERT INTO countries(id,data) VALUES (?,?)', rec.country, JSON.stringify(p.countryMeta));
     for (const [id, s] of Object.entries(p.sources)) {
       const existing = data.sources[id];
@@ -172,7 +175,7 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
     const meta = { ...data.meta, collected: date };
     await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(meta));
-    return { ok: true, version, changed, previousForecast, forecast, score: { score: score.score, grey: score.grey, gate: score.gate.reason, evidenceIds: score.evidenceIds }, signals, reason: p.reason };
+    return { ok: true, version, changed, coverage, previousForecast, forecast, score: { score: score.score, grey: score.grey, gate: score.gate.reason, evidenceIds: score.evidenceIds }, signals, reason: p.reason };
   }, ctx.signal);
 }
 
@@ -216,10 +219,18 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
     let result: unknown;
     switch (name) {
       case 'research_procurement': {
-        const country = resolveCountry(a.country) || String(a.country).toUpperCase(), system = resolveSystem(a.system);
-        if (!system) throw new Error('무기체계 확인 필요');
+        const country = resolveCountry(a.country), system = resolveSystem(a.system);
+        if (!country) throw new Error('국가 확인 필요. find_country로 국가명이나 코드를 확인하세요');
+        if (!system || !(await repo.data()).systems[system]) throw new Error('현재 운영 DB에 있는 무기체계인지 확인하세요');
         const row = await repo.one('SELECT * FROM records WHERE country=? AND system=?', country, system);
+        const catalog = catalogCountry(country);
+        const countryMeta = !(await repo.data()).countries[country] && catalog ? catalogMetadata(catalog) : undefined;
         result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, baseYear: baseYearOf(await repo.data()), recentWindow: recentLabel(baseYearOf(await repo.data())), templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
+        if (countryMeta) result = { ...result as Record<string, unknown>, countryMeta };
+        const inventoryHistory = await repo.all('SELECT * FROM inventory WHERE country=? AND system=?', country, system);
+        result = { ...result as Record<string, unknown>, coverage: procurementCoverage(row ? JSON.parse(row.data) : undefined, await repo.data(), system),
+          inventoryHistory, inventoryHistoryWarning: '수집 표의 수량·연도는 과거 인도 기록일 수 있다. 현재 운용·퇴역 여부와 배치별 연도를 원문으로 대조하며 현재 보유 수량으로 자동 합산하지 않는다.',
+          displayFields: '현재 주력은 batches.model·status, 교체 시기는 batches.introYear+설계 수명 또는 plan.start/end에서 계산한다. 사업 설명(projects·analysis)만 저장하면 지도 필드는 비어 있다. 확인된 장비는 수량이 미공개여도 qty:null로 저장하며 미확인 연도는 introYear:null로 보존한다.' };
         break;
       }
       case 'save_source': {
