@@ -40,6 +40,9 @@ if (argv.includes('--http')) {
   createServer(async (req, res) => {
     if (!req.url?.startsWith('/mcp')) { res.writeHead(404).end('not found'); return; }
     if (req.method !== 'POST') { res.writeHead(405, { allow: 'POST' }).end(); return; }
+    // 브라우저의 다른 사이트 요청(Origin이 다른 출처)은 받지 않는다(MCP Streamable HTTP 권고)
+    const origin = req.headers.origin;
+    if (origin) { let ok = false; try { ok = new URL(origin).host === req.headers.host; } catch { /* 잘못된 Origin */ } if (!ok) { res.writeHead(403).end('다른 출처의 요청은 받지 않습니다'); return; } }
     try {
       let body = ''; for await (const c of req) body += c;
       const server = buildServer();

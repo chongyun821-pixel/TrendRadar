@@ -17,8 +17,18 @@ import { executeTool } from './tool-session';
 import { scoreSystem, scoreSummary } from './scoring';
 import { resolveSystem } from '../shared/data';
 
+/** Origin 헤더가 없으면(도구·CLI) 허용, 있으면 요청 Host와 같아야 한다 */
+export function sameOrigin(origin: string | undefined, host: string | undefined) {
+  if (!origin) return true;
+  try { return !!host && new URL(origin).host === host; } catch { return false; }
+}
 export const app = new Hono<{ Bindings: Env }>().basePath('/api');
 app.use('*', bodyLimit({ maxSize: 40 * 1024 * 1024, onError: c => c.json({ error: '첨부는 요청당 40MB까지 가능합니다' }, 413) }));
+// 다른 사이트에서 보낸 쓰기 요청(CSRF)을 막는다. Origin이 없는 도구·CLI 호출과 같은 출처의 앱 요청만 받는다
+app.use('*', async (c, next) => {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !sameOrigin(c.req.header('origin'), c.req.header('host') || new URL(c.req.url).host)) return c.json({ error: '다른 출처의 요청은 받지 않습니다' }, 403);
+  await next();
+});
 app.use('*', async (_c, next) => { await repository().data(); await next(); });
 app.onError((e, c) => c.json({ error: e.message }, /찾을 수|파일 없음/.test(e.message) ? 404 : /진행 중|충돌/.test(e.message) ? 409 : 400));
 
