@@ -5,7 +5,7 @@
 ## 준비
 
 1. 빈 스키마라면 먼저 `npm run supabase -- migrate`로 초기 자료를 넣는다.
-2. `npm run supabase -- schema`로 대기 중인 마이그레이션(004: 수집 테이블, 장갑차→IFV 이름 변경, 레이저대공무기, 기본 비중 / 005: 수집 작업 기록 `ingest_runs`)을 버전별 트랜잭션으로 적용한다. 같은 명령을 다시 실행해도 이미 적용한 버전은 건너뛴다. SQL 파일을 직접 실행하려면 `db/migrations/004_data_collection.postgres.sql`을 사용한다.
+2. `npm run supabase -- schema`로 대기 중인 마이그레이션(004: 수집 테이블, 장갑차→IFV 이름 변경, 기본 비중 / 005: 수집 작업 기록 `ingest_runs` / 008: 삭제한 레이저대공무기(`laser`) 행 정리)을 버전별 트랜잭션으로 적용한다. 같은 명령을 다시 실행해도 이미 적용한 버전은 건너뛴다. SQL 파일을 직접 실행하려면 `db/migrations/004_data_collection.postgres.sql`을 사용한다.
 3. 로컬 SQLite(테스트·이전용)는 저장소를 열 때 같은 마이그레이션을 자동 적용한다.
 
 ## 실행

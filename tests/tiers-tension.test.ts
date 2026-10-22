@@ -23,9 +23,9 @@ describe('고객 등급 규칙', () => {
   });
   it('ITAR (d)(2)는 미국산 부품이 있는 체계만 수출 불가, 나머지는 조건부 수출 가능', () => {
     const f = facts({ country: 'CYP', controls: [control('CYP', 'US-ITAR-126.1(d)(2)')] });
-    const rows = classifyCountry(f, [{ system: 'sph', usItar: false }, { system: 'sam', usItar: true }, { system: 'laser', usItar: null }]);
-    expect(rows.map(r => [r.system, r.tier])).toEqual([['*', 2], ['sph', 2], ['sam', 3], ['laser', 2]]);
-    expect(rows[3].record.approvals).toContain('laser 체계의 미국산 부품 사용 여부 미확인');
+    const rows = classifyCountry(f, [{ system: 'sph', usItar: false }, { system: 'sam', usItar: true }, { system: 'ssk', usItar: null }]);
+    expect(rows.map(r => [r.system, r.tier])).toEqual([['*', 2], ['sph', 2], ['sam', 3], ['ssk', 2]]);
+    expect(rows[3].record.approvals).toContain('ssk 체계의 미국산 부품 사용 여부 미확인');
   });
   it('이력·협정 없음, 분쟁 당사국, 미국산 부품은 조건부 수출 가능과 승인 항목', () => {
     const r = classifyTier(facts({ koreanDeliveries: 0, conflictParty: true, conflictEvidence: ['pair_events:ucdp:A:B:2024'] }), { system: 'sam', usItar: true });

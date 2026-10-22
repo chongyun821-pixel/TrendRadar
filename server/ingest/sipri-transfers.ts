@@ -11,16 +11,15 @@ export const SIPRI_TRANSFERS_SOURCE = { id: 'sipri_transfers', title: 'SIPRI Arm
 /** 보유 현황은 이전 기록을 누적한 추정치라 신뢰도를 낮춘다(요구서 2장: 빈칸은 SIPRI 누적 추정) */
 export const INVENTORY_CONFIDENCE = 0.7;
 /** systems.designLife와 같은 값(스크립트는 앱 데이터를 읽지 않고 실행되므로 고정) */
-export const DESIGN_LIFE: Record<SystemKey, number> = { sph: 35, ifv: 35, sam: 30, mrl: 30, frigate: 30, ssk: 30, laser: 20 };
+export const DESIGN_LIFE: Record<SystemKey, number> = { sph: 35, ifv: 35, sam: 30, mrl: 30, frigate: 30, ssk: 30 };
 
 export function sipriBody(orderFrom: number, orderTo: number) {
   return { filters: [{ field: 'Order year', oldField: '', condition: 'contains', value1: orderFrom, value2: orderTo, listData: [] }], logic: 'AND' };
 }
 
 /** SIPRI 무기 설명 → 앱 체계. 함정 탑재 대공미사일·자주 박격포·견인포 등은 제외 */
-export function classifyWeapon(description: string, designation = '', comments = ''): SystemKey | null {
+export function classifyWeapon(description: string): SystemKey | null {
   const d = description.toLowerCase().trim();
-  if (/laser|directed.energy/i.test(`${d} ${designation}`) || /\b(dragonfire|iron beam|천광)\b/i.test(`${designation} ${comments}`)) return 'laser';
   if (d === 'self-propelled gun') return 'sph';
   if (d === 'infantry fighting vehicle') return 'ifv';
   if (d === 'multiple rocket launcher' || d === 'self-propelled mrl') return 'mrl';
@@ -58,7 +57,7 @@ export function parseTradeRegister(csv: string): SipriTrade[] {
 export function normalizeTrades(trades: SipriTrade[], base: number) {
   const signals: Partial<SignalRow>[] = [], inventory: Partial<InventoryRow>[] = [], unknown = new Set<string>();
   for (const t of trades) {
-    const system = classifyWeapon(t.description, t.designation, t.comments);
+    const system = classifyWeapon(t.description);
     if (!system) continue;
     const country = countryId(t.recipient);
     if (!country) { unknown.add(t.recipient); continue; }

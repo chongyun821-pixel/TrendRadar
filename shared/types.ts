@@ -1,6 +1,6 @@
 /** ifv는 화면 표기만 IFV로 바뀐 기존 장갑차 ID다. 저장된 기록과 호환되도록 ID를 유지한다. */
-export type SystemKey = 'sph' | 'ifv' | 'sam' | 'mrl' | 'frigate' | 'ssk' | 'laser';
-export const SYSTEM_KEYS = ['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk', 'laser'] as const satisfies readonly SystemKey[];
+export type SystemKey = 'sph' | 'ifv' | 'sam' | 'mrl' | 'frigate' | 'ssk';
+export const SYSTEM_KEYS = ['sph', 'ifv', 'sam', 'mrl', 'frigate', 'ssk'] as const satisfies readonly SystemKey[];
 export type Category = 'red' | 'orange' | 'yellow' | 'blue' | 'gray';
 
 export interface Source { t: string; u: string; y: number; publishedAt?: string | null; collectedAt?: string; filePath?: string; hash?: string; kind?: 'original' | 'search' | 'attachment'; excerpt?: string }

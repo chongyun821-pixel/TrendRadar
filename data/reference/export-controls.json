@@ -14,7 +14,6 @@
     { "system": "sam", "usItar": null },
     { "system": "mrl", "usItar": null },
     { "system": "frigate", "usItar": null },
-    { "system": "ssk", "usItar": null },
-    { "system": "laser", "usItar": null }
+    { "system": "ssk", "usItar": null }
   ]
 }

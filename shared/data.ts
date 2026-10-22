@@ -15,9 +15,7 @@ export function useDataProvider(read: () => Seed) {
   });
 }
 
-// 부분 문자열 검색은 선언 순서대로 확인하므로 '대공'보다 레이저 별칭을 먼저 둔다.
 const SYS_ALIASES: Record<string, SystemKey> = {
-  laser: 'laser', '레이저대공무기': 'laser', '레이저 대공무기': 'laser', '레이저': 'laser', '천광': 'laser', 'iron beam': 'laser', dragonfire: 'laser', 'directed energy': 'laser',
   sph: 'sph', '자주포': 'sph', '포병': 'sph', howitzer: 'sph', artillery: 'sph',
   ifv: 'ifv', '장갑차': 'ifv', '레드백': 'ifv', '보병전투차': 'ifv', '보병전투차량': 'ifv', apc: 'ifv',
   sam: 'sam', '대공미사일': 'sam', '대공': 'sam', '방공': 'sam', '지대공': 'sam', 'air defense': 'sam',
@@ -26,12 +24,15 @@ const SYS_ALIASES: Record<string, SystemKey> = {
   ssk: 'ssk', '재래식 잠수함': 'ssk', '재래식잠수함': 'ssk', '잠수함': 'ssk', submarine: 'ssk',
 };
 const GENERAL = ['일반', 'none', 'general', 'off', '끄기'];
+/** 삭제한 레이저대공무기 이름은 '대공' 부분 일치로 대공미사일이 되지 않게 어느 체계로도 풀지 않는다 */
+const REMOVED = /레이저|laser|천광|dragonfire|iron beam|directed energy/i;
 
 export function resolveSystem(s?: string | null): SystemKey | null {
   if (!s) return null;
   const k = String(s).trim().toLowerCase();
   if ((SYSTEM_KEYS as readonly string[]).includes(k)) return k as SystemKey;
   if (SYS_ALIASES[k]) return SYS_ALIASES[k];
+  if (REMOVED.test(k)) return null;
   for (const [a, v] of Object.entries(SYS_ALIASES)) if (k.includes(a)) return v;
   return null;
 }

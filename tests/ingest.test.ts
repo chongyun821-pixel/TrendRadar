@@ -66,7 +66,8 @@ describe('수집 공통', () => {
   it('SIPRI 무기 설명 분류와 비고 해석', () => {
     expect(['self-propelled gun', 'infantry fighting vehicle', 'multiple rocket launcher', 'mobile surface-to-air missile system', 'naval surface-to-air missile system', 'frigate', 'submarine', 'nuclear submarine', 'tank'].map(d => classifyWeapon(d)))
       .toEqual(['sph', 'ifv', 'mrl', 'sam', null, 'frigate', 'ssk', null, null]);
-    expect(classifyWeapon('air defence system', 'DragonFire')).toBe('laser');
+    // 레이저대공무기 모드는 삭제했다: 레이저 무기는 어느 체계로도 분류하지 않는다
+    expect(classifyWeapon('air defence system')).toBeNull();
     expect(plannedEnd('delivery planned 2027-2029')).toBe(2029);
     expect(plannedEnd('K-9A1 version; delivery planned by 2028')).toBe(2028);
     expect(dealValue("AUD7.3 b ($4.5-5 b) 'Project Land-400'")).toBe(4500);
@@ -179,7 +180,7 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     }
     expect((await tier('IND')).tier_reasons.reasons.map(r => r.code)).toContain('conflict-party');
     expect((await tier('FRA')).tier).toBe(2); // 한국산 이력 없음
-    expect((await tier('POL', 'laser')).tier_reasons.approvals).toContain('laser 체계의 미국산 부품 사용 여부 미확인');
+    expect((await tier('POL', 'ssk')).tier_reasons.approvals).toContain('ssk 체계의 미국산 부품 사용 여부 미확인');
 
     const tension = await ingestTension({ now: NOW, repo });
     expect(tension.notes[0]).toContain('기준 2026-09');

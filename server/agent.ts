@@ -36,7 +36,7 @@ export const TOOL_DEFS: ToolDef[] = [
   { name: 'query_procurement', description: '저장된 조달 기록과 구조화된 지도용 예측을 조회한다. 외부 검색은 search_sources를 사용한다', properties: { country: S('국가명'), system: S('무기체계') } },
   { name: 'calculate_forecast', description: '보존 데이터로 교체 시기와 수량 및 금액을 계산한다', properties: { country: S('국가명'), system: S('무기체계') } },
   { name: 'get_country_analysis', description: '국가별 기존 6절 기본 분석과 구조화된 예측을 함께 조회한다', properties: { country: S('국가명'), system: S('무기체계') }, required: ['country'] },
-  { name: 'set_mode', description: '히트맵 모드 변경', properties: { system: S('일반|자주포|IFV|대공미사일|다연장로켓|호위함|재래식 잠수함|레이저대공무기') }, required: ['system'] },
+  { name: 'set_mode', description: '히트맵 모드 변경', properties: { system: S('일반|자주포|IFV|대공미사일|다연장로켓|호위함|재래식 잠수함') }, required: ['system'] },
   { name: 'toggle_map_mode', description: '3D 지구본과 2D 지도 전환', properties: { flat: { type: 'boolean', description: 'true=2D 지도, false=3D 지구본, 생략=전환' } } },
   { name: 'focus_country', description: '카메라를 국가로 이동', properties: { country: S('국가명') }, required: ['country'] },
   { name: 'get_forecast', description: '국가·체계의 예상 교체 시기·수량·금액(예측)과 계산 과정', properties: { country: S('국가명'), system: S('체계(생략 시 전체)') }, required: ['country'] },
@@ -224,5 +224,5 @@ export const ACTION_BLOCK_GUIDE = [
   '```json',
   '{"actions":[{"type":"set_mode","system":"자주포"},{"type":"focus_country","country":"폴란드"},{"type":"toggle_map_mode","flat":true},{"type":"report","country":"폴란드","system":"자주포"}]}',
   '```',
-  'type: set_mode(system: 일반|자주포|IFV|대공미사일|다연장로켓|호위함|재래식 잠수함|레이저대공무기), focus_country(country), toggle_map_mode(flat 생략 가능), report(country, system 생략 가능; 보고서는 화면에 자동 표시되므로 본문엔 한 문장만).',
+  'type: set_mode(system: 일반|자주포|IFV|대공미사일|다연장로켓|호위함|재래식 잠수함), focus_country(country), toggle_map_mode(flat 생략 가능), report(country, system 생략 가능; 보고서는 화면에 자동 표시되므로 본문엔 한 문장만).',
 ].join('\n');

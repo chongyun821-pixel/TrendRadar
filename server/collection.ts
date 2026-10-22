@@ -1,6 +1,7 @@
 /** 데이터 수집 테이블(마이그레이션 004)의 읽기·쓰기. SQLite와 Supabase에서 같은 SQL과 같은 값 형식을 쓴다. */
 import type { Repository } from './store';
 import type { BudgetRow, CapacityRow, ConsumptionRow, DomesticRow, ExportControlRow, ExportTierRow, InventoryRow, NeighborRow, PairEventRow, SignalRow, SystemKey, SystemLinkRow, WeightRow } from '../shared/types';
+import { SYSTEM_KEYS } from '../shared/types';
 import { DEFAULT_WEIGHTS, type ScoreInputs } from '../shared/forecast';
 
 type Kind = 'text' | 'int' | 'num' | 'json' | 'bool';
@@ -80,7 +81,9 @@ export async function selectRows<T extends CollectionTable>(repo: Repository, ta
     else { clauses.push(`"${column}"=?`); args.push(value); }
   }
   const rows = await repo.all(`SELECT * FROM ${table}${clauses.length ? ` WHERE ${clauses.join(' AND ')}` : ''} ORDER BY ${spec.key.map(k => `"${k}"`).join(',')}`, ...args);
-  return rows.map(r => decode(table, r));
+  // 삭제한 체계(예: 마이그레이션 008 전의 laser) 행은 무시한다. '*'는 국가 단위 등급이다.
+  const known = !('system' in spec.columns) ? rows : rows.filter(r => r.system === '*' || (SYSTEM_KEYS as readonly string[]).includes(r.system));
+  return known.map(r => decode(table, r));
 }
 
 export async function deleteRows(repo: Repository, table: CollectionTable, where: Record<string, unknown>) {

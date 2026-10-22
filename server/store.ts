@@ -4,7 +4,7 @@ import { resolve, dirname, relative, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { useDataProvider } from '../shared/data';
-import type { Seed } from '../shared/types';
+import { SYSTEM_KEYS, type Seed } from '../shared/types';
 import { loadDevVars } from './devvars';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { databaseClient, postgresQuery, SupabaseFiles, type SupabaseConfig } from './supabase';
@@ -22,7 +22,7 @@ export function supabaseConfig(): SupabaseConfig {
   return { databaseUrl: config.DATABASE_URL || '', url: config.SUPABASE_URL || '', secretKey: config.SUPABASE_SECRET_KEY || '', bucket: config.SUPABASE_STORAGE_BUCKET || 'trendradar-private', schema: process.env.RADAR_PG_SCHEMA || config.RADAR_PG_SCHEMA || 'trendradar' };
 }
 /** 배포한 SQL 변경 이력. 표 구조는 schema 파일에도 있어 새 스키마에 바로 생성되고, 자료 변경은 버전별로 한 번만 적용한다. */
-export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV·레이저대공무기', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }] as const;
+export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }, { version: 8, name: '레이저대공무기 모드 삭제', sqlite: '008_remove_laser.sql', postgres: '008_remove_laser.postgres.sql' }] as const;
 export class Repository {
   db!: DatabaseSync;
   private cached?: Seed;
@@ -150,9 +150,12 @@ export class Repository {
     if (this.cached && revision === this.cachedRevision) return { data: this.cached, revision };
     const read = async () => {
       const entries = async (table: string) => Object.fromEntries((await this.all(`SELECT id, data FROM ${table}`)).map(r => [r.id, JSON.parse(r.data)]));
+      // 삭제한 체계(예: 마이그레이션 008 전의 laser) 행이 남아 있어도 읽지 않는다
+      const known = (system: unknown) => (SYSTEM_KEYS as readonly unknown[]).includes(system);
+      const systems = Object.fromEntries(Object.entries(await entries('systems')).filter(([id]) => known(id)));
       const meta = await this.one("SELECT value FROM metadata WHERE key='meta'");
       if (!meta) throw new Error('운영 데이터가 없습니다. 먼저 Supabase 이전 도구를 실행하세요');
-      const data: Seed = { meta: JSON.parse(meta.value), countries: await entries('countries'), systems: await entries('systems'), sources: await entries('sources'), records: (await this.all('SELECT data FROM records ORDER BY id')).map(r => JSON.parse(r.data)) } as Seed;
+      const data: Seed = { meta: JSON.parse(meta.value), countries: await entries('countries'), systems, sources: await entries('sources'), records: (await this.all('SELECT data FROM records ORDER BY id')).map(r => JSON.parse(r.data)).filter(r => known(r.system)) } as Seed;
       return { data, revision: await this.revision() };
     };
     const result = this.transactionState.getStore()?.active ? await read() : await this.transaction(read);
