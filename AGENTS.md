@@ -34,6 +34,8 @@ Keep keys in ignored `.secrets`, using `.secrets.example` for supported settings
 
 Country registration uses the shared Natural Earth catalog (`shared/country-catalog.json`, regenerated with `npm run data:countries`). `find_country` reads candidates; `add_country` atomically registers metadata, revision, and a change entry. Keep registration separate from evidence-backed procurement research; never create invented zero inventories or forecasts just to register a country. Both chat providers and MCP use the same tools.
 
+A normal request to add a country includes researching missing operating systems unless the user explicitly asks for names only. Check `get_country_data_status` before claiming completion; a record with only project descriptions is partial. Preserve confirmed equipment with nullable quantity/year, calculate timing independently of unknown quantity, and keep forecast quantity/amount null when unavailable. Exclude retired/planned batches from current equipment and replacement demand. Historical delivery totals are research context, not an automatic current-stock fallback.
+
 Run UI checks with a running server and Chrome or Edge selected by `CHROME_PATH`; `BASE_URL` selects the server. For isolated checks, set a temporary storage directory and DB path and use another port. Do not interrupt an existing user server or alter operational data just to run checks. Restart Node after backend/config changes.
 
 ## Architecture Rules

@@ -1,4 +1,4 @@
-import type { Category, Forecast, ProgramRecord, Seed, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
+import type { Category, Forecast, ProgramRecord, Seed, Batch, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
 import { seed as defaultSeed } from './data';
 
 export const BASE_YEAR = new Date().getFullYear();
@@ -24,7 +24,8 @@ export function imminenceScore(remaining: number, agedShare = 0, signals = 0): n
   return Math.round(Math.max(0, Math.min(100, s)));
 }
 
-export function sizeNorm(krw: [number, number]): number {
+export function sizeNorm(krw: [number, number] | null): number {
+  if (!krw) return 0;
   const mid = Math.sqrt(Math.max(1, krw[0]) * Math.max(1, krw[1]));
   if (krw[1] <= 0) return 0;
   return Math.max(0, Math.min(1, (Math.log10(mid) - SIZE_LOG_MIN) / (SIZE_LOG_MAX - SIZE_LOG_MIN)));
@@ -39,6 +40,7 @@ export function confidenceOf(nSources: number, latestYear: number, estCount: num
 }
 
 const r10 = (n: number) => Math.round(n);
+export const isCurrentBatch = (b: Batch, base = new Date().getFullYear()) => b.status !== 'retired' && b.status !== 'planned' && b.qty !== 0 && (b.introYear == null || b.introYear <= base);
 
 export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, base = new Date().getFullYear()): Forecast {
   const sys = seed.systems[rec.system];
@@ -52,55 +54,59 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
 
   const batches: BatchCalc[] = rec.batches.map(b => {
     const ext = b.lifeExt ?? 0;
-    estCount += (b.est?.length ?? 0);
-    return { model: b.model, introYear: b.introYear, qty: b.qty, life, ext, year: replacementYear(b.introYear, life, ext), est: b.est ?? [] };
+    estCount += (b.est?.length ?? 0) + (b.qty == null ? 3 : 0) + (b.introYear == null ? 3 : 0);
+    return { model: b.model, introYear: b.introYear, qty: b.qty, life, ext, year: b.introYear == null ? null : replacementYear(b.introYear, life, ext), primary: b.primary, status: b.status, est: b.est ?? [] };
   });
   const covers = rec.awarded?.covers ?? 0;
-  const openAll = rec.batches.map((b, i) => ({ b, c: batches[i] })).filter(x => !x.b.covered);
+  const active = rec.batches.map((b, i) => ({ b, c: batches[i] })).filter(x => isCurrentBatch(x.b, base));
+  const openAll = active.filter(x => !x.b.covered);
+  const dated = openAll.filter((x): x is typeof x & { c: BatchCalc & { year: number } } => x.c.year != null);
   // 다음 사업 = 가장 이른 교체 시점에서 8년 안에 몰린 배치들 (그 뒤 배치는 다음 주기)
-  const first = Math.min(...openAll.map(x => x.c.year));
-  const open = openAll.filter(x => x.c.year <= first + 8);
-  const openQty = open.reduce((s, x) => s + x.b.qty, 0) * Math.max(0, 1 - covers);
+  const first = Math.min(...dated.map(x => x.c.year));
+  const open = dated.filter(x => x.c.year <= first + 8);
+  const quantityKnown = open.every(x => x.b.qty != null) && openAll.every(x => x.c.year != null);
+  const openQty = open.reduce((s, x) => s + (x.b.qty ?? 0), 0) * Math.max(0, 1 - covers);
   if (rec.awarded) estCount += rec.awarded.est?.length ?? 0;
   if (rec.plan) estCount += rec.plan.est?.length ?? 0;
   for (const m of rec.mro ?? []) estCount += m.est?.length ?? 0;
 
-  for (const x of batches) calc.push(`${x.model}: ${x.introYear} + 수명 ${x.life}${x.ext ? ` + MRO ${x.ext}` : ''} = ${x.year}년`);
+  for (const { c: x } of active) calc.push(x.year == null ? `${x.model}: 도입 연도 미확인으로 교체 시기 산출 불가` : `${x.model}: ${x.introYear} + 수명 ${x.life}${x.ext ? ` + MRO ${x.ext}` : ''} = ${x.year}년`);
 
   let status: Forecast['status'] = 'none';
   let window: [number, number] | null = null;
-  let qty: [number, number] = [0, 0];
+  let qty: [number, number] | null = null;
   let qtyEst = ratioEst;
   let agedShare = 0;
 
   if (rec.plan) {
     status = 'plan';
     window = [Math.max(base, rec.plan.start), Math.max(base, rec.plan.end)];
-    qty = [rec.plan.qty[0], rec.plan.qty[1]];
+    qty = rec.plan.qty ? [rec.plan.qty[0], rec.plan.qty[1]] : null;
     qtyEst = !!rec.plan.est?.includes('qty');
-    calc.push(`공개 계획: ${rec.plan.text} → ${window[0]}~${window[1]}년, ${qty[0]}~${qty[1]}${sys.unit}`);
-  } else if (open.length && openQty > 0) {
+    calc.push(`공개 계획: ${rec.plan.text} → ${window[0]}~${window[1]}년, ${qty ? `${qty[0]}~${qty[1]}${sys.unit}` : '수량 미확인'}`);
+  } else if (open.length && covers < 1 && (openQty > 0 || !quantityKnown)) {
     status = 'open';
     const years = open.map(x => x.c.year);
     const lo = Math.min(...years) - 2, hi = Math.max(...years) + 3;
     const start = Math.max(base, lo);
     window = [start, Math.max(start + 1, hi)];
-    qty = [Math.max(1, r10(openQty * ratio[0])), Math.max(1, r10(openQty * ratio[1]))];
-    const aged = open.filter(x => x.c.year <= base + 2).reduce((s, x) => s + x.b.qty, 0);
-    agedShare = aged / Math.max(1, open.reduce((s, x) => s + x.b.qty, 0));
+    if (quantityKnown) qty = [Math.max(1, r10(openQty * ratio[0])), Math.max(1, r10(openQty * ratio[1]))];
+    const aged = open.filter(x => x.c.year <= base + 2).reduce((s, x) => s + (x.b.qty ?? 0), 0);
+    agedShare = quantityKnown ? aged / Math.max(1, open.reduce((s, x) => s + (x.b.qty ?? 0), 0)) : 0;
     calc.push(`교체 창: 배치별 교체 시점 −2~+3년 → ${window[0]}~${window[1]}년${lo < base ? ' (일부 이미 경과)' : ''}`);
-    calc.push(`예상 수량 = 미교체 보유 ${r10(openQty)}${sys.unit}${covers > 0 ? ` (계약분 ${Math.round(covers * 100)}% 제외)` : ''} × 교체 비율 ${ratio[0]}~${ratio[1]}`);
-  } else if (rec.awarded && rec.awarded.qty > 0) {
+    if (qty) calc.push(`예상 수량 = 미교체 보유 ${r10(openQty)}${sys.unit}${covers > 0 ? ` (계약분 ${Math.round(covers * 100)}% 제외)` : ''} × 교체 비율 ${ratio[0]}~${ratio[1]}`);
+    else calc.push('확인된 도입 연도와 체계 기본 수명으로 시기만 추정. 수량 미확인 배치를 0으로 합산하지 않으며 사업 수량·금액은 산출하지 않음');
+  } else if (rec.awarded && (rec.awarded.qty == null || rec.awarded.qty > 0)) {
     status = 'next';
     const y = replacementYear(rec.awarded.deliveryEnd, life);
     window = [Math.max(base, y - 3), Math.max(base + 1, y + 3)];
-    qty = [Math.max(1, r10(rec.awarded.qty * ratio[0])), Math.max(1, r10(rec.awarded.qty * ratio[1]))];
+    if (rec.awarded.qty != null) qty = [Math.max(1, r10(rec.awarded.qty * ratio[0])), Math.max(1, r10(rec.awarded.qty * ratio[1]))];
     calc.push(`현 사업 계약 완료 → 후속 주기: 인도 완료 ${rec.awarded.deliveryEnd} + 수명 ${life} = ${y}년`);
-    calc.push(`후속 수량 = 계약 ${rec.awarded.qty}${sys.unit} × 교체 비율 ${ratio[0]}~${ratio[1]}`);
+    if (qty) calc.push(`후속 수량 = 계약 ${rec.awarded.qty}${sys.unit} × 교체 비율 ${ratio[0]}~${ratio[1]}`);
   }
 
-  const krw: [number, number] = [r10(qty[0] * sys.unitCost[0]), r10(qty[1] * sys.unitCost[1])];
-  if (status !== 'none') calc.push(`예상 금액 = 수량 × 대당 ${sys.unitCost[0].toLocaleString()}~${sys.unitCost[1].toLocaleString()}억 원 (${sys.unitCostBasis})`);
+  const krw: [number, number] | null = qty ? [r10(qty[0] * sys.unitCost[0]), r10(qty[1] * sys.unitCost[1])] : null;
+  if (krw) calc.push(`예상 금액 = 수량 × 대당 ${sys.unitCost[0].toLocaleString()}~${sys.unitCost[1].toLocaleString()}억 원 (${sys.unitCostBasis})`);
 
   const signals = (rec.signals ?? []).filter(s => s.year >= base - 1).length;
   let remaining = window ? window[0] - base : null;
@@ -132,8 +138,7 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
   const confidence = confidenceOf(sources.length, latest, estCount + baseEst + uncertainty * 3, base);
   estCount += baseEst;
 
-  const openCalc = open.map(x => x.c).sort((a, b) => b.qty - a.qty);
-  const current = openCalc[0] ?? batches[0] ?? null;
+  const current = active.map(x => x.c).sort((a, b) => Number(!!b.primary) - Number(!!a.primary) || (b.qty ?? -1) - (a.qty ?? -1) || (b.introYear ?? 0) - (a.introYear ?? 0))[0] ?? null;
 
   return {
     id: rec.id, country: rec.country, countryKo: c?.ko ?? rec.country, flag: c?.flag ?? '', system: rec.system, systemKo: sys.ko, unit: sys.unit,
@@ -149,7 +154,8 @@ export function allForecasts(system?: SystemKey | null, seed: Seed = defaultSeed
 
 export const CATEGORY_KO: Record<Category, string> = { red: '2년 이내', orange: '3~5년', yellow: '6~10년', blue: '10년 이후', gray: '데이터 부족' };
 export const fmtKrw = (n: number) => n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}조` : `${n.toLocaleString()}억`;
-export const fmtKrwRange = (k: [number, number]) => `${fmtKrw(k[0])}~${fmtKrw(k[1])} 원`;
+export const fmtKrwRange = (k: [number, number] | null) => k ? `${fmtKrw(k[0])}~${fmtKrw(k[1])} 원` : '금액 미확인';
+export const fmtQtyRange = (q: [number, number] | null, unit: string) => q ? `${q[0].toLocaleString()}~${q[1].toLocaleString()}${unit}` : '수량 미확인';
 
 /* ───────── 수출 판단 점수 (요구서 6장) ───────── */
 
@@ -256,7 +262,7 @@ export function computeScore(input: ScoreInputs, base = new Date().getFullYear()
 
   // 소모 보충: 소모·공여량 대비 재고, 기존 공급사 수주잔고
   const used = (input.consumption || []).filter(c => c.system === input.system);
-  const stock = inv.reduce((s, i) => s + (i.quantity ?? 0), 0) || (input.forecast?.batches.reduce((s, b) => s + b.qty, 0) ?? 0);
+  const stock = inv.reduce((s, i) => s + (i.quantity ?? 0), 0) || (input.forecast?.batches.filter(b => b.status !== 'retired' && b.status !== 'planned').reduce((s, b) => s + (b.qty ?? 0), 0) ?? 0);
   const incumbent = (input.capacity || []).filter(c => inv.some(i => sameModel(i.model, c.model)) && c.annual_output);
   if (used.length || incumbent.length) {
     const consumed = used.reduce((s, c) => s + c.quantity, 0);

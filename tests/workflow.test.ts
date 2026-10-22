@@ -53,7 +53,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const p: any = await submission(), previous = (await f.repo.data()).records.find(r => r.country === 'POL' && r.system === 'sph')!;
-      p.record.batches = [{ ...previous.batches[0], qty: previous.batches[0].qty + 1 }];
+      p.record.batches = [{ ...previous.batches[0], qty: previous.batches[0].qty! + 1 }];
       const result: any = await runTool('normalize_procurement_data', { payload: JSON.stringify(p) }, newOut());
       expect(result.ok).toBe(false); expect(result.payload).toBeNull(); expect(result.conflicts.length).toBeGreaterThan(0);
       p.record = { country: 'POL', system: 'sph', plan: { start: '2031년', end: '2033년', qty: ['10문', '12문'], text: '검토 계획', src: ['new-source'] } };
@@ -64,7 +64,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(removed.ok).toBe(true); expect(removed.payload.record.awarded).toBeUndefined(); expect(removed.payload.record.batches).toEqual(previous.batches);
       p.record.batches = [{ ...previous.batches[0], qty: '미확인' }]; p.replaceFields = ['batches'];
       const unknown: any = await runTool('normalize_procurement_data', { payload: JSON.stringify(p) }, newOut());
-      expect(unknown.ok).toBe(false); expect(unknown.candidate.record.batches[0].qty).toBe('미확인');
+      expect(unknown.ok).toBe(true); expect(unknown.candidate.record.batches[0].qty).toBeNull();
       expect(await f.repo.revision()).toBe(1);
     }); } finally { await f.repo.close(); }
   });
@@ -220,6 +220,16 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       fetch.mockRejectedValue(new Error('접근 실패'));
       expect(await runTool('collect_source', { url: 'https://example.org/failure' }, newOut())).toHaveProperty('error');
       expect(await f.repo.all("SELECT id FROM artifacts WHERE kind='failure' AND status='failed'")).toHaveLength(1);
+    }); } finally { await f.repo.close(); }
+  });
+  it('문서 뷰어의 메뉴를 원문으로 인정하지 않고 첨부 문서 주소를 돌려준다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      vi.spyOn(sourceNetwork, 'fetch').mockResolvedValue({ status: 200, headers: {}, url: 'https://example.org/press', mime: 'text/html', bytes: Buffer.from('<nav>메뉴 검색</nav><iframe id="content_press" src="/docViewer/iframe_skin/doc.html"></iframe><a href="/download?id=1&amp;type=pdf">보도자료.pdf</a><a href="https://evil.example/file">다른 문서.pdf</a>') });
+      const result: any = await runTool('collect_source', { url: 'https://example.org/press' }, newOut());
+      expect(result).toMatchObject({ status: 'needs_attachment', attachments: [{ url: 'https://example.org/download?id=1&type=pdf' }] });
+      expect(result.filePath).toBeUndefined();
+      expect(await f.repo.all("SELECT * FROM artifacts WHERE kind='original'")).toHaveLength(0);
     }); } finally { await f.repo.close(); }
   });
 });

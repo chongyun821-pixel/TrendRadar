@@ -1,5 +1,5 @@
 import { seed, resolveCountry, resolveSystem, recordsBy } from './data';
-import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange } from './forecast';
+import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange, fmtQtyRange, isCurrentBatch } from './forecast';
 import type { Forecast, SystemKey, Batch, Seed } from './types';
 
 const est = (b: { est?: string[] }, f: string) => (b.est?.includes(f) ? ' (추정)' : '');
@@ -17,7 +17,7 @@ export function searchPrograms(a?: { country?: string; system?: string }) {
   const { country, system } = args(a);
   return recordsBy(country, system).map(r => ({
     country: cName(r.country), system: sName(r.system),
-    inService: r.batches.map(b => `${b.model} ${b.qty}${seed.systems[r.system].unit}${est(b, 'qty')}, 도입 ${b.introYear}${est(b, 'introYear')}${b.covered ? ', 교체 계약분' : ''}`),
+    inService: r.batches.filter(b => isCurrentBatch(b)).map(b => `${b.model} ${b.qty == null ? '수량 미확인' : `${b.qty}${seed.systems[r.system].unit}`}${est(b, 'qty')}, 도입 ${b.introYear ?? '미확인'}${est(b, 'introYear')}${b.covered ? ', 교체 계약분' : ''}`),
     contract: r.awarded ? { year: r.awarded.year, text: r.awarded.text, estimate: !!r.awarded.est?.length } : null,
     plan: r.plan ? { text: r.plan.text, window: `${r.plan.start}~${r.plan.end}` } : null,
     signals: (r.signals ?? []).map(s => `${s.year} ${s.text}`),
@@ -33,7 +33,7 @@ export function getLifespan(a?: { system?: string; model?: string }) {
   }));
   const models = model ? seed.records.flatMap(r => r.batches.filter(b => b.model.toLowerCase().includes(model)).map(b => ({
     country: cName(r.country), model: b.model, introYear: b.introYear, lifeExt: b.lifeExt ?? 0,
-    replacementYear: b.introYear + seed.systems[r.system].designLife + (b.lifeExt ?? 0), estimate: !!b.est?.length,
+    replacementYear: b.introYear == null ? null : b.introYear + seed.systems[r.system].designLife + (b.lifeExt ?? 0), estimate: !!b.est?.length,
   }))) : [];
   return { systems, models };
 }
@@ -50,7 +50,7 @@ export function getInventory(a?: { country?: string; system?: string }) {
   const { country, system } = args(a);
   return recordsBy(country, system).map(r => ({
     country: cName(r.country), system: sName(r.system),
-    items: r.batches.map((b: Batch) => ({ model: b.model, qty: b.qty, introYear: b.introYear, unit: seed.systems[r.system].unit, estimate: b.est ?? [], note: b.note })),
+    items: r.batches.filter(b => isCurrentBatch(b)).map((b: Batch) => ({ model: b.model, qty: b.qty, introYear: b.introYear, status: b.status || 'in_service', primary: !!b.primary, unit: seed.systems[r.system].unit, estimate: b.est ?? [], note: b.note })),
   }));
 }
 
@@ -58,7 +58,7 @@ export function forecastBrief(f: Forecast) {
   return {
     country: f.countryKo, system: f.systemKo, status: f.status,
     window: f.window ? `${f.window[0]}~${f.window[1]}` : null, remainingYears: f.remaining, imminence: CATEGORY_KO[f.category], score: f.score,
-    qty: `${f.qty[0]}~${f.qty[1]}${f.unit}`, krw: fmtKrwRange(f.krw), confidence: f.confidence, label: '예측',
+    qty: fmtQtyRange(f.qty, f.unit), krw: fmtKrwRange(f.krw), confidence: f.confidence, label: '예측',
   };
 }
 
@@ -72,7 +72,7 @@ export function forecast(a?: { country?: string; system?: string }) {
 
 export function listForecasts(a?: { system?: string; limit?: number }) {
   const system = resolveSystem(a?.system);
-  return allForecasts(system).sort((x, y) => y.score - x.score || y.krw[1] - x.krw[1]).slice(0, a?.limit ?? 20).map(forecastBrief);
+  return allForecasts(system).sort((x, y) => y.score - x.score || (y.krw?.[1] ?? 0) - (x.krw?.[1] ?? 0)).slice(0, a?.limit ?? 20).map(forecastBrief);
 }
 
 const STATUS_KO: Record<Forecast['status'], string> = { open: '교체 수요(미계약)', plan: '공개 사업 계획', next: '현 사업 계약 완료 → 후속 주기', none: '데이터 부족' };
@@ -95,12 +95,12 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
     L.push(`### 1. 요약`);
     L.push(`- 구분: ${STATUS_KO[f.status]}`);
     if (f.window) L.push(`- 예상 시기(예측): **${f.window[0]}~${f.window[1]}년** · 임박도 ${CATEGORY_KO[f.category]} (점수 ${f.score})`);
-    if (f.status !== 'none') L.push(`- 예상 규모(예측): **${f.qty[0]}~${f.qty[1]}${f.unit}**, **${fmtKrwRange(f.krw)}**${f.krwEst ? ' (추정 포함)' : ''}`);
+    if (f.status !== 'none') L.push(`- 예상 규모(예측): **${fmtQtyRange(f.qty, f.unit)}**, **${fmtKrwRange(f.krw)}**${f.krwEst ? ' (추정 포함)' : ''}`);
     L.push(`- 신뢰도: ${f.confidence} (근거 ${f.nSources}건, 추정 항목 ${f.estCount}개)`);
     L.push(`- 자료 기준: ${data.meta.collected || '미확인'}`);
     L.push(`### 2. 현재 보유와 도입 이력`);
-    if (r.batches.length) for (const b of r.batches) L.push(`- ${b.model}: ${b.qty}${sys.unit}${est(b, 'qty')}, 도입 ${b.introYear}${est(b, 'introYear')}${b.covered ? ' — 교체 계약분' : ''}${b.note ? ` — ${b.note}` : ''}`);
-    else L.push(`- 교체 대상 구형 장비 없음`);
+    if (r.batches.length) for (const b of r.batches) L.push(`- ${b.model}: ${b.qty == null ? '수량 미확인' : `${b.qty}${sys.unit}`}${est(b, 'qty')}, 도입 ${b.introYear ?? '미확인'}${est(b, 'introYear')}${b.status === 'retired' ? ' — 퇴역' : b.status === 'planned' ? ' — 도입 예정' : ''}${b.covered ? ' — 교체 계약분' : ''}${b.note ? ` — ${b.note}` : ''}`);
+    else L.push(`- 현재 보유 장비 자료 미확인. 사업 설명만으로 장비가 없다고 판단하지 않음`);
     if (r.awarded) L.push(`- 최근 계약: ${r.awarded.year}${est(r.awarded, 'year')} ${r.awarded.text}`);
     if (r.plan) L.push(`- 사업 계획: ${r.plan.text}`);
     for (const sg of r.signals ?? []) L.push(`- 동향: ${sg.year} ${sg.text}`);

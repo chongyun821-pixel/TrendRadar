@@ -9,6 +9,7 @@ import { Repository, repository, now } from '../server/store';
 import { executions } from '../server/execution';
 import { runTool, newOut } from '../server/agent';
 import { app } from '../server/app';
+import { procurementCoverage } from '../shared/completeness';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 const tool = (name: string, args: Record<string, unknown>): Promise<any> => runTool(name, args, newOut());
@@ -21,6 +22,20 @@ async function fixture() {
 }
 
 describe('챗봇의 국가 등록', () => {
+  it('사업 설명만 있는 체계는 등록되어도 조사 완료로 보지 않는다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      const data = await f.repo.data();
+      const record = { id: 'KOR-sph', country: 'KOR', system: 'sph' as const, batches: [], src: [], projects: [{ id: 'K9-project', buyer: 'KOR', supplier: 'KOR', stage: 'delivery' as const, text: '전력화 사업 설명', src: [] }] };
+      const coverage = procurementCoverage(record, data, 'sph');
+      expect(coverage.status).toBe('partial'); expect(coverage.current).toBeNull(); expect(coverage.window).toBeNull();
+      expect(coverage.missing).toContain('현재 운용 장비(model·운용 상태)');
+      const partial = procurementCoverage({ ...record, batches: [{ model: '구형 장비', introYear: 1980, qty: 100, src: [] }, { model: '신형 장비', introYear: 2020, qty: null, primary: true, src: [] }] }, data, 'sph');
+      expect(partial.window).not.toBeNull(); expect(partial.status).toBe('partial'); expect(partial.missing).toContain('일부 현역 장비의 보유 수량');
+      expect(await tool('get_country_data_status', { country: '대한민국' })).toMatchObject({ complete: false });
+      expect(await tool('add_country', { country: '대한민국' })).toMatchObject({ researchRequired: true });
+    }); } finally { await f.repo.close(); }
+  });
   it('미등록 국가를 한국어·영문·코드로 해석하고 긴 국가명의 부분 일치를 구분한다', () => {
     for (const name of ['독일', 'Germany', 'DEU', 'de']) expect(resolveCountry(name)).toBe('DEU');
     for (const name of ['튀르키예', '터키', 'Türkiye']) expect(resolveCountry(name)).toBe('TUR');
@@ -98,6 +113,52 @@ describe('챗봇의 국가 등록', () => {
       expect(await tool('query_procurement', { country: '브라질', system: '자주포' })).toMatchObject({ records: [{ country: 'BRA', batches: [{ qty: 12 }] }] });
       expect((await f.repo.data()).countries.BRA.ko).toBe('브라질');
       expect(await f.repo.all('SELECT * FROM forecasts')).toHaveLength(1);
+    }); } finally { await f.repo.close(); }
+  });
+  it('비공개 수량을 null로 반영하고 지도용 조회·보고서·완결성 검사에서 시기와 규모를 분리한다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      const quote = '가상 검증 자료: 장비 X는 2000년부터 운용했으며 수량은 비공개다.';
+      const source = await tool('save_source', { url: 'https://example.org/partial', content: quote, kind: 'original' });
+      const normalized = await tool('normalize_procurement_data', { payload: JSON.stringify({
+        record: { country: '브라질', system: 'sph', batches: [{ model: '장비 X', introYear: '2000년', qty: '00문', status: 'in_service', src: ['partial'] }], src: ['partial'] },
+        sources: { partial: { ...source, t: '가상 자료', u: 'https://example.org/partial', y: 0 } },
+        evidence: [{ path: 'batches', sourceId: 'partial', quote }], reason: '비공개 수량 검증', asOf: '2026-10-22',
+      }) });
+      expect(normalized.ok).toBe(true); expect(normalized.payload.record.batches[0].qty).toBeNull();
+      expect(await tool('validate_research', { payload: JSON.stringify(normalized.payload) })).toMatchObject({ valid: true, coverage: { status: 'partial', current: { model: '장비 X' }, window: [2033, 2038], quantity: null } });
+      expect(await tool('apply_research', { payload: JSON.stringify(normalized.payload) })).toMatchObject({ ok: true, forecast: { current: { model: '장비 X' }, window: [2033, 2038], qty: null, krw: null } });
+      expect(await tool('get_country_data_status', { country: '브라질', system: '자주포' })).toMatchObject({ complete: false, coverage: [{ status: 'partial', missing: ['보유·사업 수량'] }] });
+      expect(await tool('add_country', { country: '브라질' })).toMatchObject({ created: false, researchRequired: true });
+      const report = await tool('get_country_analysis', { country: '브라질', system: '자주포' });
+      expect(report.analysis.markdown).toContain('수량 미확인'); expect(report.analysis.markdown).not.toContain('0~0');
+    }); } finally { await f.repo.close(); }
+  });
+  it('모델이 양식을 틀리면 실제 보존 원문 메타데이터와 수정 양식을 반환하고 DB에는 쓰지 않는다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      const saved = await tool('save_source', { url: 'https://example.org/format', content: '장비 X 원문', kind: 'original' });
+      const result = await tool('normalize_procurement_data', { payload: JSON.stringify({ record: { country: '브라질', system: 'sph', batches: [{ model: 'X', introYear: 2000, qty: null, est: true }] }, sources: [], evidence: [{ path: saved.filePath, quote: '장비 X 원문' }], reason: '양식 검증', asOf: '2026-10-22' }) });
+      expect(result.ok).toBe(false); expect(result.payload).toBeNull();
+      expect(result.repair.sourceCandidates[0].source).toMatchObject({ filePath: saved.filePath, hash: saved.hash, collectedAt: saved.collectedAt });
+      expect(result.repair.example.record.batches[0].est).toEqual([]);
+      expect(result.repair.example.evidence[0].path).toBe('batches');
+      expect(await f.repo.revision()).toBe(1);
+    }); } finally { await f.repo.close(); }
+  });
+  it('간단한 장비 도구가 실제 원문으로 부분 자료를 저장하고 위조 인용·상충 수량·검색 요약을 거절한다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      const quote = '가상 원문: X 장비가 2000년부터 운용 중이며 수량은 미공개다.';
+      const saved = await tool('save_source', { url: 'https://example.org/equipment', content: quote, kind: 'original' });
+      const args = { country: '브라질', system: 'sph', model: 'X', introYear: 2000, filePath: saved.filePath, quote };
+      expect(await tool('save_equipment', args)).toMatchObject({ ok: true, forecast: { current: { model: 'X' }, window: [2033,2038], qty: null } });
+      expect(await tool('save_equipment', { ...args, qty: 12 })).toMatchObject({ ok: true, version: 2 });
+      expect(await tool('save_equipment', { ...args, qty: 13 })).toHaveProperty('error');
+      expect(await tool('save_equipment', { ...args, quote: '원문에 없는 문장' })).toHaveProperty('error');
+      const search = await tool('save_source', { url: 'https://example.org/search', content: quote, kind: 'search' });
+      expect(await tool('save_equipment', { ...args, filePath: search.filePath })).toHaveProperty('error');
+      expect((await f.repo.data()).records.find(r => r.country === 'BRA' && r.system === 'sph')?.batches[0].qty).toBe(12);
     }); } finally { await f.repo.close(); }
   });
 

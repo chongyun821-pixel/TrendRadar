@@ -1,7 +1,7 @@
 import './style.css';
 import { Globe, type CountryFeature } from './globe';
 import { seed, findRecord, setData } from '../shared/data';
-import { allForecasts, computeForecast, CATEGORY_KO, fmtKrwRange } from '../shared/forecast';
+import { allForecasts, computeForecast, CATEGORY_KO, fmtKrwRange, fmtQtyRange } from '../shared/forecast';
 import type { Forecast, SystemKey, Category } from '../shared/types';
 import { SYSTEM_KEYS } from '../shared/types';
 import { initChat } from './chat';
@@ -172,14 +172,14 @@ function tipHtml(id: string, names: Record<string, string>) {
   const cur = f.current;
   const be = (b: { est: string[] }, k: string) => b.est.includes(k);
   const rows: [string, string][] = [];
-  rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear}${est(be(cur, 'introYear'))} · ${cur.qty.toLocaleString()}${esc(f.unit)}${est(be(cur, 'qty'))}` : rec.awarded ? esc(rec.awarded.text) : '—']);
-  if (cur) rows.push(['설계 수명', `${cur.life}년${est(true)}${cur.ext ? ` + MRO ${cur.ext}년` : ''} → ${cur.year}년`]);
-  rows.push(['교체 예상', `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' · 후속 주기' : f.status === 'plan' ? ' · 사업 계획' : ''}`]);
+  rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear ?? '미확인'}${est(be(cur, 'introYear'))} · ${cur.qty == null ? '수량 미확인' : `${cur.qty.toLocaleString()}${esc(f.unit)}`}${est(be(cur, 'qty'))}` : '보유 장비 조사 필요']);
+  if (cur) rows.push(['설계 수명', `${cur.life}년${est(true)}${cur.ext ? ` + MRO ${cur.ext}년` : ''}${cur.year == null ? ' · 도입 연도 확인 필요' : ` → ${cur.year}년`}`]);
+  rows.push(['교체 예상', f.window ? `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' · 후속 주기' : f.status === 'plan' ? ' · 사업 계획' : ''}` : '도입 연도·사업 일정 조사 필요']);
   const mro = rec.mro?.[rec.mro.length - 1];
   if (mro) rows.push(['최근 MRO', `${mro.year}${est(!!mro.est?.includes('year'))} ${esc(mro.text)}`]);
   if (rec.awarded && cur) rows.push(['최근 계약', `${rec.awarded.year} ${esc(rec.awarded.text)}`]);
   if (rec.plan) rows.push(['사업 계획', esc(rec.plan.text)]);
-  if (f.status !== 'none') rows.push(['예상 사업', `${f.qty[0].toLocaleString()}~${f.qty[1].toLocaleString()}${esc(f.unit)} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
+  if (f.status !== 'none') rows.push(['예상 사업', `${fmtQtyRange(f.qty, esc(f.unit))} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
   if (scoreRow) rows.push(scoreRow);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
