@@ -4,6 +4,7 @@ import { resolveCountry, resolveSystem } from '../shared/data';
 import { execution } from './execution';
 import { submissionSchema, submitResearch, supplierId } from './research';
 import type { ToolDef } from './agent';
+import { catalogCountry, catalogMetadata } from '../shared/countries';
 
 const S = (description: string) => ({ type: 'string' as const, description });
 export const NORMALIZATION_DEFS: ToolDef[] = [
@@ -86,7 +87,9 @@ export async function normalizationTool(name: string, a: Record<string, any>): P
     if (typeof next.supplier === 'string') next.supplier = supplierId(next.supplier);
     return next;
   }) : undefined;
-  const candidate = { record: rec, ...(signalRows ? { signalRows } : {}), expectedVersion: row?.version || 0, sources: input.sources || {}, evidence: input.evidence || [], reason: input.reason, asOf: input.asOf, rulesVersion: 'normalization-v1' as const, ...(input.countryMeta ? { countryMeta: input.countryMeta } : {}) };
+  const catalog = catalogCountry(country);
+  const countryMeta = input.countryMeta || (!data.countries[country] && catalog ? catalogMetadata(catalog) : undefined);
+  const candidate = { record: rec, ...(signalRows ? { signalRows } : {}), expectedVersion: row?.version || 0, sources: input.sources || {}, evidence: input.evidence || [], reason: input.reason, asOf: input.asOf, rulesVersion: 'normalization-v1' as const, ...(countryMeta ? { countryMeta } : {}) };
   const parsed = submissionSchema.safeParse(candidate);
   const result = { ok: conflicts.length === 0 && parsed.success, rulesVersion: 'normalization-v1', payload: parsed.success && !conflicts.length ? parsed.data : null, candidate, changes, conflicts, errors: parsed.success ? [] : parsed.error.issues, semanticReviewRequired: true, warnings: ['원문이 주장을 입증하는지 검토하세요. 금액의 통화 환산은 자동 수행하지 않습니다.'] };
   const artifact = await ctx.repo.artifact(ctx.conversationId, `analysis/normalization-${randomUUID()}.json`, JSON.stringify({ original, ...result }, null, 2), { runId: ctx.runId, kind: 'normalization', mime: 'application/json' });

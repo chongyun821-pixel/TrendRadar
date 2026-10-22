@@ -32,6 +32,8 @@ Use Node.js 22.16+ (22.x) or 24+ and `npm install`.
 
 Keep keys in ignored `.secrets`, using `.secrets.example` for supported settings. Its parser accepts literal `KEY=VALUE` and does not expand environment variables. API/model and Supabase credentials from `.secrets` override process environment; `RADAR_STORAGE_DIR`, migration-only `RADAR_DB_PATH`, and `RADAR_PG_SCHEMA` give process environment priority. MCP host settings and browser-check settings such as `MCP_PORT`, `BASE_URL`, and `CHROME_PATH` are process environment variables. Never expose database URLs or server keys to the browser, CLI arguments, or logs.
 
+Country registration uses the shared Natural Earth catalog (`shared/country-catalog.json`, regenerated with `npm run data:countries`). `find_country` reads candidates; `add_country` atomically registers metadata, revision, and a change entry. Keep registration separate from evidence-backed procurement research; never create invented zero inventories or forecasts just to register a country. Both chat providers and MCP use the same tools.
+
 Run UI checks with a running server and Chrome or Edge selected by `CHROME_PATH`; `BASE_URL` selects the server. For isolated checks, set a temporary storage directory and DB path and use another port. Do not interrupt an existing user server or alter operational data just to run checks. Restart Node after backend/config changes.
 
 ## Architecture Rules

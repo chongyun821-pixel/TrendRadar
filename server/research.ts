@@ -16,6 +16,7 @@ import { upsertRows } from './collection';
 import { scoreCase } from './scoring';
 import type { Repository } from './store';
 import type { SignalRow } from '../shared/types';
+import { catalogCountry, catalogMetadata } from '../shared/countries';
 
 const str = (description: string) => ({ type: 'string' as const, description });
 export const RESEARCH_DEFS: ToolDef[] = [
@@ -215,10 +216,14 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
     let result: unknown;
     switch (name) {
       case 'research_procurement': {
-        const country = resolveCountry(a.country) || String(a.country).toUpperCase(), system = resolveSystem(a.system);
+        const country = resolveCountry(a.country), system = resolveSystem(a.system);
+        if (!country) throw new Error('국가 확인 필요. find_country로 국가명이나 코드를 확인하세요');
         if (!system) throw new Error('무기체계 확인 필요');
         const row = await repo.one('SELECT * FROM records WHERE country=? AND system=?', country, system);
+        const catalog = catalogCountry(country);
+        const countryMeta = !(await repo.data()).countries[country] && catalog ? catalogMetadata(catalog) : undefined;
         result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
+        if (countryMeta) result = { ...result as Record<string, unknown>, countryMeta };
         break;
       }
       case 'save_source': {

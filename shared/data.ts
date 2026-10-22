@@ -1,5 +1,6 @@
 import type { Seed, SystemKey, ProgramRecord } from './types';
 import { SYSTEM_KEYS } from './types';
+import { catalogCountry } from './countries';
 
 export let seed: Seed = { meta: { baseYear: new Date().getFullYear(), collected: '', fx: {}, note: '' }, systems: {} as Seed['systems'], countries: {}, sources: {}, records: [] };
 export function setData(data: Seed) { seed = data; }
@@ -43,7 +44,7 @@ const C_ALIASES: Record<string, string> = {
   uae: 'ARE', 'united arab emirates': 'ARE', egypt: 'EGY', canada: 'CAN',
   '오스트레일리아': 'AUS', '사우디': 'SAU', '에미리트': 'ARE', '아랍에미리트': 'ARE', '베트남': 'VNM', '영국': 'GBR',
 };
-/** 국가명(한/영/ISO3)을 ISO3로. 데이터에 없는 나라는 countryNames(지도용)에서 찾는다. */
+/** 국가명(한/영/코드)을 지도 국가 ID로. 미등록 국가도 공통 목록에서 찾는다. */
 export function resolveCountry(s?: string | null, countryNames?: Record<string, string>): string | null {
   if (!s) return null;
   const raw = String(s).trim();
@@ -51,6 +52,9 @@ export function resolveCountry(s?: string | null, countryNames?: Record<string, 
   const up = raw.toUpperCase();
   if (seed.countries[up]) return up;
   if (C_ALIASES[k]) return C_ALIASES[k];
+  for (const [iso, c] of Object.entries(seed.countries)) if (c.ko === raw) return iso;
+  const catalog = catalogCountry(raw);
+  if (catalog) return catalog.id;
   for (const [iso, c] of Object.entries(seed.countries)) if (c.ko === raw || raw.includes(c.ko)) return iso;
   for (const [a, iso] of Object.entries(C_ALIASES)) if (k.includes(a)) return iso;
   if (countryNames) {

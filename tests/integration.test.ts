@@ -56,6 +56,9 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
       await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(PROJECT_ROOT, 'node_modules/tsx/dist/cli.mjs'), join(PROJECT_ROOT, 'mcp/server.ts')], cwd: PROJECT_ROOT, env: { NODE_ENV: 'test', PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_DATABASE: 'sqlite', RADAR_DB_PATH: repo.file, RADAR_STORAGE_DIR: repo.storage, RADAR_CONVERSATION_ID: c.id, RADAR_RUN_ID: runId } }));
       const context = parsed(await client.callTool({ name: 'get_app_context', arguments: {} }));
       expect(context.request.focus).toBe('POL'); expect(context.current.state.focus).toBe('FIN');
+      expect(parsed(await client.callTool({ name: 'find_country', arguments: { country: '독일' } })).matches[0]).toMatchObject({ country: 'DEU', registered: false });
+      expect(parsed(await client.callTool({ name: 'add_country', arguments: { country: 'Germany' } }))).toMatchObject({ ok: true, created: true, country: 'DEU' });
+      expect((await (await app.request('/api/data')).json()).countries.DEU).toMatchObject({ ko: '독일', flag: '🇩🇪' });
       expect(parsed(await client.callTool({ name: 'get_report_template', arguments: { format: 'pptx' } })).templates[0].id).toBe('ppt-country-v1');
       const prepared = parsed(await client.callTool({ name: 'research_procurement', arguments: { country: 'POL', system: 'sph' } }));
       const quote = '검증용 가상 계약 계획: 2031~2033년 10~12문';
