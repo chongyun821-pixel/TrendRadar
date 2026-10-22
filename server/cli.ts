@@ -6,14 +6,14 @@ import { systemPrompt, recentMessages, newOut, parseActionBlock, applyPageCalls,
 import type { Env } from './env';
 import { executions } from './execution';
 import { PROJECT_ROOT, DB_PATH, STORAGE_ROOT, DATABASE_KIND } from './store';
+import { CLI_OPTIONS } from '../shared/model-options';
 import { runProcess, type ProcessResult } from './process';
 import { parseGrokStream, parseCodexJsonl, type CliParsed } from './cli-output';
 import { removeGrokSessionDirs, grokGroupName, readRegistry, writeRegistry, leftoverSessions } from './grok-sessions';
 
-export const GROK_MODEL = 'grok-4.7';
-export const GROK_EFFORT = 'xhigh';
-export const CODEX_MODEL = 'gpt-6.1-sol';
-export const CODEX_EFFORT = 'xhigh';
+/** 기본값은 모델 선택표(shared/model-options.ts)를 따른다 */
+export const { defaultModel: GROK_MODEL, defaultEffort: GROK_EFFORT } = CLI_OPTIONS.grok;
+export const { defaultModel: CODEX_MODEL, defaultEffort: CODEX_EFFORT } = CLI_OPTIONS.codex;
 /** CLI 모델·추론 강도 우선순위: 채팅 선택 > CODEX_*·GROK_* 환경 변수 > 기본값 */
 export function cliChoice(cli: 'grok' | 'codex', env: Env, options?: ChatIn['options']) {
   const base = cli === 'grok' ? { model: env.GROK_MODEL || GROK_MODEL, effort: env.GROK_EFFORT || GROK_EFFORT } : { model: env.CODEX_MODEL || CODEX_MODEL, effort: env.CODEX_EFFORT || CODEX_EFFORT };

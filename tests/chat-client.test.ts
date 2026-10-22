@@ -22,11 +22,12 @@ describe('채팅 요청 본문', () => {
 
 describe('모델 목록과 기본값 표시', () => {
   it('목록 순서는 그록 빌드·코덱스·지피티·네모트론이고, 세부 선택이 없을 때 서버가 쓸 CLI 기본값을 알려준다', async () => {
-    const env = { LOCAL_CLI: '0', GROK_EFFORT: 'medium', CODEX_MODEL: 'gpt-6.1-luna' };
+    const env = { LOCAL_CLI: '0', GROK_EFFORT: 'medium', CODEX_MODEL: 'gpt-6-astra' };
     const body = await (await app.request('/api/models', {}, env)).json() as any;
     expect(body.models.map((m: { name: string }) => m.name)).toEqual(['그록 빌드', '코덱스', '지피티', '네모트론']);
-    expect(body.defaults).toEqual({ grok: { model: 'grok-4.7', effort: 'medium' }, codex: { model: 'gpt-6.1-luna', effort: 'xhigh' } });
+    expect(body.defaults).toEqual({ grok: { model: 'grok-4.7', effort: 'medium' }, codex: { model: 'gpt-6-astra', effort: 'high' } });
+    expect((await (await app.request('/api/models', {}, { LOCAL_CLI: '0' })).json() as any).defaults.codex).toEqual({ model: 'gpt-6-luna', effort: 'high' });
     expect(choiceLabel({ provider: 'grok' }, body.defaults.grok)).toBe('그록 빌드 | grok-4.7 | medium');
-    expect(cliChoice('codex', env, { effort: 'low' })).toEqual({ model: 'gpt-6.1-luna', effort: 'low' });
+    expect(cliChoice('codex', env, { effort: 'low' })).toEqual({ model: 'gpt-6-astra', effort: 'low' });
   });
 });

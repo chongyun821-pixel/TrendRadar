@@ -219,7 +219,7 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(GROK_ENV.GROK_MEMORY).toBe('0');
     expect(GROK_ENV.GROK_CLAUDE_MCPS_ENABLED).toBe('false'); expect(GROK_ENV.GROK_CURSOR_RULES_ENABLED).toBe('false');
   });
-  it('코덱스 인자: ephemeral·read-only·xhigh·호출별 MCP 설정', () => {
+  it('코덱스 인자: ephemeral·read-only·기본 gpt-6-luna·high·호출별 MCP 설정', () => {
     const a = codexArgs({ cwd: 'C:\\w\\.runtime\\codex', node: 'C:\\Program Files\\nodejs\\node.exe', tsx: 'C:\\w\\tsx.mjs', mcp: 'C:\\w\\mcp\\server.ts' });
     expect(a.slice(0, 5)).toEqual(['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write']);
     expect(a).toContain('web_search="live"'); expect(a).toContain('mcp_servers.procurement.default_tools_approval_mode="approve"'); expect(a).not.toContain('--ignore-user-config');
@@ -227,8 +227,8 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(off).toEqual(['multi_agent']);
     expect(off).not.toContain('web_search');
     expect(a).toContain('approval_policy="never"');
-    expect(a[a.indexOf('-m') + 1]).toBe('gpt-6.1-sol');
-    expect(a).toContain('model_reasoning_effort="xhigh"');
+    expect(a[a.indexOf('-m') + 1]).toBe('gpt-6-luna');
+    expect(a).toContain('model_reasoning_effort="high"');
     expect(a).toContain('mcp_servers.procurement.command="C:\\\\Program Files\\\\nodejs\\\\node.exe"');
     expect(a.find(x => x.startsWith('mcp_servers.procurement.args='))).toBe('mcp_servers.procurement.args=["C:\\\\w\\\\tsx.mjs","C:\\\\w\\\\mcp\\\\server.ts"]');
     expect(a.at(-1)).toBe('-');

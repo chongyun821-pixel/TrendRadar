@@ -13,10 +13,10 @@ export const CLI_OPTIONS: Record<'codex' | 'grok', { models: { id: string; effor
   codex: {
     models: [
       { id: 'gpt-6.1-sol', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
-      { id: 'gpt-6.1-luna', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      { id: 'gpt-6-luna', efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
       { id: 'gpt-6-astra', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
     ],
-    defaultModel: 'gpt-6.1-sol', defaultEffort: 'xhigh',
+    defaultModel: 'gpt-6-luna', defaultEffort: 'high',
   },
   grok: {
     models: [
@@ -47,7 +47,7 @@ export function checkChoice(raw: { provider?: unknown; model?: unknown; effort?:
   if (effort && !effortsFor(provider, model).includes(effort)) return { ok: false, error: `허용하지 않는 추론 강도: ${effort} (가능: ${effortsFor(provider, model).join(', ')})` };
   return { ok: true, choice: { provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}) } };
 }
-/** 한 줄 표시: 코덱스 | gpt-6.1-sol | xhigh */
+/** 한 줄 표시: 코덱스 | gpt-6-luna | high */
 export const LABEL_SEP = ' | ';
 export function choiceLabel(c: ModelChoice, defaults?: { model?: string; effort?: string }) {
   const name = PROVIDERS.find(p => p.id === c.provider)?.name || c.provider;

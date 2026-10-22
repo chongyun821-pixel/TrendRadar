@@ -30,7 +30,7 @@ export const APP_DEFS: ToolDef[] = [
   { name: 'switch_conversation', description: '대상 화면에 표시할 대화를 전환한다. 진행 중 작업의 저장 대상은 유지한다', properties: { ...target, conversationId: S('전환할 대화 ID'), expectedVersion: { type: 'integer' } }, required: ['conversationId'] },
   { name: 'create_conversation', description: '새 대화를 만든다. 화면 전환은 switch_conversation으로 요청한다', properties: { title: S('대화 제목') } },
   { name: 'delete_conversation', description: '대화를 삭제하고 원문 근거와 보고서 및 파일은 보존한다. 현재 실행 중인 대화는 중지 후 삭제한다', properties: { conversationId: S('삭제할 대화 ID') }, required: ['conversationId'] },
-  { name: 'set_chat_model', description: '지정한 화면의 다음 요청부터 사용할 모델을 변경한다', properties: { ...target, model: S('codex, grok, gpt, nemotron'), cliModel: S('코덱스: gpt-6.1-sol·gpt-6.1-luna·gpt-6-astra, 그록 빌드: grok-4.7·grok-4.7-build-fast·grok-4.6·grok-4.5'), effort: S('추론 강도(코덱스 low~max·ultra, 그록 빌드 low~xhigh)'), expectedVersion: { type: 'integer' } }, required: ['model'] },
+  { name: 'set_chat_model', description: '지정한 화면의 다음 요청부터 사용할 모델을 변경한다', properties: { ...target, model: S('codex, grok, gpt, nemotron'), cliModel: S('코덱스: gpt-6.1-sol·gpt-6-luna·gpt-6-astra, 그록 빌드: grok-4.7·grok-4.7-build-fast·grok-4.6·grok-4.5'), effort: S('추론 강도(코덱스 low~max·ultra, 그록 빌드 low~xhigh)'), expectedVersion: { type: 'integer' } }, required: ['model'] },
   { name: 'get_run_status', description: '실행 상태와 오류를 조회한다', properties: { runId: S('생략하면 현재 실행') } },
   { name: 'cancel_run', description: '실행에 중지를 요청한다. 자신의 종료를 기다리지 않는다', properties: { runId: S('생략하면 현재 실행') } },
 ];

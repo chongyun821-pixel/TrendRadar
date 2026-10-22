@@ -55,12 +55,15 @@ describe('모델 선택 단계', () => {
     expect(providers.items.find(i => i.id === 'grok')!.disabled).toBe(true);
     const codex = modelStep(['codex'], current);
     if ('done' in codex) throw new Error('단계');
-    expect(codex.items.map(i => i.id)).toEqual(['gpt-6.1-sol', 'gpt-6.1-luna', 'gpt-6-astra']);
-    expect(codex.items[0]).toMatchObject({ current: true, hint: '기본' });
-    const efforts = modelStep(['codex', 'gpt-6.1-sol'], current);
+    expect(codex.items.map(i => i.id)).toEqual(['gpt-6.1-sol', 'gpt-6-luna', 'gpt-6-astra']);
+    expect(codex.items[1]).toMatchObject({ id: 'gpt-6-luna', current: true, hint: '기본' });
+    const efforts = modelStep(['codex', 'gpt-6-luna'], current);
     if ('done' in efforts) throw new Error('단계');
-    expect(efforts.items.map(i => i.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
-    expect(efforts.items.find(i => i.current)!.id).toBe('xhigh');
+    expect(efforts.items.map(i => i.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(efforts.items.find(i => i.current)!.id).toBe('high');
+    const sol = modelStep(['codex', 'gpt-6.1-sol'], current);
+    if ('done' in sol) throw new Error('단계');
+    expect(sol.items.map(i => i.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
     expect(modelStep(['codex', 'gpt-6.1-sol', 'high'], current)).toEqual({ done: { provider: 'codex', model: 'gpt-6.1-sol', effort: 'high' } });
   });
   it('그록 빌드는 확인한 모델과 low~xhigh, 지피티·네모트론은 바로 완료', () => {
@@ -78,11 +81,11 @@ describe('모델 선택 단계', () => {
     expect(readChoice('gemma')).toBeNull();
     expect(readChoice(JSON.stringify({ provider: 'grok', model: 'grok-4.6', effort: 'low' }))).toEqual({ provider: 'grok', model: 'grok-4.6', effort: 'low' });
     expect(readChoice(JSON.stringify({ provider: 'grok', model: 'grok-9' }))).toBeNull();
-    expect(choiceLabel({ provider: 'codex' })).toBe('코덱스 | gpt-6.1-sol | xhigh');
+    expect(choiceLabel({ provider: 'codex' })).toBe('코덱스 | gpt-6-luna | high');
     expect(choiceLabel({ provider: 'nemotron' })).toBe('네모트론');
     expect(choiceLabel({ provider: 'grok', model: 'grok-4.6', effort: 'low' })).toBe('그록 빌드 | grok-4.6 | low');
     expect(LABEL_SEP).toBe(' | ');
-    expect(CLI_OPTIONS.codex.defaultEffort).toBe('xhigh');
+    expect(CLI_OPTIONS.codex).toMatchObject({ defaultModel: 'gpt-6-luna', defaultEffort: 'high' });
   });
 });
 
@@ -91,7 +94,7 @@ describe('서버 측 모델 선택 검증', () => {
     expect(parseModelChoice('codex', { model: 'gpt-6-astra', effort: 'ultra' })).toEqual({ provider: 'codex', model: 'gpt-6-astra', effort: 'ultra' });
     expect(parseModelChoice('grok', undefined)).toEqual({ provider: 'grok' });
     expect(parseModelChoice(undefined, undefined)).toBeUndefined();
-    expect(() => parseModelChoice('codex', { model: 'gpt-6.1-luna', effort: 'ultra' })).toThrow(/추론 강도/);
+    expect(() => parseModelChoice('codex', { model: 'gpt-6-luna', effort: 'ultra' })).toThrow(/추론 강도/);
     expect(() => parseModelChoice('grok', { effort: 'max' })).toThrow(/추론 강도/);
     expect(() => parseModelChoice('grok', { model: 'grok-9' })).toThrow(/허용하지 않는 모델/);
     expect(() => parseModelChoice('gpt', { model: 'gpt-6.1-sol' })).toThrow(/세부 모델/);

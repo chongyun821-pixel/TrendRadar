@@ -157,6 +157,17 @@ describe('대화별 모델 선택이 실제 호출까지 전달된다', { timeou
     expect(runs.map(r => r.model)).toEqual(['grok', 'codex', 'grok', 'gpt']);
   });
 
+  it('코덱스 기본값은 gpt-6-luna·high이고, 우선순위는 채팅 선택 > CODEX_* 환경 변수 > 기본값', async () => {
+    const c = await repository().createConversation();
+    const plain = argsOf((await chat(c.id, { model: 'codex' }, cliEnv)).text);
+    expect([value(plain, '-m'), plain.find(a => a.startsWith('model_reasoning_effort='))]).toEqual(['gpt-6-luna', 'model_reasoning_effort="high"']);
+    const env = { ...cliEnv, CODEX_MODEL: 'gpt-6.1-sol', CODEX_EFFORT: 'xhigh' };
+    const fromEnv = argsOf((await chat(c.id, { model: 'codex' }, env)).text);
+    expect([value(fromEnv, '-m'), fromEnv.find(a => a.startsWith('model_reasoning_effort='))]).toEqual(['gpt-6.1-sol', 'model_reasoning_effort="xhigh"']);
+    const chosen = argsOf((await chat(c.id, { model: 'codex', options: { model: 'gpt-6-luna', effort: 'low' } }, env)).text);
+    expect([value(chosen, '-m'), chosen.find(a => a.startsWith('model_reasoning_effort='))]).toEqual(['gpt-6-luna', 'model_reasoning_effort="low"']);
+  });
+
   it('허용하지 않는 조합은 접수하지 않는다', async () => {
     const c = await repository().createConversation();
     const r = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversationId: c.id, model: 'grok', options: { model: 'gpt-6-astra' }, messages: [{ role: 'user', text: 'x' }] }) }, cliEnv);
