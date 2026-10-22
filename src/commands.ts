@@ -1,6 +1,5 @@
 import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import { listForecasts, writeReport, forecast } from '../shared/tools';
-import { CATEGORY_KO } from '../shared/forecast';
 
 export type Action = { type: 'set_mode'; system: string | null } | { type: 'toggle_map_mode'; flat?: boolean } | { type: 'focus_country'; country: string };
 export interface LocalResult { text?: string; report?: string; actions: Action[] }
@@ -58,13 +57,3 @@ export function runCommand(input: string, names: Record<string, string>): LocalR
   }
   return { text: `모르는 명령: !${cmd}\n${HELP}`, actions: [] };
 }
-
-/** 키가 없을 때의 간단한 자연어 해석: 국가·체계·'보고서' */
-export function naiveIntent(text: string, names: Record<string, string>): LocalResult | null {
-  const c = resolveCountry(text, names) ?? Object.entries(seed.countries).find(([, v]) => text.includes(v.ko))?.[0] ?? null;
-  const s = resolveSystem(text);
-  if (c && /보고서|리포트|report/i.test(text)) return runCommand(`!보고서 ${c} ${s ?? ''}`, names);
-  if (c && /예측|전망|언제|규모/.test(text)) return runCommand(`!예측 ${c} ${s ?? ''}`, names);
-  return null;
-}
-export { CATEGORY_KO };

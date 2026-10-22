@@ -1,12 +1,19 @@
-import { md, esc } from './md';
+import { md } from './md';
 import { HELP, type Action } from './commands';
 import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import type { SystemKey } from '../shared/types';
-import { commandVersionMatches, type AppliedCommandVersion, type AppContext, type ReportRef } from '../shared/app-context';
+import type { AppContext, ReportRef } from '../shared/app-context';
 import { createChatStatus, toolActivity } from './chat-status';
 import { createPicker } from './picker';
 import { slashSuggestions, modelStep, parseSlash, readChoice, type PickItem } from './slash';
 import { checkChoice, choiceLabel, type ModelChoice } from '../shared/model-options';
+import { api, post, chatBody, pickModel, isActiveStatus, latestRun, runStatusText, type Conversation, type ModelInfo, type QueuedMessage, type RunInfo } from './chat-api';
+import { createMessageList } from './chat-messages';
+import { bindTitleEditor } from './chat-title';
+import { createUploader } from './chat-upload';
+import { createScreenCommands, type ScreenCommand } from './screen-commands';
+
+export { pickModel, type ModelInfo };
 
 interface ChatOpts {
   names: Record<string, string>;
@@ -16,51 +23,37 @@ interface ChatOpts {
   modeKo(): string | null;
   refreshData(): Promise<void>;
 }
-export type ModelInfo = { id: string; name: string; available: boolean };
-const MODEL_ALIAS: Record<string, string> = { 그록: 'grok', 그록빌드: 'grok', grok: 'grok', 코덱스: 'codex', codex: 'codex', 지피티: 'gpt', gpt: 'gpt', 쥐피티: 'gpt', chatgpt: 'gpt', 네모트론: 'nemotron', nemotron: 'nemotron' };
-export function pickModel(name: string, models: ModelInfo[]): string | null {
-  const key = name.replace(/\s+/g, '').toLowerCase();
-  return MODEL_ALIAS[key] || models.find(m => m.name.replace(/\s+/g, '').toLowerCase() === key || m.id === key)?.id || null;
-}
-type Download = { id: string; name: string; url: string };
-type Message = { role: string; text: string; reports?: string[]; reportRefs?: (ReportRef | null)[]; created_at?: string; files?: Download[]; model?: string; error?: string };
-type ReportEntry = ReportRef & { markdown: string; createdAt: string };
-type QueuedMessage = { id: string; text: string };
-type DeliveryTarget = { id: string | null; creation?: Promise<string>; pending: number; task: Promise<void>; outbox: QueuedMessage[] };
+/**
+ * 전송 중 메시지(낙관적 표시). runId: 서버가 접수한 실행. 서버 대기열에 있거나 저장본으로 그려지면(shown) 이 표시는 숨긴다.
+ * cancelled: 접수 전에 중지를 눌렀다
+ */
+type OutboxEntry = QueuedMessage & { runId?: string; shown?: boolean; cancelled?: boolean };
+/** 한 대화로 보내는 메시지 순서: 대화 생성 → 접수를 차례로 처리한다 */
+type DeliveryTarget = { id: string | null; creation?: Promise<string>; pending: number; task: Promise<void>; outbox: OutboxEntry[] };
 const newTarget = (id: string | null = null): DeliveryTarget => ({ id, pending: 0, task: Promise.resolve(), outbox: [] });
-type Conversation = { id: string; title: string; messages: Message[]; queued?: QueuedMessage[]; reportEntries?: ReportEntry[]; files: { id: string; name: string; kind: string; error?: string }[]; runs: { id: string; status: string; error?: string; started_at?: string; ended_at?: string }[] };
-const latestRun = (c: Conversation) => [...c.runs].sort((a, b) => (b.ended_at || b.started_at || '').localeCompare(a.ended_at || a.started_at || ''))[0];
-async function api(path: string, options?: RequestInit): Promise<any> {
-  const r = await fetch(`/api${path}`, options);
-  const data = await r.json();
-  if (!r.ok) throw new Error(data.error || `요청 실패 ${r.status}`);
-  return data;
-}
-const post = (body?: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+type CliDefaults = Partial<Record<'codex' | 'grok', { model?: string; effort?: string }>>;
 
 export function initChat(o: ChatOpts) {
   const root = document.querySelector('#chat') as HTMLElement;
   const get = <T extends HTMLElement>(s: string) => root.querySelector(s) as T;
   const list = get<HTMLElement>('#msgs'), input = get<HTMLTextAreaElement>('#q');
   const form = get<HTMLFormElement>('form');
-  const status = get<HTMLElement>('#chatStatus'), pickerRoot = get<HTMLElement>('#picker');
-  const choiceLabelEl = get<HTMLElement>('#modelLabel');
+  const status = get<HTMLElement>('#chatStatus');
+  const choiceLabelEl = get<HTMLElement>('#modelLabel'), titleEl = get<HTMLElement>('#conversationTitle');
   const progress = createChatStatus(status);
-  const picker = createPicker(pickerRoot, get<HTMLTextAreaElement>('#q'));
-  const fileInput = get<HTMLInputElement>('#fileInput');
+  const picker = createPicker(get<HTMLElement>('#picker'), input);
+  const messages = createMessageList(list);
   const stop = get<HTMLButtonElement>('#stopButton'), sendButton = get<HTMLButtonElement>('.send');
   const workspace = get<HTMLElement>('#workspace');
   const attachButton = get<HTMLButtonElement>('#attachButton'), addFiles = get<HTMLButtonElement>('#addFiles');
-  const uploadStatus = get<HTMLElement>('#uploadStatus');
-  const uploadedNames: string[] = [];
-  let uploadTask: Promise<void> | null = null;
   let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false;
-  let deliveryTarget = newTarget(), queueSignature = '';
+  let deliveryTarget = newTarget();
   let queuedMessages: QueuedMessage[] = [];
-  let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], choice: ModelChoice = { provider: 'gpt' };
+  let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], choice: ModelChoice = { provider: 'gpt' }, cliDefaults: CliDefaults = {};
   const screenId = crypto.randomUUID();
   let contextVersion = 0, contextSignature = '', activeView: 'map' | 'report' = 'map', currentReport: ReportRef | null = null;
-  let reportEntries: ReportEntry[] = [];
+
+  /* ───────── 화면 맥락 ───────── */
   function appSnapshot(): AppContext {
     const map = o.getState();
     const state = { screenId, conversationId, model: choice.provider, ...(choice.model || choice.effort ? { modelOptions: { ...(choice.model ? { model: choice.model } : {}), ...(choice.effort ? { effort: choice.effort } : {}) } } : {}), activeView, ...map, filters: { system: map.mode }, report: currentReport, dataVersion: o.dataVersion() };
@@ -77,12 +70,15 @@ export function initChat(o: ChatOpts) {
     return state;
   }
   addEventListener('radar:map-state', () => { activeView = 'map'; });
+
+  /* ───────── 모델 선택 ───────── */
   const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* 저장 제한 */ } };
   const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
-  /** 모델 선택(제공자·CLI 모델·추론 강도). 전역 마지막 선택과 대화별 선택을 함께 저장한다 */
+  const showChoice = () => { choiceLabelEl.textContent = choiceLabel(choice, choice.provider === 'codex' || choice.provider === 'grok' ? cliDefaults[choice.provider] : undefined); };
+  /** 모델 선택(제공자·CLI 모델·추론 강도). 전역 마지막 선택과 대화별 선택을 함께 저장하고, 다음 요청부터 그대로 서버에 보낸다 */
   function setChoice(next: ModelChoice | null, persist = true) {
     if (!next || !models.some(m => m.id === next.provider && m.available)) return false;
-    choice = next; choiceLabelEl.textContent = choiceLabel(choice);
+    choice = next; showChoice();
     if (persist) { save('pr.model', JSON.stringify(choice)); if (conversationId) save(`pr.model.${conversationId}`, JSON.stringify(choice)); }
     return true;
   }
@@ -91,11 +87,14 @@ export function initChat(o: ChatOpts) {
     return r.ok && setChoice(r.choice);
   };
   api('/models').then(j => {
-    models = j.models;
+    models = j.models; cliDefaults = j.defaults || {};
     const saved = (conversationId && readChoice(read(`pr.model.${conversationId}`))) || readChoice(read('pr.model'));
     if (!setChoice(saved, false)) setChoice({ provider: j.default }, false);
+    showChoice();
   }).catch(e => { progress.set(e.message); });
-  choiceLabelEl.textContent = choiceLabel(choice);
+  showChoice();
+
+  /* ───────── 입력창·메뉴 ───────── */
   const open = () => root.classList.add('open');
   const collapse = () => { root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
   function closeMenus() {
@@ -116,6 +115,7 @@ export function initChat(o: ChatOpts) {
     input.style.height = 'auto';
     input.style.height = `${Math.min(150, Math.max(34, input.scrollHeight))}px`;
   }
+  function clearInput() { input.value = ''; resizeInput(); }
   input.addEventListener('input', resizeInput);
   // / 로 시작하면 명령 후보를 보이고, 다른 내용을 입력하면 열린 선택기를 닫는다
   input.addEventListener('input', () => {
@@ -133,31 +133,6 @@ export function initChat(o: ChatOpts) {
   get('#chatToggle').addEventListener('click', () => root.classList.toggle('open'));
   document.querySelector('#globe')!.addEventListener('pointerdown', () => { if (!input.value && !activeRun) collapse(); });
 
-  function add(role: string, html: string, modelName?: string) {
-    const div = document.createElement('div'); div.className = `m ${role}`; div.innerHTML = html;
-    if (modelName) div.title = modelName;
-    list.appendChild(div); list.scrollTop = list.scrollHeight;
-    return div;
-  }
-  function renderMessage(message: Message) {
-    if (message.role === 'user') add('user', md(message.text));
-    else {
-      for (const [index, report] of (message.reports || []).entries()) {
-        const div = add('report', md(report));
-        const ref = message.reportRefs?.[index] || reportEntries.filter(r => r.markdown === report && (!message.created_at || r.createdAt <= message.created_at)).at(-1);
-        if (ref) div.dataset.reportId = ref.id;
-      }
-      if (message.text) add('bot', md(message.text), message.model);
-      if (message.files?.length) {
-        const box = document.createElement('div'); box.className = 'm downloads';
-        for (const file of message.files) {
-          if (!/^\/api\/conversations\/[0-9a-f-]+\/files\/[0-9a-f-]+$/i.test(file.url)) continue;
-          const a = document.createElement('a'); a.href = file.url; a.download = ''; a.textContent = `↓ ${file.name.split('/').at(-1)}`; box.appendChild(a);
-        }
-        if (box.childNodes.length) { list.appendChild(box); list.scrollTop = list.scrollHeight; }
-      }
-    }
-  }
   function exec(actions: Action[] = []) {
     for (const a of actions) {
       if (a.type === 'set_mode') o.actions.set_mode(a.system && !isGeneral(a.system) ? resolveSystem(a.system) : null);
@@ -167,37 +142,35 @@ export function initChat(o: ChatOpts) {
   }
   function busy(on: boolean) {
     sending = on; root.classList.toggle('busy', on); stop.hidden = !on; updateSendButton();
-    addFiles.disabled = on || !!uploadTask;
+    addFiles.disabled = on || !!uploader.task;
   }
   function updateSendButton() { sendButton.hidden = sending && !input.value.trim(); }
-  function renderQueued(messages: QueuedMessage[] = queuedMessages) {
-    queuedMessages = messages;
-    const signature = JSON.stringify([messages, deliveryTarget.outbox]);
-    if (queueSignature === signature) return;
-    queueSignature = signature;
-    const atBottom = list.scrollHeight - list.clientHeight - list.scrollTop < 40;
-    list.querySelectorAll('.m.queued').forEach(element => element.remove());
-    for (const [index, message] of [...messages, ...deliveryTarget.outbox].entries()) {
-      const pending = deliveryTarget.outbox.includes(message);
-      const box = document.createElement('div'); box.className = 'm user queued'; box.dataset.queuedId = message.id;
-      const heading = document.createElement('div'); heading.className = 'queued-heading';
-      const label = document.createElement('span'); label.textContent = pending ? '전송 중' : `대기 ${index + 1}`; heading.appendChild(label);
-      if (!pending) {
-        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '취소'; cancel.setAttribute('aria-label', `대기 메시지 ${index + 1} 취소`);
-        cancel.onclick = async () => {
-          const token = view, id = conversationId; cancel.disabled = true;
-          try {
-            await api(`/runs/${message.id}/stop`, post());
-            const c: Conversation = await loadConversation(id!, true);
-            if (token === view) { renderConversation(c); followConversation(c, token); }
-          } catch (error) { if (token === view) { showError(error); cancel.disabled = false; } }
-        };
-        heading.appendChild(cancel);
-      }
-      const body = document.createElement('div'); body.innerHTML = md(message.text); box.append(heading, body); list.appendChild(box);
-    }
-    if (atBottom) list.scrollTop = list.scrollHeight;
+  function showError(e: unknown) { progress.set(String(e instanceof Error ? e.message : e)); }
+
+  /* ───────── 메시지 목록 ───────── */
+  /** 대기 메시지 취소: 서버에서 실행하지 않고 취소한 뒤 대화를 다시 그린다 */
+  async function cancelQueued(message: QueuedMessage, _index: number, button: HTMLButtonElement) {
+    const token = view, id = conversationId; button.disabled = true;
+    try {
+      await api(`/runs/${message.id}/stop`, post());
+      const c: Conversation = await loadConversation(id!, true);
+      if (token === view) { renderConversation(c); followConversation(c, token); }
+    } catch (error) { if (token === view) { showError(error); button.disabled = false; } }
   }
+  /** 서버가 이미 보여주는 메시지(대기열에 있거나 대화 저장본에 실행 기록이 있는 요청)와 겹치지 않는 전송 중 메시지 */
+  function visibleOutbox(queued: QueuedMessage[], runs?: RunInfo[]) {
+    const queuedIds = new Set(queued.map(q => q.id)), known = new Set((runs || []).map(r => r.id));
+    for (const entry of deliveryTarget.outbox) if (entry.runId && known.has(entry.runId)) entry.shown = true;
+    return deliveryTarget.outbox.filter(entry => !entry.shown && !(entry.runId && queuedIds.has(entry.runId)));
+  }
+  function renderQueued(queued: QueuedMessage[] = queuedMessages) {
+    queuedMessages = queued;
+    messages.renderQueued(queued, visibleOutbox(queued), cancelQueued);
+    markProgrammaticScroll();
+  }
+  /** 다시 그리면서 생긴 스크롤은 사용자가 보고서를 본 것으로 치지 않는다(완료 후 사용자가 바꾼 지도 화면 유지) */
+  let programmaticScroll = -1;
+  function markProgrammaticScroll() { programmaticScroll = list.scrollTop; }
   function renderFiles(c: Conversation) {
     const box = get('#workspaceFiles'); box.replaceChildren();
     const visible = c.files.filter(f => f.kind !== 'tool-log' && f.kind !== 'extracted');
@@ -211,42 +184,45 @@ export function initChat(o: ChatOpts) {
       a.title = f.error || f.name; a.download = ''; a.classList.toggle('word-file', f.kind === 'document'); box.appendChild(a);
     }
   }
-  attachButton.onclick = () => toggleMenu(workspace, attachButton);
-  addFiles.onclick = () => fileInput.click();
-  async function upload(files: File[]) {
-    if (!files.length) return;
-    if (sending || uploadTask) { uploadStatus.textContent = '현재 작업이 끝나면 파일을 추가할 수 있습니다.'; return; }
-    closeMenus(); workspace.hidden = false; attachButton.setAttribute('aria-expanded', 'true');
-    const token = view; addFiles.disabled = true; uploadStatus.textContent = `${files.length}개 파일 업로드 중…`;
-    const task = (async () => {
-      try {
-        const id = await ensureConversation(token);
-        if (token !== view) return;
-        const formData = new FormData(); for (const file of files) formData.append('files', file);
-        const result = await api(`/conversations/${id}/files`, { method: 'POST', body: formData });
-        if (token !== view) return;
-        uploadedNames.push(...result.files.map((file: any, index: number) => `${files[index].name}${file.message ? ` (${file.message})` : ''}`));
-        const notices = result.files.flatMap((file: any, index: number) => ['failed', 'unsupported'].includes(file.extraction) ? [`${files[index].name}: ${file.message}`] : []);
-        uploadStatus.textContent = [`${files.length}개 파일 추가됨`, ...notices].join('\n');
-        const conversation = await loadConversation(id, true);
-        if (token !== view) return;
-        renderFiles(conversation); await refreshHistory();
-      } catch (e) { if (token === view) uploadStatus.textContent = `업로드 실패 · ${e instanceof Error ? e.message : e}`; }
-    })();
-    uploadTask = task;
-    try { await task; } finally { uploadTask = null; addFiles.disabled = sending; }
+  function renderConversation(c: Conversation, activateLatestReport = true) {
+    queuedMessages = c.queued || [];
+    messages.render(c, visibleOutbox(queuedMessages, c.runs), cancelQueued);
+    if (currentReport && !messages.reportEntries.some(r => r.id === currentReport!.id)) currentReport = null;
+    titleEl.textContent = c.title;
+    renderFiles(c);
+    const report = Array.from(list.querySelectorAll<HTMLElement>('.m.report')).at(-1);
+    if (activateLatestReport && report && c.messages.at(-1)?.reports?.length) { list.scrollTop = report.offsetTop - list.offsetTop; activateReport(report); }
+    markProgrammaticScroll();
   }
-  fileInput.onchange = () => { const files = Array.from(fileInput.files || []); fileInput.value = ''; void upload(files); };
-  const overlay = get('#dropOverlay'); let dragDepth = 0;
-  const isFileDrag = (e: DragEvent) => Array.from(e.dataTransfer?.types || []).includes('Files');
-  document.addEventListener('dragenter', e => {
-    if (!isFileDrag(e)) return; e.preventDefault(); dragDepth++; overlay.hidden = false;
-    overlay.querySelector('strong')!.textContent = sending || uploadTask ? '현재 작업이 끝난 뒤 파일을 추가하세요' : '파일을 놓아 대화에 추가';
+  function activateReport(element: HTMLElement) {
+    const entry = messages.reportEntries.find(r => r.id === element.dataset.reportId);
+    if (!entry) return;
+    const { markdown: _text, createdAt: _date, ...ref } = entry; currentReport = ref; activeView = 'report';
+  }
+  list.addEventListener('pointerdown', event => { const report = (event.target as HTMLElement).closest<HTMLElement>('.m.report'); if (report) activateReport(report); });
+  list.addEventListener('scroll', () => {
+    if (!root.classList.contains('open') || Math.abs(list.scrollTop - programmaticScroll) < 1) return;
+    const bounds = list.getBoundingClientRect();
+    const visible = Array.from(list.querySelectorAll<HTMLElement>('.m.report')).map(element => ({ element, height: Math.min(bounds.bottom, element.getBoundingClientRect().bottom) - Math.max(bounds.top, element.getBoundingClientRect().top) })).filter(x => x.height > 40).sort((a, b) => b.height - a.height)[0];
+    if (visible) activateReport(visible.element);
+  }, { passive: true });
+
+  /* ───────── 자료 추가 ───────── */
+  attachButton.onclick = () => toggleMenu(workspace, attachButton);
+  const fileInput = get<HTMLInputElement>('#fileInput');
+  addFiles.onclick = () => fileInput.click();
+  const uploader = createUploader({
+    fileInput, addFiles, status: get<HTMLElement>('#uploadStatus'), overlay: get('#dropOverlay'),
+    busy: () => sending, view: () => view, ensureConversation: token => ensureConversation(token),
+    showMenu: () => { closeMenus(); workspace.hidden = false; attachButton.setAttribute('aria-expanded', 'true'); },
+    uploaded: async (id, token) => {
+      const conversation = await loadConversation(id, true);
+      if (token !== view) return;
+      renderFiles(conversation); await refreshHistory();
+    },
   });
-  document.addEventListener('dragover', e => { if (isFileDrag(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = sending || uploadTask ? 'none' : 'copy'; } });
-  document.addEventListener('dragleave', e => { if (isFileDrag(e) && --dragDepth <= 0) { dragDepth = 0; overlay.hidden = true; } });
-  document.addEventListener('drop', e => { if (!isFileDrag(e)) return; e.preventDefault(); dragDepth = 0; overlay.hidden = true; void upload(Array.from(e.dataTransfer?.files || [])); });
-  window.addEventListener('blur', () => { dragDepth = 0; overlay.hidden = true; });
+
+  /* ───────── 대화 목록·전환 ───────── */
   /** 대화 캐시: 전환 즉시 마지막으로 받은 내용을 보여주고 최신 내용은 뒤에서 받는다 */
   const conversations = new Map<string, Conversation>(), loading = new Map<string, Promise<Conversation>>();
   let historyRows: { id: string; title: string }[] = [];
@@ -296,31 +272,7 @@ export function initChat(o: ChatOpts) {
       tab: item => { input.value = `/${item.id}`; resizeInput(); updateSendButton(); openSlashHints(); },
     });
   }
-  /** 대화 제목: 눌러서 바로 고친다. Enter·초점 이동 저장, Esc 취소, 빈 값은 되돌림. 화면을 먼저 바꾸고 실패하면 되돌린다 */
-  const titleEl = get<HTMLElement>('#conversationTitle');
-  let titleBefore = '', titleCancel = false;
-  titleEl.addEventListener('click', () => {
-    if (titleEl.isContentEditable) return;
-    picker.close(); titleBefore = titleEl.textContent || ''; titleCancel = false;
-    try { titleEl.contentEditable = 'plaintext-only'; } catch { titleEl.contentEditable = 'true'; }
-    if (!titleEl.isContentEditable) titleEl.contentEditable = 'true';
-    titleEl.focus();
-    const range = document.createRange(); range.selectNodeContents(titleEl);
-    const selection = getSelection(); selection?.removeAllRanges(); selection?.addRange(range);
-  });
-  titleEl.addEventListener('keydown', e => {
-    if (e.isComposing) return;
-    if (e.key === 'Enter') { e.preventDefault(); titleEl.blur(); }
-    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); titleCancel = true; titleEl.blur(); }
-  });
-  titleEl.addEventListener('blur', () => {
-    if (!titleEl.isContentEditable) return;
-    titleEl.contentEditable = 'false'; titleEl.scrollLeft = 0;
-    const next = (titleEl.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
-    if (titleCancel || !next || next === titleBefore) { titleEl.textContent = titleBefore; return; }
-    titleEl.textContent = next;
-    void renameConversation(next, titleBefore);
-  });
+  /** 대화 제목 바로 변경: 화면을 먼저 바꾸고 실패하면 되돌린다 */
   function setRowTitle(id: string, title: string) {
     const row = historyRows.find(r => r.id === id);
     if (row) row.title = title; else historyRows.unshift({ id, title });
@@ -340,6 +292,7 @@ export function initChat(o: ChatOpts) {
       progress.set('제목 변경 실패');
     }
   }
+  bindTitleEditor(titleEl, { onEdit: () => picker.close(), rename: (next, previous) => { void renameConversation(next, previous); } });
   choiceLabelEl.addEventListener('click', () => { open(); openModels(); });
   /** /models: 제공자 → (코덱스·그록 빌드) 모델 → 추론 강도 */
   function openModels(path: string[] = []) {
@@ -350,54 +303,30 @@ export function initChat(o: ChatOpts) {
       back: path.length ? () => openModels(path.slice(0, -1)) : undefined,
     });
   }
-  function showError(e: unknown) { progress.set(String(e instanceof Error ? e.message : e)); }
+  /** 화면 전환 공통: 진행 표시·전송 대상·자료 상태를 대화에 맞게 초기화한다 */
+  function resetSession(id: string | null) {
+    conversationId = id; activeRun = null; busy(false);
+    deliveryTarget = newTarget(id); queuedMessages = []; messages.resetQueue();
+    currentReport = null; activeView = 'map';
+  }
   function newConversation() {
-    view++; conversationId = null; activeRun = null; busy(false); save('pr.conversation', '');
-    deliveryTarget = newTarget(); queuedMessages = []; queueSignature = '';
-    list.replaceChildren(); uploadedNames.length = 0; input.value = ''; resizeInput(); progress.set(''); uploadStatus.textContent = '';
-    get('#conversationTitle').textContent = '새 대화'; get('#workspaceFiles').textContent = '추가한 자료가 없습니다.'; get('#fileCount').hidden = true; closeMenus();
+    view++; resetSession(null); save('pr.conversation', '');
+    messages.clear(); uploader.reset(); clearInput(); progress.set('');
+    titleEl.textContent = '새 대화'; get('#workspaceFiles').textContent = '추가한 자료가 없습니다.'; get('#fileCount').hidden = true; closeMenus();
     open(); input.focus();
-    currentReport = null; reportEntries = []; activeView = 'map';
   }
-  function renderConversation(c: Conversation, activateLatestReport = true) {
-    reportEntries = c.reportEntries || [];
-    if (currentReport && !reportEntries.some(r => r.id === currentReport!.id)) currentReport = null;
-    list.replaceChildren(); c.messages.forEach(renderMessage); get('#conversationTitle').textContent = c.title;
-    queueSignature = ''; renderQueued(c.queued || []);
-    if (!list.childNodes.length) {
-      const empty = document.createElement('div'); empty.className = 'conversation-empty';
-      const title = document.createElement('strong'); title.textContent = c.title;
-      const message = document.createElement('p'); message.textContent = '아직 대화 내용이 없습니다. 메시지를 입력해 대화를 이어가세요.';
-      empty.append(title, message); list.appendChild(empty);
-    }
-    renderFiles(c);
-    const report = Array.from(list.querySelectorAll<HTMLElement>('.m.report')).at(-1);
-    if (activateLatestReport && report && c.messages.at(-1)?.reports?.length) { list.scrollTop = report.offsetTop - list.offsetTop; activateReport(report); }
-  }
-  function activateReport(element: HTMLElement) {
-    const entry = reportEntries.find(r => r.id === element.dataset.reportId);
-    if (!entry) return;
-    const { markdown: _text, createdAt: _date, ...ref } = entry; currentReport = ref; activeView = 'report';
-  }
-  list.addEventListener('pointerdown', event => { const report = (event.target as HTMLElement).closest<HTMLElement>('.m.report'); if (report) activateReport(report); });
-  list.addEventListener('scroll', () => {
-    if (!root.classList.contains('open')) return;
-    const bounds = list.getBoundingClientRect();
-    const visible = Array.from(list.querySelectorAll<HTMLElement>('.m.report')).map(element => ({ element, height: Math.min(bounds.bottom, element.getBoundingClientRect().bottom) - Math.max(bounds.top, element.getBoundingClientRect().top) })).filter(x => x.height > 40).sort((a, b) => b.height - a.height)[0];
-    if (visible) activateReport(visible.element);
-  }, { passive: true });
   /** 낙관적 전환: 바로 선택을 바꾸고 캐시(없으면 제목만)를 보여준 뒤 최신 내용으로 갱신한다. 실패하면 이전 대화로 되돌린다 */
   async function selectConversation(id: string) {
     const token = ++view, previous = conversationId;
     const show = (c: Conversation) => {
-      conversationId = c.id; currentReport = null; activeView = 'map'; save('pr.conversation', c.id); activeRun = null; busy(false); uploadedNames.length = 0; uploadStatus.textContent = '';
-      deliveryTarget = newTarget(c.id); setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); open();
+      resetSession(c.id); save('pr.conversation', c.id); uploader.reset();
+      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); open();
     };
     const cached = conversations.get(id);
     if (cached) show(cached);
     else {
-      conversationId = id; activeRun = null; busy(false); deliveryTarget = newTarget(id);
-      list.replaceChildren(); get('#conversationTitle').textContent = historyRows.find(r => r.id === id)?.title || '대화'; open();
+      resetSession(id); messages.clear();
+      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; open();
       progress.set('대화 불러오는 중…');
     }
     let c: Conversation;
@@ -414,13 +343,16 @@ export function initChat(o: ChatOpts) {
     followConversation(c, token);
     if (!activeRun) progress.set(latestRun(c)?.error ? `이전 작업 오류: ${latestRun(c).error}` : '');
   }
+
+  /* ───────── 실행 추적·중지 ───────── */
+  /** 실행 중이거나 가장 먼저 대기한 요청을 따라간다(대기열은 FIFO, runs는 최신순) */
   function followConversation(c: Conversation, token: number) {
     const run = c.runs.find(r => ['running', 'stopping'].includes(r.status)) || c.runs.filter(r => r.status === 'queued').at(-1);
     busy(!!run || deliveryTarget.pending > 0);
     if (!run) {
       activeRun = null;
       const last = latestRun(c);
-      if (last) progress.set(last.error || (last.status === 'completed' ? '완료' : last.status === 'cancelled' ? '작업 중지됨' : last.status));
+      if (last) progress.set(runStatusText(last));
       return;
     }
     if (activeRun === run.id) return;
@@ -439,10 +371,13 @@ export function initChat(o: ChatOpts) {
     let previousStatus = '';
     let requestVersion: number | undefined;
     let stopping = false;
+    const current = () => token === view && activeRun === runId;
     try {
-      while (token === view && activeRun === runId) {
+      while (current()) {
         const run = await api(`/runs/${runId}?after=${after}`);
-        if (token !== view || activeRun !== runId) return;
+        if (!current()) return;
+        // 실행이 시작되면 서버가 사용자 메시지를 저장한다. 대기 표시를 일반 메시지로 바꿔 답변이 끝날 때까지 보이게 한다.
+        if (run.status !== 'queued') messages.promote(runId);
         renderQueued(run.queued || []);
         const activity = (message: string) => progress.start({ message, startedAt: run.started_at });
         if (!after || previousStatus !== run.status) activity(run.status === 'queued' ? '메시지 대기 중' : '요청 처리 중');
@@ -460,13 +395,13 @@ export function initChat(o: ChatOpts) {
           if (event.name === 'model.request') activity('답변 준비 중');
           if (event.name === 'model.fallback') activity('모델 재연결 중');
         }
-        if (!['queued','running','stopping'].includes(run.status)) {
+        if (!isActiveStatus(run.status)) {
           const c = await loadConversation(conversationId!, true);
-          if (token !== view || activeRun !== runId) return;
-          const mayChangeView = requestVersion === undefined || commandVersionMatches(requestVersion, appSnapshot().version, appliedVersions.get(runId) || []);
+          if (!current()) return;
+          const mayChangeView = screen.mayChangeView(runId, requestVersion);
           if (mayChangeView) exec(run.result?.actions);
           renderConversation(c, mayChangeView);
-          progress.set(run.error || (run.status === 'completed' ? '완료' : run.status === 'cancelled' ? '작업 중지됨' : run.status));
+          progress.set(runStatusText(run));
           followConversation(c, token);
           await o.refreshData(); await refreshHistory(); return;
         }
@@ -474,20 +409,37 @@ export function initChat(o: ChatOpts) {
         await new Promise(resolve => setTimeout(resolve, 800));
       }
     } catch (e) {
-      if (token === view) { progress.set(`${e instanceof Error ? e.message : e}\n대화 목록에서 다시 선택해 진행 상황을 복원하세요.`); busy(false); }
+      if (token === view) {
+        progress.set(`${e instanceof Error ? e.message : e}\n대화 목록에서 다시 선택해 진행 상황을 복원하세요.`);
+        if (activeRun === runId) activeRun = null;
+        busy(deliveryTarget.pending > 0);
+      }
     }
   }
+  /**
+   * 중지: 진행 중(또는 첫 대기) 요청을 서버에서 중지한다. 서버는 모델 호출과 CLI 프로세스 트리를 끝내고 중지됨으로 저장한다.
+   * 아직 접수되지 않은 전송 중 메시지는 접수 즉시 취소하도록 표시한다.
+   */
   stop.onclick = async () => {
-    if (!activeRun) return;
+    const runId = activeRun;
+    if (!runId) {
+      const waiting = deliveryTarget.outbox.filter(entry => !entry.cancelled);
+      if (!waiting.length) return;
+      for (const entry of waiting) entry.cancelled = true;
+      progress.start({ message: '작업 중지 중' });
+      return;
+    }
     stop.disabled = true; progress.start({ message: '작업 중지 중' });
-    try { await api(`/runs/${activeRun}/stop`, post()); } catch (e) { showError(e); } finally { stop.disabled = false; }
+    try { await api(`/runs/${runId}/stop`, post()); } catch (e) { showError(e); } finally { stop.disabled = false; }
   };
+
+  /* ───────── 전송 ───────── */
   async function send(text: string) {
-    if (uploadTask) await uploadTask;
-    if (!text.trim() && !uploadedNames.length) return;
+    if (uploader.task) await uploader.task;
+    if (!text.trim() && !uploader.names.length) return;
     const slash = parseSlash(text);
     if (slash) {
-      input.value = ''; resizeInput(); updateSendButton(); open();
+      clearInput(); updateSendButton(); open();
       if (slash.cmd === 'sessions') openSessions(); else openModels();
       return;
     }
@@ -498,13 +450,16 @@ export function initChat(o: ChatOpts) {
     }
     const wasBusy = sending, token = sending ? view : ++view, target = deliveryTarget;
     const selectedChoice = choice, state = { ...o.getState() }, appContext = appSnapshot();
-    if (uploadedNames.length) { text += `\n\n첨부: ${uploadedNames.join(', ')}`; uploadedNames.length = 0; }
-    const entry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
-    input.value = ''; resizeInput(); open(); closeMenus(); busy(true);
+    if (uploader.names.length) { text += `\n\n첨부: ${uploader.names.join(', ')}`; uploader.names.length = 0; }
+    // 낙관적 표시: 보내는 즉시 「전송 중」으로 보이고, 서버 저장본으로 다시 그릴 때 한 번에 바꾼다.
+    const entry: OutboxEntry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
+    const dropEntry = () => { target.outbox = target.outbox.filter(message => message !== entry); };
+    clearInput(); open(); closeMenus(); busy(true);
     if (!wasBusy) progress.start({ message: '요청 전송 중' });
-    list.querySelector('.conversation-empty')?.remove(); renderQueued(); list.scrollTop = list.scrollHeight;
+    messages.removeEmpty(); renderQueued(); messages.scrollToBottom();
     target.task = target.task.then(async () => {
       try {
+        if (entry.cancelled) { dropEntry(); if (token === view) progress.set('작업 중지됨'); return; }
         const id = await ensureConversation(token, target);
         const requestContext = { ...appContext, conversationId: id };
         if (!appContext.conversationId && token === view) {
@@ -512,16 +467,20 @@ export function initChat(o: ChatOpts) {
           const comparable = (value: AppContext) => { const { version: _version, conversationId: _conversation, ...rest } = value; return JSON.stringify(rest); };
           if (comparable(current) === comparable(appContext)) requestContext.version = current.version;
         }
-        const accepted = await api('/chat', post({ conversationId: id, model: selectedChoice.provider, ...(selectedChoice.model || selectedChoice.effort ? { options: { model: selectedChoice.model, effort: selectedChoice.effort } } : {}), messages: [{ role: 'user', text }], state, appContext: requestContext }));
-        target.outbox = target.outbox.filter(message => message !== entry);
-        if (token !== view) return;
+        const accepted = await api('/chat', post(chatBody(selectedChoice, id, text, state, requestContext)));
+        entry.runId = accepted.runId;
+        // 접수 전에 중지를 눌렀으면 바로 취소한다(대기 중이면 실행하지 않는다).
+        if (entry.cancelled) await api(`/runs/${accepted.runId}/stop`, post()).catch(showError);
+        if (token !== view) { dropEntry(); return; }
         const c: Conversation = await loadConversation(id!, true);
+        // 서버 저장본(대기 또는 시작된 메시지)을 그리는 순간 전송 중 표시를 뺀다: 중복·깜박임 없음
+        dropEntry();
         if (token !== view) return;
         renderConversation(c); followConversation(c, token);
-        if (!activeRun) { activeRun = accepted.runId; busy(true); void poll(accepted.runId, token); }
+        if (!activeRun && !entry.cancelled) { activeRun = accepted.runId; busy(true); void poll(accepted.runId, token); }
         await refreshHistory();
       } catch (error) {
-        target.outbox = target.outbox.filter(message => message !== entry);
+        dropEntry();
         if (token === view) {
           showError(error);
           if (!input.value) { input.value = text; resizeInput(); }
@@ -547,71 +506,30 @@ export function initChat(o: ChatOpts) {
     button.onclick = () => { void send(`!보고서 ${o.names[id] || id} ${o.modeKo() || ''}`); };
     box.appendChild(button); box.classList.add('show');
   }
-  let syncing = false;
-  const appliedVersions = new Map<string, AppliedCommandVersion[]>();
-  const commandResults = new Map<string, { status: string; detail?: string; version?: number; state: AppContext }>();
-  function matchesCommand(command: any) {
-    const before = appSnapshot();
-    return before.conversationId === command.conversation_id && (before.version === command.expected_version ||
-      command.data.chain && commandVersionMatches(command.expected_version, before.version, appliedVersions.get(command.run_id) || []));
+
+  /* ───────── 화면 명령(MCP·모델이 요청한 지도·보고서·대화·모델 전환) ───────── */
+  async function applyCommand(command: ScreenCommand, matches: () => boolean) {
+    const data = command.data;
+    if (data.type === 'show_report') {
+      const c = await loadConversation(command.conversation_id, true);
+      // 보고서를 받는 동안 사용자가 화면을 바꿨으면 해당 화면을 덮어쓰지 않는다.
+      if (!matches()) return { status: 'conflict', detail: '보고서를 불러오는 동안 화면 상태가 변경되었습니다' };
+      const entry = c.reportEntries?.find(r => r.id === data.reportId);
+      if (!entry) throw new Error('표시할 보고서를 찾을 수 없습니다');
+      messages.reportEntries = c.reportEntries!;
+      o.actions.set_mode(data.system); o.actions.focus_country(data.country);
+      let element = list.querySelector<HTMLElement>(`[data-report-id="${entry.id}"]`);
+      if (!element) { messages.removeEmpty(); element = messages.add('report', md(entry.markdown)); element.dataset.reportId = entry.id; }
+      open(); activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop;
+    } else if (data.type === 'set_map_state') {
+      if ('system' in data) o.actions.set_mode(data.system);
+      if ('flat' in data) o.actions.toggle_map_mode(data.flat);
+      if ('country' in data) o.actions.focus_country(data.country);
+    } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId);
+    else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
+    else throw new Error('지원하지 않는 화면 명령');
   }
-  async function pulse() {
-    if (syncing || document.hidden) return;
-    syncing = true;
-    try {
-      // 실패한 적용 확인을 먼저 재전송해 화면 버전과 명령 결과 사이의 공백을 방지한다.
-      for (const [id, result] of commandResults) {
-        await api(`/app-context/${screenId}/commands/${id}`, post(result)); commandResults.delete(id);
-      }
-      await syncContext();
-      const commands = await api(`/app-context/${screenId}/commands`);
-      for (const command of commands) {
-        let result: { status: string; detail?: string; version?: number };
-        if (!matchesCommand(command)) result = { status: 'conflict', detail: '요청 이후 사용자가 화면 상태를 변경했습니다' };
-        else {
-          try {
-            const data = command.data;
-            if (data.type === 'show_report') {
-              const c = await loadConversation(command.conversation_id, true);
-              // 보고서를 받는 동안 사용자가 화면을 바꿨으면 해당 화면을 덮어쓰지 않는다.
-              if (!matchesCommand(command)) {
-                result = { status: 'conflict', detail: '보고서를 불러오는 동안 화면 상태가 변경되었습니다' };
-              } else {
-                const entry = c.reportEntries?.find(r => r.id === data.reportId);
-                if (!entry) throw new Error('표시할 보고서를 찾을 수 없습니다');
-                reportEntries = c.reportEntries!;
-                o.actions.set_mode(data.system); o.actions.focus_country(data.country);
-                let element = list.querySelector<HTMLElement>(`[data-report-id="${entry.id}"]`);
-                if (!element) { list.querySelector('.conversation-empty')?.remove(); element = add('report', md(entry.markdown)); element.dataset.reportId = entry.id; }
-                open(); activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop;
-                result = { status: 'applied' };
-              }
-            } else if (data.type === 'set_map_state') {
-              if ('system' in data) o.actions.set_mode(data.system);
-              if ('flat' in data) o.actions.toggle_map_mode(data.flat);
-              if ('country' in data) o.actions.focus_country(data.country);
-              result = { status: 'applied' };
-            } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId);
-            else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
-            else throw new Error('지원하지 않는 화면 명령');
-            result ??= { status: 'applied' };
-          } catch (error) { result = { status: 'failed', detail: String(error) }; }
-        }
-        if (result.status === 'applied') {
-          result.version = appSnapshot().version;
-          const versions = appliedVersions.get(command.run_id) || [];
-          versions.push({ expectedVersion: command.expected_version, version: result.version });
-          appliedVersions.set(command.run_id, versions);
-        }
-        const acknowledgement = { ...result, state: appSnapshot() };
-        commandResults.set(command.id, acknowledgement);
-        await api(`/app-context/${screenId}/commands/${command.id}`, post(acknowledgement));
-        commandResults.delete(command.id);
-      }
-    } catch { /* 일시적인 통신 실패는 다음 주기에 재시도한다. */ }
-    finally { syncing = false; }
-  }
-  setInterval(() => { void pulse(); }, 1000);
-  void pulse();
+  const screen = createScreenCommands({ screenId, snapshot: appSnapshot, sync: syncContext, apply: applyCommand });
+  screen.start();
   return { send, suggest, collapse, open, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }
