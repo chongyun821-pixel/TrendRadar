@@ -27,7 +27,7 @@
 
 `npm run ingest:all`은 위 순서대로 실행하고 실패한 단계를 마지막에 보여준다(`--skip gdelt,oryx`로 제외). 등급·긴장도는 앞 단계 결과를 DB에서 읽으므로 드라이런에서도 DB 연결이 필요하다. 매월 `gdelt` → `tension` → `tiers` 순으로 다시 실행한다.
 
-주요 옵션: `--year`(기준 연도), `--since`(시작 연도), GDELT의 `--months 12 --days 1,8,15,22 --to 2026-09 --force`, Oryx의 `--side RUS|UKR`, SIPRI 국방비·UCDP의 `--url`(새 판 파일).
+주요 옵션: `--year`(수집 범위의 끝 연도, 기본 올해. 판단 기준 연도는 `meta.baseYear`로 고정이라 등급·긴장도의 '최근 3년' 창은 바뀌지 않는다), `--since`(시작 연도), GDELT의 `--months 12 --days 1,8,15,22 --to 2026-09 --force`, Oryx의 `--side RUS|UKR`, SIPRI 국방비·UCDP의 `--url`(새 판 파일).
 
 ## 채팅에서 실행
 
@@ -53,6 +53,8 @@
 - 금수: 비국가 대상(NGF 등)과 법적 구속력 없는 EU 정치 선언은 `partial`로 두어 조건부 수출 가능(승인 필요)으로 판정한다. 이집트(EGY)·중국(CHN)은 `data/reference/export-controls.json`의 수기 지정(`regime: MANUAL`, 사유 포함)으로 수출 불가다.
 - 한국 수출통제 목록과 체계별 미국산 부품 여부는 `data/reference/export-controls.json`에서 수기로 관리한다(현재 부품 여부 미확인). 방산 협정 목록은 아직 수집하지 않는다.
 - 영토 분쟁(`data/reference/territorial-disputes.json`)은 위키백과 기준 정적 목록(신뢰도 0.4), 동맹(`alliances.json`)은 수기 목록이다.
+- 긴장도: 충돌·구매는 `meta.baseYear` 기준 최근 3년(2023~2026, 기준 연도 포함 4개년), 적대 이벤트는 `--as-of` 월까지 12개월이다. 근거가 하나도 없는 방향은 근거 있는 쌍의 중앙값(없으면 10)으로 추정하고 신뢰도 0.2, `components.estimated`로 표시한다.
+- 원문 수집(`collect_source`)의 User-Agent는 `ProcurementRadar/1.0`(앱 package.json 이름 procurement-radar의 ASCII 표기)이며, robots.txt에서 `ProcurementRadar`·`procurement-radar` 전용 규칙을 따른다.
 
 ## 판단 점수
 
