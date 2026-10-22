@@ -323,6 +323,7 @@ export async function chatCodex(input: ChatIn, env: Env): Promise<ChatOut> {
   try {
     const p = await paths(m, env);
     const ctx = executions.getStore(), cwd = ctx ? ctx.repo.workspace(ctx.conversationId) : p.codexDir;
+    m.fs.mkdirSync(cwd, { recursive: true });
     const args = codexArgs({ cwd, node: process.execPath, tsx: m.path.join(p.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), mcp: m.path.join(p.root, 'mcp', 'server.ts'), model: codexModel, effort: codexEffort });
     const r = await run(m, c.cmd, [...c.pre, ...args], { cwd, input: buildPrompt(input, 'codex'), timeoutMs: CLI_TIMEOUT_MS, signal: input.signal, env: { ...mcpEnv(), ...documentEnv(m, env) }, onData: cliEvent });
     if (ctx) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-codex.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });

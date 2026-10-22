@@ -279,7 +279,10 @@ export class Repository {
     return path;
   }
   async prepareWorkspace(id: string) {
-    this.workspace(id);
+    // 다른 PC에서 불러온 빈 대화에는 복원할 파일도 로컬 작업 폴더도 없을 수 있다.
+    // 자식 CLI의 cwd를 먼저 준비한다. 폴더가 없으면 존재하는 node.exe도 ENOENT로 실패한다.
+    const root = this.workspace(id);
+    for (const dir of ['attachments', 'sources', 'notes', 'analysis', 'reports', 'runs']) mkdirSync(join(root, dir), { recursive: true });
     if (!this.cloud) return;
     const entries = await this.all('SELECT path FROM workspace_files WHERE path LIKE ?', `workspaces/${id}/%`);
     for (const entry of entries) await this.ensureFile(entry.path);

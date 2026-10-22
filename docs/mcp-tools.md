@@ -20,9 +20,11 @@
 
 `get_app_context()`의 `request`는 요청 당시 상태, `current`는 지정한 화면의 최신 상태다. `stale`이면 오래된 상태이며, 연결된 화면이 없으면 `available: false`를 반환한다. “이 나라”와 “이 보고서”는 요청 당시 활성 화면으로 해석하고 사용자가 직접 지정한 대상을 우선한다.
 
-`set_map_state(payload, expectedVersion?)`는 JSON으로 국가와 무기체계 및 보기 방식을 지정한다. 예를 들면 `{"country":"POL","system":"sph","flat":true}`다. 국가와 체계의 선택 해제는 `null`이다. 기본 상태 버전은 요청 당시 값을 사용한다. 사용자가 이후에 변경했으면 충돌로 처리한다. 의도적으로 최신 화면을 조작할 때는 `get_app_context`로 확인한 `current.state.version`을 명시한다.
+`set_map_state(payload, expectedVersion?)`는 JSON으로 국가와 무기체계 및 보기 방식을 지정한다. 폴란드 다연장로켓은 `{"country":"POL","system":"mrl"}`처럼 한 요청에 묶는다. 국가와 체계의 선택 해제는 `null`이다. 기본 상태 버전은 요청 당시 값을 사용하며, 같은 실행에서 브라우저가 적용을 확인한 변경만 자동으로 이어받는다. 사용자가 이후에 변경했으면 충돌로 처리한다. 최신 화면에 다시 적용할 때는 `get_app_context`로 확인한 `current.state.version`을 명시한다. 명시한 버전은 정확히 일치해야 한다.
 
-반환된 `pending`은 접수 상태다. 브라우저가 명령을 적용하면 `get_app_command(commandId)`에서 `applied`를 확인할 수 있다. 변경된 화면에는 `conflict`, 실행할 수 없으면 `failed`를 기록한다. 여러 번 화면을 바꾸려면 한 `set_map_state` 요청에 묶거나 앞선 명령의 적용 결과와 최신 버전을 확인한다.
+반환된 `pending`은 접수 상태다. `get_app_command(commandId)`는 최대 3초 기다려 적용 결과를 조회한다. 브라우저가 명령을 적용하면 `applied`와 적용한 `result.version`을 확인할 수 있다. 변경된 화면에는 `conflict`, 실행할 수 없으면 `failed`를 기록한다. 화면 상태와 적용 확인은 함께 저장하며, 같은 실행에서 연속 접수된 명령도 순서대로 적용한다. 완료라고 답하기 전에 반드시 `applied`를 확인한다.
+
+`write_report(country, system?)`는 기존 6절 국가 보고서를 저장하고, 해당 국가와 무기체계를 선택해 채팅 패널에 표시하는 명령을 반환한다. 실행이 끝나기 전에도 보고서를 열 수 있다. `shown: false`와 `pending`은 표시 요청만 접수되었다는 뜻이다. 반환된 `commandId`로 실제 적용을 확인하며, 보고서를 불러오는 중 사용자가 화면을 바꾼 경우도 충돌로 보존한다.
 
 대화는 `list_conversations`, `search_conversations`, `read_conversation`으로 조회하고 `create_conversation`, `switch_conversation`, `delete_conversation`으로 관리한다. 새 대화 생성만으로 화면이 전환되지는 않는다. 진행 중 대화는 중지 후 삭제하고 원문과 보고서는 보존한다. `set_chat_model`은 다음 요청의 모델을 선택한다. 코덱스·그록 빌드는 `cliModel`과 `effort`로 세부 모델과 추론 강도도 지정할 수 있고, 허용 목록 밖의 값은 거절한다. `get_run_status`와 `cancel_run`은 실행 조회와 중지를 담당하며 중지 도구는 자신의 실행 종료를 기다리지 않는다.
 

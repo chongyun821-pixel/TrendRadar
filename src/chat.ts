@@ -2,7 +2,7 @@ import { md, esc } from './md';
 import { HELP, type Action } from './commands';
 import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import type { SystemKey } from '../shared/types';
-import type { AppContext, ReportRef } from '../shared/app-context';
+import { commandVersionMatches, type AppliedCommandVersion, type AppContext, type ReportRef } from '../shared/app-context';
 import { createChatStatus, toolActivity } from './chat-status';
 import { createPicker } from './picker';
 import { slashSuggestions, modelStep, parseSlash, readChoice, type PickItem } from './slash';
@@ -359,7 +359,7 @@ export function initChat(o: ChatOpts) {
     open(); input.focus();
     currentReport = null; reportEntries = []; activeView = 'map';
   }
-  function renderConversation(c: Conversation) {
+  function renderConversation(c: Conversation, activateLatestReport = true) {
     reportEntries = c.reportEntries || [];
     if (currentReport && !reportEntries.some(r => r.id === currentReport!.id)) currentReport = null;
     list.replaceChildren(); c.messages.forEach(renderMessage); get('#conversationTitle').textContent = c.title;
@@ -372,7 +372,7 @@ export function initChat(o: ChatOpts) {
     }
     renderFiles(c);
     const report = Array.from(list.querySelectorAll<HTMLElement>('.m.report')).at(-1);
-    if (report && c.messages.at(-1)?.reports?.length) { list.scrollTop = report.offsetTop - list.offsetTop; activateReport(report); }
+    if (activateLatestReport && report && c.messages.at(-1)?.reports?.length) { list.scrollTop = report.offsetTop - list.offsetTop; activateReport(report); }
   }
   function activateReport(element: HTMLElement) {
     const entry = reportEntries.find(r => r.id === element.dataset.reportId);
@@ -463,8 +463,9 @@ export function initChat(o: ChatOpts) {
         if (!['queued','running','stopping'].includes(run.status)) {
           const c = await loadConversation(conversationId!, true);
           if (token !== view || activeRun !== runId) return;
-          if (requestVersion === undefined || appSnapshot().version === requestVersion) exec(run.result?.actions);
-          renderConversation(c);
+          const mayChangeView = requestVersion === undefined || commandVersionMatches(requestVersion, appSnapshot().version, appliedVersions.get(runId) || []);
+          if (mayChangeView) exec(run.result?.actions);
+          renderConversation(c, mayChangeView);
           progress.set(run.error || (run.status === 'completed' ? '완료' : run.status === 'cancelled' ? '작업 중지됨' : run.status));
           followConversation(c, token);
           await o.refreshData(); await refreshHistory(); return;
@@ -547,31 +548,65 @@ export function initChat(o: ChatOpts) {
     box.appendChild(button); box.classList.add('show');
   }
   let syncing = false;
+  const appliedVersions = new Map<string, AppliedCommandVersion[]>();
+  const commandResults = new Map<string, { status: string; detail?: string; version?: number; state: AppContext }>();
+  function matchesCommand(command: any) {
+    const before = appSnapshot();
+    return before.conversationId === command.conversation_id && (before.version === command.expected_version ||
+      command.data.chain && commandVersionMatches(command.expected_version, before.version, appliedVersions.get(command.run_id) || []));
+  }
   async function pulse() {
     if (syncing || document.hidden) return;
     syncing = true;
     try {
+      // 실패한 적용 확인을 먼저 재전송해 화면 버전과 명령 결과 사이의 공백을 방지한다.
+      for (const [id, result] of commandResults) {
+        await api(`/app-context/${screenId}/commands/${id}`, post(result)); commandResults.delete(id);
+      }
       await syncContext();
       const commands = await api(`/app-context/${screenId}/commands`);
       for (const command of commands) {
-        const before = appSnapshot();
-        let result: { status: string; detail?: string };
-        if (before.version !== command.expected_version || before.conversationId !== command.conversation_id) result = { status: 'conflict', detail: '요청 이후 사용자가 화면 상태를 변경했습니다' };
+        let result: { status: string; detail?: string; version?: number };
+        if (!matchesCommand(command)) result = { status: 'conflict', detail: '요청 이후 사용자가 화면 상태를 변경했습니다' };
         else {
           try {
             const data = command.data;
-            if (data.type === 'set_map_state') {
+            if (data.type === 'show_report') {
+              const c = await loadConversation(command.conversation_id, true);
+              // 보고서를 받는 동안 사용자가 화면을 바꿨으면 해당 화면을 덮어쓰지 않는다.
+              if (!matchesCommand(command)) {
+                result = { status: 'conflict', detail: '보고서를 불러오는 동안 화면 상태가 변경되었습니다' };
+              } else {
+                const entry = c.reportEntries?.find(r => r.id === data.reportId);
+                if (!entry) throw new Error('표시할 보고서를 찾을 수 없습니다');
+                reportEntries = c.reportEntries!;
+                o.actions.set_mode(data.system); o.actions.focus_country(data.country);
+                let element = list.querySelector<HTMLElement>(`[data-report-id="${entry.id}"]`);
+                if (!element) { list.querySelector('.conversation-empty')?.remove(); element = add('report', md(entry.markdown)); element.dataset.reportId = entry.id; }
+                open(); activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop;
+                result = { status: 'applied' };
+              }
+            } else if (data.type === 'set_map_state') {
               if ('system' in data) o.actions.set_mode(data.system);
               if ('flat' in data) o.actions.toggle_map_mode(data.flat);
               if ('country' in data) o.actions.focus_country(data.country);
+              result = { status: 'applied' };
             } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId);
             else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
             else throw new Error('지원하지 않는 화면 명령');
-            result = { status: 'applied' };
+            result ??= { status: 'applied' };
           } catch (error) { result = { status: 'failed', detail: String(error) }; }
         }
-        await syncContext();
-        await api(`/app-context/${screenId}/commands/${command.id}`, post(result));
+        if (result.status === 'applied') {
+          result.version = appSnapshot().version;
+          const versions = appliedVersions.get(command.run_id) || [];
+          versions.push({ expectedVersion: command.expected_version, version: result.version });
+          appliedVersions.set(command.run_id, versions);
+        }
+        const acknowledgement = { ...result, state: appSnapshot() };
+        commandResults.set(command.id, acknowledgement);
+        await api(`/app-context/${screenId}/commands/${command.id}`, post(acknowledgement));
+        commandResults.delete(command.id);
       }
     } catch { /* 일시적인 통신 실패는 다음 주기에 재시도한다. */ }
     finally { syncing = false; }

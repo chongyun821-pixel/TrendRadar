@@ -77,7 +77,7 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
   it('전체 SQL 객체·순서·예측을 이전하고 중복 이전이 데이터를 덮어쓰지 않는다', async () => {
     const snapshot = localSnapshot(join(dir,'source.sqlite'),dir);
     await importSnapshot(repo,snapshot);
-    expect((await verifySnapshot(repo,snapshot,config)).records).toBe(59);
+    expect((await verifySnapshot(repo,snapshot,config)).records).toBe(snapshot.tables.find(t => t.name === 'records')!.rows.length);
     const altered = structuredClone(snapshot); altered.tables.find(t => t.name==='metadata')!.rows[0].value='changed';
     await expect(importSnapshot(repo,altered)).rejects.toThrow(/덮어쓰지/);
   }, 60000);
@@ -113,6 +113,12 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
       rmSync(file);await repo.ensureFile(file);expect(readFileSync(file,'utf8')).toBe('한글 파일 보존');
       const coldDir=mkdtempSync(join(tmpdir(),'radar-cold-')), cold=new Repository('',coldDir,false,config);
       try {
+        const empty = await repo.createConversation('다른 PC의 빈 대화');
+        await cold.prepareWorkspace(empty.id);
+        const { spawnSync } = await import('node:child_process');
+        const child = spawnSync(process.execPath, ['--version'], { cwd: cold.workspace(empty.id), encoding: 'utf8', windowsHide: true });
+        expect(child.error).toBeUndefined(); expect(child.status).toBe(0);
+        await repo.deleteConversation(empty.id);
         await cold.prepareWorkspace(c.id);
         expect(readFileSync(cold.path(c.id,source.filePath,true),'utf8')).toBe(quote);
         expect((await cold.conversation(c.id)).messages[0].text).toBe(path);

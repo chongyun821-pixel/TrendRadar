@@ -30,6 +30,7 @@
     "chat:check": "node scripts/chat-check.mjs",
     "queue:check": "node scripts/queue-check.mjs",
     "context:check": "node scripts/context-check.mjs",
+    "screen:check": "tsx scripts/screen-control-check.ts",
     "markdown:check": "node scripts/markdown-check.mjs",
     "mcp:check": "node scripts/mcp-check.mjs",
     "data:countries": "node scripts/slim-countries.mjs"

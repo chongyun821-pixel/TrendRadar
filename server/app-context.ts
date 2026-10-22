@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { AppContext } from '../shared/app-context';
+import { commandVersionMatches, type AppContext } from '../shared/app-context';
 import { resolveCountry, resolveSystem, isGeneral } from '../shared/data';
 import { SYSTEM_KEYS } from '../shared/types';
 import { execution } from './execution';
@@ -22,8 +22,8 @@ const target = { screenId: S('대상 화면 ID. 생략하면 실행을 시작한
 export const APP_DEFS: ToolDef[] = [
   { name: 'get_app_context', description: '요청 당시 화면과 최신 화면의 필터, 선택 국가, 열린 보고서를 조회한다', properties: target },
   { name: 'get_map_state', description: '대상 화면의 지도 상태를 조회한다', properties: target },
-  { name: 'set_map_state', description: '지도 필터와 선택 국가 및 2D/3D 보기를 변경하도록 요청한다. 반환은 접수이며 적용 결과는 명령 ID로 조회한다', properties: { ...target, payload: S('JSON: system?(일반은 null), country?(선택 해제는 null), flat?'), expectedVersion: { type: 'integer' } }, required: ['payload'] },
-  { name: 'get_app_command', description: '화면 제어 명령의 접수, 적용, 충돌 또는 실패 결과를 조회한다', properties: { commandId: S('명령 ID') }, required: ['commandId'] },
+  { name: 'set_map_state', description: '국가·무기체계·2D/3D를 한 번에 변경한다. 예: {"country":"POL","system":"mrl"}. pending은 접수이므로 get_app_command로 적용을 확인한다', properties: { ...target, payload: S('JSON: system?(일반은 null), country?(선택 해제는 null), flat?'), expectedVersion: { type: 'integer' } }, required: ['payload'] },
+  { name: 'get_app_command', description: '화면 명령의 실제 적용 결과를 최대 3초 기다려 조회한다. pending이면 아직 적용되지 않았다', properties: { commandId: S('명령 ID') }, required: ['commandId'] },
   { name: 'list_conversations', description: '저장된 대화 목록을 조회한다', properties: {} },
   { name: 'search_conversations', description: '대화 제목과 전체 메시지를 문자열로 검색한다', properties: { query: S('찾을 문자열') }, required: ['query'] },
   { name: 'read_conversation', description: '지정한 대화의 메시지와 보고서 및 파일을 읽는다', properties: { conversationId: S('생략하면 실행을 시작한 대화'), query: S('메시지 검색어'), offset: { type: 'integer' }, limit: { type: 'integer' } } },
@@ -66,10 +66,18 @@ export async function requestAppCommand(data: Record<string, unknown>, screenId?
   const current = await readAppContext(ctx.repo, screenId || ctx.appContext?.screenId);
   if (!current.available || current.stale) throw new Error('활성 앱 화면이 없습니다. 앱에서 다시 요청하세요');
   if (current.state.conversationId !== ctx.conversationId) throw new Error('화면의 대화가 변경되었습니다');
-  const expected = expectedVersion ?? ctx.appContext?.version ?? current.state.version;
-  if (expected !== current.state.version) throw new Error('화면 버전 충돌: 최신 상태를 확인하세요');
+  const baseline = expectedVersion ?? ctx.appContext?.version ?? current.state.version;
+  const applied = await ctx.repo.all("SELECT expected_version,result FROM app_commands WHERE screen_id=? AND run_id=? AND status='applied'", current.state.screenId, ctx.runId);
+  const versions = applied.flatMap(row => {
+    const result = JSON.parse(row.result || '{}');
+    return Number.isInteger(result.version) ? [{ expectedVersion: row.expected_version, version: result.version }] : [];
+  });
+  if (expectedVersion !== undefined ? baseline !== current.state.version : !commandVersionMatches(baseline, current.state.version, versions)) throw new Error('화면 버전 충돌: 최신 상태를 확인하세요');
+  const expected = current.state.version;
   const commandId = randomUUID();
-  await ctx.repo.run('INSERT INTO app_commands VALUES(?,?,?,?,?,?,?,?,?)', commandId, current.state.screenId, ctx.conversationId, ctx.runId, expected, JSON.stringify(data), 'pending', null, now());
+  const latest = await ctx.repo.one('SELECT created_at FROM app_commands WHERE screen_id=? ORDER BY created_at DESC LIMIT 1', current.state.screenId);
+  const createdAt = new Date(Math.max(Date.now(), latest ? Date.parse(latest.created_at) + 1 : 0)).toISOString();
+  await ctx.repo.run('INSERT INTO app_commands VALUES(?,?,?,?,?,?,?,?,?)', commandId, current.state.screenId, ctx.conversationId, ctx.runId, expected, JSON.stringify({ ...data, chain: expectedVersion === undefined }), 'pending', null, createdAt);
   return { ok: true, status: 'pending', commandId, nextStep: 'get_app_command로 실제 화면 적용 결과를 확인하세요' };
 }
 export async function pendingCommands(repo: Repository, screenId: string) {
@@ -84,10 +92,16 @@ export async function pendingCommands(repo: Repository, screenId: string) {
   return result;
 }
 export async function acknowledgeCommand(repo: Repository, screenId: string, id: string, raw: unknown) {
-  const p = z.object({ status: z.enum(['applied', 'conflict', 'failed']), detail: z.string().optional() }).parse(raw);
+  const p = z.object({ status: z.enum(['applied', 'conflict', 'failed']), detail: z.string().optional(), version: z.number().int().nonnegative().optional(), state: appContextSchema.optional() }).parse(raw);
   const row = await repo.one('SELECT * FROM app_commands WHERE id=? AND screen_id=?', z.string().uuid().parse(id), z.string().uuid().parse(screenId));
   if (!row) throw new Error('화면 명령이 없습니다');
-  await repo.run("UPDATE app_commands SET status=?,result=? WHERE id=? AND status='pending'", p.status, JSON.stringify(p), id);
+  if (p.state && (p.state.screenId !== screenId || p.version !== undefined && p.state.version !== p.version)) throw new Error('화면 명령의 적용 버전이 일치하지 않습니다');
+  const { state, ...result } = p;
+  // 화면 버전만 먼저 공개되면 다음 도구가 아직 확인되지 않은 변경으로 오인할 수 있다.
+  await repo.transaction(async () => {
+    if (state) await saveAppContext(repo, state);
+    await repo.run("UPDATE app_commands SET status=?,result=? WHERE id=? AND status='pending'", p.status, JSON.stringify(result), id);
+  });
   return { ok: true };
 }
 export async function appTool(name: string, a: Record<string, any>): Promise<unknown> {
@@ -102,7 +116,16 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
       if (p.country != null) { const c = resolveCountry(p.country); if (!c) throw new Error('국가 확인 필요'); state.country = c; }
       return requestAppCommand({ type: 'set_map_state', ...state }, a.screenId, a.expectedVersion);
     }
-    case 'get_app_command': return await repo.one('SELECT id,status,result FROM app_commands WHERE id=? AND conversation_id=?', a.commandId, ctx.conversationId) || { error: '명령 없음' };
+    case 'get_app_command': {
+      const deadline = Date.now() + 3000;
+      while (true) {
+        ctx.signal.throwIfAborted();
+        const row = await repo.one('SELECT id,status,result FROM app_commands WHERE id=? AND conversation_id=?', a.commandId, ctx.conversationId);
+        if (!row) return { error: '명령 없음' };
+        if (row.status !== 'pending' || Date.now() >= deadline) return { ...row, ...(row.result ? { result: JSON.parse(row.result) } : {}) };
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     case 'list_conversations': return repo.all('SELECT * FROM conversations ORDER BY updated_at DESC');
     case 'search_conversations': {
       const query = z.string().min(1).parse(a.query);

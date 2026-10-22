@@ -11,6 +11,7 @@ import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand } f
 import { publicAddress, robotsAllowed, htmlText, sourceNetwork } from '../server/sources';
 import { publishArtifact, POWERPOINT_MIME } from '../server/artifacts';
 import type { AppContext } from '../shared/app-context';
+import { commandVersionMatches } from '../shared/app-context';
 
 afterEach(() => vi.restoreAllMocks());
 async function fixture() {
@@ -132,6 +133,43 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(f.ctx.conversationId).not.toBe(other.id);
       await f.repo.run('UPDATE app_contexts SET updated_at=? WHERE screen_id=?', '2000-01-01T00:00:00Z', f.state.screenId);
       expect(await readAppContext(f.repo, f.state.screenId)).toMatchObject({ stale: true });
+    }); } finally { await f.repo.close(); }
+  });
+  it('같은 실행의 모드 변경→국가 선택→보고서는 적용 버전을 이어받고 사용자 변경은 거절한다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      const mode: any = await runTool('set_mode', { system: '다연장로켓' }, newOut());
+      expect(mode.status).toBe('pending');
+      const changed = { ...f.state, version: 2, mode: 'mrl' as const, filters: { system: 'mrl' as const } };
+      await expect(acknowledgeCommand(f.repo, f.state.screenId, mode.commandId, { status: 'applied', version: 3, state: changed })).rejects.toThrow(/적용 버전/);
+      await acknowledgeCommand(f.repo, f.state.screenId, mode.commandId, { status: 'applied', version: 2, state: changed });
+      expect(await readAppContext(f.repo, f.state.screenId)).toMatchObject({ state: { mode: 'mrl', version: 2 } });
+      const focused: any = await runTool('focus_country', { country: '폴란드' }, newOut());
+      expect(focused.status).toBe('pending');
+      expect((await f.repo.one('SELECT expected_version FROM app_commands WHERE id=?', focused.commandId)).expected_version).toBe(2);
+      const out = newOut(), report: any = await runTool('write_report', { country: '폴란드', system: '다연장로켓' }, out);
+      expect(report).toMatchObject({ status: 'pending', shown: false });
+      expect(out.actions).toEqual([]);
+      const command = (await pendingCommands(f.repo, f.state.screenId)).find(c => c.id === report.commandId)!;
+      expect(command.data).toMatchObject({ type: 'show_report', country: 'POL', system: 'mrl', reportId: report.reportId });
+      expect(await f.repo.one('SELECT id FROM reports WHERE id=?', report.reportId)).toBeTruthy();
+      await saveAppContext(f.repo, { ...changed, version: 3, focus: 'FIN' });
+      expect(await runTool('focus_country', { country: '폴란드' }, newOut())).toHaveProperty('error');
+      expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 1 }, newOut())).toHaveProperty('error');
+      expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 3 }, newOut())).toMatchObject({ status: 'pending' });
+    }); } finally { await f.repo.close(); }
+  });
+  it('적용 확인은 브라우저 응답을 기다리고 확인된 변경 경로에 없는 버전은 허용하지 않는다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      const command: any = await runTool('set_map_state', { payload: '{"country":"FIN"}' }, newOut());
+      const pending = runTool('get_app_command', { commandId: command.commandId }, newOut());
+      await acknowledgeCommand(f.repo, f.state.screenId, command.commandId, { status: 'applied', version: 2 });
+      expect(await pending).toMatchObject({ status: 'applied', result: { version: 2 } });
+      const edges = [{ expectedVersion: 2, version: 3 }, { expectedVersion: 1, version: 2 }];
+      expect(commandVersionMatches(1, 3, edges)).toBe(true);
+      expect(commandVersionMatches(1, 4, edges)).toBe(false);
+      expect(commandVersionMatches(1, 3, [{ expectedVersion: 2, version: 3 }])).toBe(false);
     }); } finally { await f.repo.close(); }
   });
   it('자기 실행 중지는 종료를 기다리지 않고 반환하며 대화 삭제는 근거를 보존한다', async () => {
