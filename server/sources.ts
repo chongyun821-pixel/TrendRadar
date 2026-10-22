@@ -56,7 +56,7 @@ export function robotsAllowed(text: string, path: string) {
     } else if (value) group.rules.push({ allow: key.toLowerCase() === 'allow', path: value });
   }
   groups.push(group);
-  const specific = groups.filter(g => g.agents.some(a => a !== '*' && 'trendradar'.includes(a)));
+  const specific = groups.filter(g => g.agents.some(a => a && a !== '*' && 'trendradar'.includes(a)));
   const selected = specific.length ? specific : groups.filter(g => g.agents.includes('*'));
   const matches = selected.flatMap(g => g.rules).filter(rule => {
     const expr = rule.path.split('*').map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*').replace(/\\\$$/, '$');

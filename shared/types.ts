@@ -40,7 +40,8 @@ export interface Forecast {
 
 /* ───────── 데이터 수집 테이블 행 (db/migrations/004) ───────── */
 export type Tier = 1 | 2 | 3;
-export type SignalStage = 'review' | 'tender' | 'selection' | 'contract' | 'delivery' | 'cancelled';
+export const SIGNAL_STAGES = ['review', 'tender', 'selection', 'contract', 'delivery', 'cancelled'] as const;
+export type SignalStage = typeof SIGNAL_STAGES[number];
 /** 모든 수치 행의 공통 근거: 출처 ID, 신뢰도(공식·DB 1.0, 전문 매체 0.7, 일반 뉴스·X 0.4), 수집 시각 */
 export interface Provenance { source_id?: string | null; confidence?: number | null; collected_at?: string | null }
 export interface SystemLinkRow extends Provenance { system: SystemKey; model: string; maker?: string | null; is_group: boolean; relation: 'group' | 'competitor' | 'substitute' | 'parent' | string }

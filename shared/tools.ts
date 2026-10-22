@@ -1,4 +1,4 @@
-import { seed, resolveCountry, resolveSystem, recordsBy } from './data';
+import { seed, resolveCountry, resolveSystem, recordsBy, isGeneral } from './data';
 import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange } from './forecast';
 import type { Forecast, SystemKey, Batch, Seed } from './types';
 
@@ -81,6 +81,8 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
   const baseYear = new Date().getFullYear();
   const { country, system } = args(a);
   if (!country) return { error: '국가를 찾지 못함' };
+  // 알 수 없는 체계 이름을 전체 체계 보고서로 바꾸지 않는다(일반·생략만 전체)
+  if (a?.system && !system && !isGeneral(a.system)) return { error: '무기체계를 찾지 못함' };
   const countryName = data.countries[country]?.ko ?? country;
   const sysList: SystemKey[] = system ? [system] : data.records.filter(r => r.country === country).map(r => r.system);
   if (!sysList.length) return { error: `${countryName} 데이터 없음` };

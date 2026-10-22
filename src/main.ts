@@ -74,14 +74,18 @@ async function boot() {
     globe.setSpikes(fs.filter(f => f.status !== 'none' && !scores.get(f.country)?.grey).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: CAT_COLOR[f.category], size: f.size })));
     if (state.pinned && state.focus) tip.innerHTML = tipHtml(state.focus, names);
   }
+  let scoreRequest = 0;
   async function loadScores() {
-    const mode = state.mode;
+    const mode = state.mode, request = ++scoreRequest;
     scores.clear();
     if (!mode) return;
     try {
       const response = await fetch(`/api/scores?system=${mode}`, { cache: 'no-store' });
-      if (!response.ok || state.mode !== mode) return;
-      for (const s of (await response.json()).scores as ScoreSummary[]) scores.set(s.country, s);
+      if (!response.ok) return;
+      const rows = (await response.json()).scores as ScoreSummary[];
+      // 응답을 기다리는 사이 모드가 바뀌었거나 더 새 요청이 있으면 버린다(다른 모드 점수로 칠하지 않는다)
+      if (request !== scoreRequest || state.mode !== mode) return;
+      for (const s of rows) scores.set(s.country, s);
       applyMode();
     } catch { /* 점수 없이 기존 히트맵만 표시 */ }
   }

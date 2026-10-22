@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { computeForecast, SOURCE_CONFIDENCE } from '../shared/forecast';
 import { resolveCountry, resolveSystem } from '../shared/data';
 import type { ProgramRecord, Seed } from '../shared/types';
-import { SYSTEM_KEYS } from '../shared/types';
+import { SYSTEM_KEYS, SIGNAL_STAGES } from '../shared/types';
 import { execution } from './execution';
 import { PROJECT_ROOT, now, hash } from './store';
 import type { ToolDef } from './agent';
@@ -55,7 +55,7 @@ const evidenceSchema = z.array(z.object({ path: z.string(), sourceId: z.string()
 const countrySchema = z.object({ ko: z.string().min(1), flag: z.string(), lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
 /** 조사 결과의 signals 추출 형식(템플릿 'signals 추출'). 행마다 원문 인용이 있어야 하며 signals 표에 upsert된다 */
 export const signalRowSchema = z.object({
-  id: z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/), stage: z.enum(['review', 'tender', 'selection', 'contract', 'delivery', 'cancelled']),
+  id: z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/), stage: z.enum(SIGNAL_STAGES),
   model: z.string().optional(), maker: z.string().optional(), supplier: z.string().optional(), quantity: count.optional(), value_usd_m: count.optional(), expected_year: year.optional(),
   published_at: publishedDate.nullable().optional(), sourceType: z.enum(['official', 'specialist', 'news']), sourceId: z.string().min(1), quote: z.string().min(1), note: z.string().max(500).optional(),
 }).strict();

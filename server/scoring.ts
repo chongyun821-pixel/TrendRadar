@@ -18,7 +18,7 @@ export async function scoreSystem(repo: Repository, data: Seed, system: SystemKe
   ])].sort();
   return ids.map(country => {
     const record = data.records.find(r => r.country === country && r.system === system) || null;
-    const forecast = record ? computeForecast(record, data) : null;
+    const forecast = record ? computeForecast(record, data, base) : null; // 점수와 같은 기준 연도
     const breakdown = computeScore({ ...inputsFor(bundle, country), forecast, designLife }, base);
     return { ...breakdown, countryKo: data.countries[country]?.ko ?? country, systemKo: data.systems[system]?.ko ?? system, recordId: record?.id ?? null };
   });

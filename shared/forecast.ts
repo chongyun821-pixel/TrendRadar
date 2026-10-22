@@ -1,7 +1,6 @@
 import type { Category, Forecast, ProgramRecord, Seed, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
 import { seed as defaultSeed } from './data';
 
-export const BASE_YEAR = new Date().getFullYear();
 export const DEFAULT_RATIO: [number, number] = [0.6, 1.0];
 /** 사업 규모(억 원) 로그 스케일 범위: 100억 ~ 50만억 */
 export const SIZE_LOG_MIN = 2, SIZE_LOG_MAX = 5.7;
@@ -189,8 +188,7 @@ export const evidenceId = {
   domestic: (r: DomesticRow) => `domestic_capability:${r.country}:${r.system}`,
 };
 
-/** 국방비 3년 평균 증가율(%). yoy_pct가 없으면 usd_m 연속 연도로 계산한다 */
-/** 최근 3개 연도 전년 대비 증가율 평균. base를 주면 base-3년 이후 값만 쓴다(오래된 급증이 남지 않게) */
+/** 국방비 최근 3개 연도 전년 대비 증가율(%) 평균. yoy_pct가 없으면 usd_m 연속 연도로 계산하고, base를 주면 base-3년 이후 값만 쓴다(오래된 급증이 남지 않게) */
 export function growth3y(budgets: BudgetRow[], base?: number): { value: number | null; rows: BudgetRow[] } {
   const sorted = [...budgets].sort((a, b) => a.year - b.year);
   const yoy = sorted.map((b, i) => {
