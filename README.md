@@ -22,6 +22,8 @@
 
 ![공개 자료 수집부터 앱 분석과 보고서 제공까지의 MCP 구성도](docs/images/mcp-architecture.svg)
 
+자료조사부터 정제·검증·반영, 예측·점수 계산, 보고서 작성까지의 단계별 흐름은 [자료조사-보고서 흐름도](docs/자료조사-보고서-흐름.svg)에 있습니다.
+
 ## 설치와 실행
 
 Node.js 22.16 이상의 22.x 또는 24 이상, Git, Supabase 프로젝트를 준비합니다. 앱은 내 컴퓨터의 Node.js 서버에서 실행하고 데이터와 파일은 Supabase에 보관합니다.
@@ -61,8 +63,8 @@ Supabase 대시보드에서 프로젝트 URL과 서버용 Secret API key를 가�
 
 | 모델 | 준비할 것 |
 | --- | --- |
-| 코덱스 | Codex CLI 설치와 로그인 |
 | 그록 빌드 | Grok Build CLI 설치와 로그인 |
+| 코덱스 | Codex CLI 설치와 로그인 |
 | 지피티 | `.secrets`에 `OPENAI_API_KEY` 입력(기본 `gpt-5.4-mini`, `OPENAI_MODEL`로 변경) |
 | 네모트론 | `.secrets`에 `OPENROUTER_API_KEY` 입력 |
 

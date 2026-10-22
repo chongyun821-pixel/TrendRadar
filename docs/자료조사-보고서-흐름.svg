@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1215" viewBox="0 0 1400 1215" font-family="'Malgun Gothic','Noto Sans KR','Noto Sans CJK KR','Apple SD Gothic Neo','Nanum Gothic',sans-serif">
+<title>자료조사부터 보고서 작성까지의 흐름</title>
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker>
+<marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d23b3b"/></marker>
+</defs>
+<rect width="1400" height="1215" fill="#fbfcfe"/>
+<text x="20" y="36" font-size="22" font-weight="bold" text-anchor="start" fill="#111827">자료조사부터 보고서 작성까지: 무기조달사업예상 데이터 흐름</text>
+<text x="1380" y="36" font-size="12" font-weight="normal" text-anchor="end" fill="#4b5563">코드 기준(server/·shared/) · 실선=정상 흐름 · 빨간 점선=실패·재시도</text>
+<rect x="10" y="60" width="1380" height="142" rx="12" fill="#eef4ff"/>
+<rect x="10" y="60" width="6" height="142" rx="3" fill="#3b6fd8"/>
+<text x="26" y="129.0" font-size="14" font-weight="bold" text-anchor="start" fill="#3b6fd8">① 요청</text>
+<text x="26" y="147.0" font-size="11.5" font-weight="normal" text-anchor="start" fill="#4b5563">사용자·모델</text>
+<rect x="10" y="220" width="1380" height="242" rx="12" fill="#ebf7ef"/>
+<rect x="10" y="220" width="6" height="242" rx="3" fill="#2f8f57"/>
+<text x="26" y="339.0" font-size="14" font-weight="bold" text-anchor="start" fill="#2f8f57">② 자료 수집</text>
+<text x="26" y="357.0" font-size="11.5" font-weight="normal" text-anchor="start" fill="#4b5563">웹·공개 DB</text>
+<rect x="10" y="480" width="1380" height="132" rx="12" fill="#f2f3f5"/>
+<rect x="10" y="480" width="6" height="132" rx="3" fill="#5b6472"/>
+<text x="26" y="544.0" font-size="14" font-weight="bold" text-anchor="start" fill="#5b6472">③ 저장</text>
+<text x="26" y="562.0" font-size="11.5" font-weight="normal" text-anchor="start" fill="#4b5563">SQL·파일</text>
+<rect x="10" y="630" width="1380" height="162" rx="12" fill="#fff6e5"/>
+<rect x="10" y="630" width="6" height="162" rx="3" fill="#c27c0e"/>
+<text x="26" y="709.0" font-size="14" font-weight="bold" text-anchor="start" fill="#c27c0e">④ 정제·검증</text>
+<text x="26" y="727.0" font-size="11.5" font-weight="normal" text-anchor="start" fill="#4b5563">반영</text>
+<rect x="10" y="810" width="1380" height="172" rx="12" fill="#f3eeff"/>
+<rect x="10" y="810" width="6" height="172" rx="3" fill="#7048c8"/>
+<text x="26" y="894.0" font-size="14" font-weight="bold" text-anchor="start" fill="#7048c8">⑤ 예측·점수</text>
+<text x="26" y="912.0" font-size="11.5" font-weight="normal" text-anchor="start" fill="#4b5563">재계산</text>
+<rect x="10" y="1000" width="1380" height="152" rx="12" fill="#e7f6f7"/>
+<rect x="10" y="1000" width="6" height="152" rx="3" fill="#13808a"/>
+<text x="26" y="1074.0" font-size="14" font-weight="bold" text-anchor="start" fill="#13808a">⑥ 보고서·화면</text>
+<text x="26" y="1092.0" font-size="11.5" font-weight="normal" text-anchor="start" fill="#4b5563">표시·다운로드</text>
+<rect x="140" y="92" width="240" height="108" rx="9" fill="#ffffff" stroke="#3b6fd8" stroke-width="1.6"/>
+<rect x="140" y="92" width="240" height="26" rx="9" fill="#3b6fd8"/><rect x="140" y="108" width="240" height="10" fill="#3b6fd8"/>
+<text x="152" y="110" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">사용자 요청</text>
+<text x="152" y="138" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">채팅 메시지 · 파일 첨부</text>
+<text x="152" y="156" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지도에서 연 보고서 첨부</text>
+<text x="152" y="174" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">화면 맥락(국가·체계·2D/3D·보고서)</text>
+<rect x="420" y="92" width="320" height="108" rx="9" fill="#ffffff" stroke="#3b6fd8" stroke-width="1.6"/>
+<rect x="420" y="92" width="320" height="26" rx="9" fill="#3b6fd8"/><rect x="420" y="108" width="320" height="10" fill="#3b6fd8"/>
+<text x="432" y="110" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">모델 실행 (대화별 선택)</text>
+<text x="432" y="138" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">그록 빌드·코덱스 CLI → MCP 도구</text>
+<text x="432" y="156" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지피티(Responses)·네모트론(OpenRouter)</text>
+<text x="432" y="174" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">→ 함수 호출 · 네모트론 텍스트 모드 JSON</text>
+<rect x="780" y="92" width="290" height="108" rx="9" fill="#ffffff" stroke="#3b6fd8" stroke-width="1.6"/>
+<rect x="780" y="92" width="290" height="26" rx="9" fill="#3b6fd8"/><rect x="780" y="108" width="290" height="10" fill="#3b6fd8"/>
+<text x="792" y="110" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">research_procurement</text>
+<text x="792" y="138" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">조사 준비: 최신 record·version</text>
+<text x="792" y="156" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">조사 양식(research-v1)·누락 항목</text>
+<text x="792" y="174" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">작업 폴더·기존 출처 목록</text>
+<rect x="1110" y="92" width="270" height="108" rx="9" fill="#ffffff" stroke="#3b6fd8" stroke-width="1.6"/>
+<rect x="1110" y="92" width="270" height="26" rx="9" fill="#3b6fd8"/><rect x="1110" y="108" width="270" height="10" fill="#3b6fd8"/>
+<text x="1122" y="110" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">list_ingest_sources</text>
+<text x="1122" y="138" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">공개 DB 출처·마지막 실행 확인</text>
+<text x="1122" y="156" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">run_ingest: 먼저 dryRun 미리보기</text>
+<text x="1122" y="174" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">사용자 요청 시에만 반영(dryRun=false)</text>
+<path d="M380,146 L418,146" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<path d="M740,146 L778,146" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="744.5" y="127.5" width="29.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="759" y="139" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#374151">조사</text>
+<path d="M580,92 L580,76 L1245,76 L1245,90" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="836.2" y="69.5" width="127.7" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="900" y="81" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#374151">공개 DB 수집·갱신 요청</text>
+<rect x="140" y="255" width="300" height="135" rx="9" fill="#ffffff" stroke="#2f8f57" stroke-width="1.6"/>
+<rect x="140" y="255" width="300" height="26" rx="9" fill="#2f8f57"/><rect x="140" y="271" width="300" height="10" fill="#2f8f57"/>
+<text x="152" y="273" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">앱 수집 도구 (인증키 없음)</text>
+<text x="152" y="301" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">search_sources: GOV.UK·보존 출처 검색</text>
+<text x="152" y="319" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">collect_source: 공개 원문 HTML·PDF</text>
+<text x="152" y="337" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">  robots.txt 확인 · 내부망 주소 차단</text>
+<text x="152" y="355" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">read_source·source_read: 재조회</text>
+<rect x="470" y="255" width="270" height="135" rx="9" fill="#ffffff" stroke="#2f8f57" stroke-width="1.6"/>
+<rect x="470" y="255" width="270" height="26" rx="9" fill="#2f8f57"/><rect x="470" y="271" width="270" height="10" fill="#2f8f57"/>
+<text x="482" y="273" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">모델 기본 웹 도구</text>
+<text x="482" y="301" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">그록: WebFetch·WebSearch·XSearch</text>
+<text x="482" y="319" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">코덱스: 웹 검색(페이지 열기)</text>
+<text x="482" y="337" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">save_source: 읽은 원문·검색 요약 보존</text>
+<text x="482" y="355" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">(X 게시물과 공식 발표 구분)</text>
+<rect x="770" y="255" width="220" height="135" rx="9" fill="#ffffff" stroke="#2f8f57" stroke-width="1.6"/>
+<rect x="770" y="255" width="220" height="26" rx="9" fill="#2f8f57"/><rect x="770" y="271" width="220" height="10" fill="#2f8f57"/>
+<text x="782" y="273" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">Firecrawl MCP</text>
+<text x="782" y="301" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지피티·네모트론용</text>
+<text x="782" y="319" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">firecrawl_search: 검색</text>
+<text x="782" y="337" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">firecrawl_scrape: 원문 보존</text>
+<text x="782" y="355" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">(FIRECRAWL_API_KEY 필요)</text>
+<rect x="1020" y="255" width="360" height="135" rx="9" fill="#ffffff" stroke="#2f8f57" stroke-width="1.6"/>
+<rect x="1020" y="255" width="360" height="26" rx="9" fill="#2f8f57"/><rect x="1020" y="271" width="360" height="10" fill="#2f8f57"/>
+<text x="1032" y="273" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">공개 DB 적재 (run_ingest)</text>
+<text x="1032" y="301" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">SIPRI 이전·국방비·금수 · ITAR 126.1(d)</text>
+<text x="1032" y="319" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">World Bank 국방비·GDP · Oryx 손실</text>
+<text x="1032" y="337" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">UCDP 사망자 · GDELT 적대 이벤트(월별)</text>
+<text x="1032" y="355" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">→ 고객 등급(tiers) · 인접국 긴장도(tension)</text>
+<path d="M925,200 L925,236 L290,236" fill="none" stroke="#374151" stroke-width="1.7"/>
+<path d="M290,236 L290,253" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<path d="M605,236 L605,253" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<path d="M880,236 L880,253" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="866.5" y="219.5" width="55.5" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="919" y="231" font-size="11.5" font-weight="normal" text-anchor="end" fill="#374151">원문 조사</text>
+<path d="M1245,200 L1245,253" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="1249.0" y="221.5" width="29.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1252" y="233" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">실행</text>
+<path d="M1060,390 L1060,420 L1005,420 L1005,322 L992,322" fill="none" stroke="#d23b3b" stroke-width="1.7" stroke-dasharray="6 4" marker-end="url(#arr)"/>
+<rect x="1069.0" y="407.5" width="154.1" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1072" y="419" font-size="11.5" font-weight="normal" text-anchor="start" fill="#d23b3b">적재 실패(자동 재시도 후) →</text>
+<rect x="1069.0" y="425.5" width="200.6" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1072" y="437" font-size="11.5" font-weight="normal" text-anchor="start" fill="#d23b3b">fallback.url을 웹 도구로 대체 수집</text>
+<path d="M290,390 L290,503" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="294.0" y="429.5" width="69.9" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="297" y="441" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">원본·추출문</text>
+<path d="M605,390 L605,503" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="609.0" y="429.5" width="76.8" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="612" y="441" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">save_source</text>
+<path d="M880,390 L880,503" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="884.0" y="459.5" width="55.5" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="887" y="471" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">원문 보존</text>
+<path d="M1345,390 L1345,503" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="1297.0" y="459.5" width="29.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1300" y="471" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">적재</text>
+<rect x="140" y="505" width="860" height="95" rx="9" fill="#ffffff" stroke="#5b6472" stroke-width="1.6"/>
+<rect x="140" y="505" width="860" height="26" rx="9" fill="#5b6472"/><rect x="140" y="521" width="860" height="10" fill="#5b6472"/>
+<text x="152" y="523" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">대화 작업 폴더 · Supabase Storage (비공개)</text>
+<text x="152" y="551" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">sources/ 원문·추출문·검색 기록 · attachments/ 첨부 원본과 추출 텍스트 · notes/·analysis/ 조사 메모</text>
+<text x="152" y="569" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">reports/ 국가 보고서·작성 자료·완성 문서 · 모든 파일은 해시로 검증(workspace_read·source_read)</text>
+<rect x="1040" y="505" width="340" height="95" rx="9" fill="#ffffff" stroke="#5b6472" stroke-width="1.6"/>
+<rect x="1040" y="505" width="340" height="26" rx="9" fill="#5b6472"/><rect x="1040" y="521" width="340" height="10" fill="#5b6472"/>
+<text x="1052" y="523" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">Supabase PostgreSQL</text>
+<text x="1052" y="551" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">records·sources·changes·research·forecasts</text>
+<text x="1052" y="569" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">signals·inventory·budgets·pair_events</text>
+<text x="1052" y="587" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">export_tiers·neighbors·weights 외</text>
+<path d="M290,600 L290,648" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="294.0" y="617.5" width="84.9" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="297" y="629" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">조사 결과·인용</text>
+<rect x="140" y="650" width="300" height="105" rx="9" fill="#ffffff" stroke="#c27c0e" stroke-width="1.6"/>
+<rect x="140" y="650" width="300" height="26" rx="9" fill="#c27c0e"/><rect x="140" y="666" width="300" height="10" fill="#c27c0e"/>
+<text x="152" y="668" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">normalize_procurement_data</text>
+<text x="152" y="696" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">국가 ISO3·체계 키·단계·단위 정리</text>
+<text x="152" y="714" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">기존 기록과 병합, 상충 값은 반환</text>
+<text x="152" y="732" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">운영 데이터에는 반영하지 않음</text>
+<rect x="480" y="650" width="300" height="105" rx="9" fill="#ffffff" stroke="#c27c0e" stroke-width="1.6"/>
+<rect x="480" y="650" width="300" height="26" rx="9" fill="#c27c0e"/><rect x="480" y="666" width="300" height="10" fill="#c27c0e"/>
+<text x="492" y="668" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">validate_research (dryRun)</text>
+<text x="492" y="696" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">형식·원문 인용·해시·수집 시각 검사</text>
+<text x="492" y="714" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">변경 필드마다 근거 필요</text>
+<text x="492" y="732" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">데이터 버전 충돌 확인</text>
+<rect x="820" y="650" width="420" height="112" rx="9" fill="#ffffff" stroke="#c27c0e" stroke-width="1.6"/>
+<rect x="820" y="650" width="420" height="26" rx="9" fill="#c27c0e"/><rect x="820" y="666" width="420" height="10" fill="#c27c0e"/>
+<text x="832" y="668" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">apply_research (submit_research)</text>
+<text x="832" y="696" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">실행 중 재검사 후 한 트랜잭션으로 저장</text>
+<text x="832" y="714" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">records·sources·signals·changes·research</text>
+<text x="832" y="732" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">forecasts(전후 예측·판단 점수) · revision +1</text>
+<text x="832" y="750" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">버전 충돌이면 반영하지 않음 → 재조회</text>
+<path d="M440,702 L478,702" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<path d="M780,702 L818,702" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="784.5" y="683.5" width="29.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="799" y="695" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#374151">통과</text>
+<path d="M1140,650 L1140,602" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="1144.0" y="617.5" width="67.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1147" y="629" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">원자적 저장</text>
+<path d="M630,755 L630,782 L124,782 L124,322 L138,322" fill="none" stroke="#d23b3b" stroke-width="1.7" stroke-dasharray="6 4" marker-end="url(#arr)"/>
+<rect x="138.4" y="775.5" width="383.2" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="330" y="787" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#d23b3b">검사 실패(인용 없음·해시 불일치·근거 누락) → 근거 보완 수집 후 재제출</text>
+<rect x="140" y="845" width="420" height="120" rx="9" fill="#ffffff" stroke="#7048c8" stroke-width="1.6"/>
+<rect x="140" y="845" width="420" height="26" rx="9" fill="#7048c8"/><rect x="140" y="861" width="420" height="10" fill="#7048c8"/>
+<text x="152" y="863" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">computeForecast (예측)</text>
+<text x="152" y="891" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">교체 시점 = 도입 연도 + 설계 수명 + MRO 연장</text>
+<text x="152" y="909" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">교체 창 −2~+3년 · 수량 = 보유 × 교체 비율</text>
+<text x="152" y="927" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">금액 = 수량 × 단가 · 임박도 색·점수(0~100)</text>
+<text x="152" y="945" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">신뢰도 상·중·하(근거 수·최신성·추정 항목)</text>
+<rect x="600" y="845" width="500" height="120" rx="9" fill="#ffffff" stroke="#7048c8" stroke-width="1.6"/>
+<rect x="600" y="845" width="500" height="26" rx="9" fill="#7048c8"/><rect x="600" y="861" width="500" height="10" fill="#7048c8"/>
+<text x="612" y="863" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">computeScore (판단 점수, 요구서 6장)</text>
+<text x="612" y="891" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">통과 조건: 수출 불가 · 동급 독자 양산 → 0점(회색)</text>
+<text x="612" y="909" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">7개 항목 100점(의사 20·노후 20·재정 15·주변국 15</text>
+<text x="612" y="927" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">  ·소모 10·경쟁 15·접근 5) × 출처 신뢰도</text>
+<text x="612" y="945" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">× 등급 계수(1.0·0.7) × 독자 개발 계수(0.8)</text>
+<rect x="1140" y="845" width="240" height="120" rx="9" fill="#ffffff" stroke="#7048c8" stroke-width="1.6"/>
+<rect x="1140" y="845" width="240" height="26" rx="9" fill="#7048c8"/><rect x="1140" y="861" width="240" height="10" fill="#7048c8"/>
+<text x="1152" y="863" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">scoringBundle</text>
+<text x="1152" y="891" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">수집 테이블 읽기</text>
+<text x="1152" y="909" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">등급·독자 개발·신호·보유</text>
+<text x="1152" y="927" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">국방비·인접국·소모·납기</text>
+<text x="1152" y="945" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">weights(코드 수정 없이 조정)</text>
+<path d="M1030,762 L1030,826 L350,826" fill="none" stroke="#374151" stroke-width="1.7"/>
+<path d="M350,826 L350,843" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<path d="M820,826 L820,843" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="589.2" y="810.5" width="201.5" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="690" y="822" font-size="11.5" font-weight="normal" text-anchor="middle" fill="#374151">apply_research가 예측·점수 재계산</text>
+<path d="M1345,600 L1345,843" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="1297.0" y="815.5" width="29.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1300" y="827" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">읽기</text>
+<path d="M560,905 L598,905" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="560.2" y="887.5" width="37.5" height="15.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="579" y="898" font-size="10.5" font-weight="normal" text-anchor="middle" fill="#374151">노후화</text>
+<path d="M1140,905 L1102,905" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="1107.5" y="887.5" width="27.0" height="15.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="1121" y="898" font-size="10.5" font-weight="normal" text-anchor="middle" fill="#374151">입력</text>
+<rect x="140" y="1020" width="300" height="115" rx="9" fill="#ffffff" stroke="#13808a" stroke-width="1.6"/>
+<rect x="140" y="1020" width="300" height="26" rx="9" fill="#13808a"/><rect x="140" y="1036" width="300" height="10" fill="#13808a"/>
+<text x="152" y="1038" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">write_report</text>
+<text x="152" y="1066" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">6절 국가 보고서(요약·보유·수명</text>
+<text x="152" y="1084" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">·예측 근거·경쟁·출처)</text>
+<text x="152" y="1102" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">reports 표 + reports/&lt;ID&gt;.md 저장</text>
+<text x="152" y="1120" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지도 보고서 칩: 채팅 요청 없이 저장</text>
+<rect x="480" y="1020" width="320" height="115" rx="9" fill="#ffffff" stroke="#13808a" stroke-width="1.6"/>
+<rect x="480" y="1020" width="320" height="26" rx="9" fill="#13808a"/><rect x="480" y="1036" width="320" height="10" fill="#13808a"/>
+<text x="492" y="1038" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">화면 표시 (브라우저 적용 결과 반환)</text>
+<text x="492" y="1066" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">show_report: 채팅 패널에 보고서</text>
+<text x="492" y="1084" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">set_map_state: 국가·체계·2D/3D</text>
+<text x="492" y="1102" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">결과 applied·conflict·failed·inactive</text>
+<text x="492" y="1120" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">→ 모델이 답에 반영 실패를 알림</text>
+<rect x="840" y="1020" width="280" height="115" rx="9" fill="#ffffff" stroke="#13808a" stroke-width="1.6"/>
+<rect x="840" y="1020" width="280" height="26" rx="9" fill="#13808a"/><rect x="840" y="1036" width="280" height="10" fill="#13808a"/>
+<text x="852" y="1038" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">prepare_report → 문서 작성</text>
+<text x="852" y="1066" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">양식·고정 자료·케이스별 근거 표</text>
+<text x="852" y="1084" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">기존 문서 도구로 docx·pptx 작성</text>
+<text x="852" y="1102" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">렌더링 검수(내용·배치)</text>
+<rect x="1160" y="1020" width="220" height="115" rx="9" fill="#ffffff" stroke="#13808a" stroke-width="1.6"/>
+<rect x="1160" y="1020" width="220" height="26" rx="9" fill="#13808a"/><rect x="1160" y="1036" width="220" height="10" fill="#13808a"/>
+<text x="1172" y="1038" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">publish_artifact</text>
+<text x="1172" y="1066" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">완성 문서 사본·해시 보존</text>
+<text x="1172" y="1084" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">답변에 다운로드 링크</text>
+<text x="1172" y="1102" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">(사용자 화면에서 ↓ 받기)</text>
+<path d="M290,965 L290,1018" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="294.0" y="984.5" width="29.0" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="297" y="996" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">예측</text>
+<path d="M860,965 L860,1018" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<rect x="864.0" y="984.5" width="73.4" height="16.5" rx="3" fill="#ffffff" fill-opacity="0.92"/>
+<text x="867" y="996" font-size="11.5" font-weight="normal" text-anchor="start" fill="#374151">근거 표·예측</text>
+<path d="M440,1077 L478,1077" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<path d="M1120,1077 L1158,1077" fill="none" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<text x="20" y="1184" font-size="12" font-weight="bold" text-anchor="start" fill="#1f2937">범례</text>
+<rect x="60" y="1172" width="14" height="14" rx="3" fill="#3b6fd8"/>
+<text x="80" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">요청</text>
+<rect x="132.0" y="1172" width="14" height="14" rx="3" fill="#2f8f57"/>
+<text x="152.0" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">수집</text>
+<rect x="204.0" y="1172" width="14" height="14" rx="3" fill="#5b6472"/>
+<text x="224.0" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">저장</text>
+<rect x="276.0" y="1172" width="14" height="14" rx="3" fill="#c27c0e"/>
+<text x="296.0" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">정제·검증</text>
+<rect x="378.72" y="1172" width="14" height="14" rx="3" fill="#7048c8"/>
+<text x="398.72" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">계산</text>
+<rect x="450.72" y="1172" width="14" height="14" rx="3" fill="#13808a"/>
+<text x="470.72" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">출력</text>
+<path d="M522.72,1180 L558.72,1180" stroke="#374151" stroke-width="1.7" marker-end="url(#ar)"/>
+<text x="566.72" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">정상 흐름</text>
+<path d="M642.72,1180 L678.72,1180" stroke="#d23b3b" stroke-width="1.7" stroke-dasharray="6 4" marker-end="url(#arr)"/>
+<text x="686.72" y="1184" font-size="12" font-weight="normal" text-anchor="start" fill="#d23b3b">실패·재시도</text>
+<text x="1380" y="1184" font-size="12" font-weight="normal" text-anchor="end" fill="#4b5563">모든 수치는 출처 URL·발행일·수집일·신뢰도와 함께 저장 · 예측은 범위 추정</text>
+</svg>
