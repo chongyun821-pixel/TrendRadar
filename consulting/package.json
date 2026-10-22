@@ -1,0 +1,53 @@
+{
+  "name": "h5s-consulting-studio",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server/dev.ts",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts",
+    "test": "vitest run",
+    "check:connections": "tsx scripts/check-connections.ts",
+    "check:live": "tsx scripts/check-live.ts",
+    "check:api": "tsx scripts/check-api.ts",
+    "check:chat": "tsx scripts/check-chat-live.ts",
+    "check:case": "tsx scripts/check-case-live.ts"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@supabase/supabase-js": "^2.118.0",
+    "docx": "^9.5.1",
+    "express": "^5.1.0",
+    "fflate": "^0.8.3",
+    "lucide-react": "^0.468.0",
+    "markdown-it": "^14.1.0",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5",
+    "playwright-core": "^1.48.0",
+    "postgres": "^3.4.9",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "saxes": "^6.0.0",
+    "turndown": "^7.2.4",
+    "turndown-plugin-gfm": "^1.0.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/markdown-it": "^14.1.2",
+    "@types/multer": "^2.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/turndown": "^5.0.6",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^5.0.5"
+  }
+}

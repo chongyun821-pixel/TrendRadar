@@ -1,0 +1,22 @@
+import { it, expect } from 'vitest';
+import { unzipSync, strFromU8 } from 'fflate';
+import { emptyPages } from '../shared/templates';
+import { type Report, PAGE_DEFS } from '../shared/types';
+import { exportWord, reportHtml } from '../server/export';
+import { extractText } from '../server/attachments';
+it('preserves edited Korean content, table values and source destinations in an editable seven-section Word file', async () => {
+  const pages = emptyPages();
+  pages[0].content = PAGE_DEFS[0].fields.map((field, i) => `## ${field}\n검증용 내용 ${i + 1} & 특수문자 <확인>`).join('\n\n');
+  pages[1].content = '## 핵심 질문\n어떻게 개선할 것인가?\n- 이슈 A\n  - 세부 이슈';
+  pages[2].content = '| 가설 | 검증 |\n| --- | --- |\n| 가설 값 | 검증 값 |\n\n[원문 출처](https://example.com/evidence)';
+  const report: Report = { id: 'synthetic-export', title: '가상 검증용 보고서', pages, messages: [], attachments: [], proposals: [], createdAt: '2026-10-21T00:00:00Z', updatedAt: '2026-10-21T00:00:00Z', currentPage: 'problem', threadId: null, radarConversationId: null, context: '' };
+  const bytes = await exportWord(report), zip = unzipSync(bytes), xml = strFromU8(zip['word/document.xml']);
+  expect((xml.match(/<w:sectPr>/g) || []).length).toBe(7);
+  expect((xml.match(/<w:tbl>/g) || []).length).toBeGreaterThanOrEqual(2);
+  const text = await extractText(bytes, 'roundtrip.docx');
+  for (const def of PAGE_DEFS) expect(text).toContain(def.title);
+  expect(text).toContain('검증용 내용 7 & 특수문자 <확인>');
+  expect(text).toContain('가설 값'); expect(text).toContain('검증 값'); expect(text).toContain('https://example.com/evidence');
+  expect((reportHtml(report).match(/<section class="page"/g) || []).length).toBe(7);
+  expect(reportHtml(report)).not.toContain('<확인>');
+});
