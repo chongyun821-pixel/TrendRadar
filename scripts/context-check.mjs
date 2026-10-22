@@ -13,16 +13,16 @@ const folder = join('.local/verification', `app-context-${Date.now()}`); mkdirSy
 page.on('pageerror', error => errors.push(String(error)));
 page.on('request', request => { if (request.url() === `${base}/api/chat`) captures.push(request.postDataJSON()); });
 const state = () => page.evaluate(() => window.__app.getAppContext());
-async function tool(name, args = {}, context) {
+async function tool(name, args = {}, context, allowError = false) {
   context ||= await state();
   const response = await page.request.post(`${base}/api/tools/${name}`, { data: { args, conversationId: context.conversationId, appContext: context } });
   assert.equal(response.status(), 200);
-  const data = await response.json(); assert.ok(!data.result?.error, JSON.stringify(data.result)); return data.result;
+  const data = await response.json(); assert.ok(allowError || !data.result?.error, JSON.stringify(data.result)); return data.result;
 }
 async function finished() { await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료'); }
 async function commandResult(id, status) {
   for (let i = 0; i < 30; i++) {
-    const result = await tool('get_app_command', { commandId: id });
+    const result = await tool('get_app_command', { commandId: id }, undefined, true);
     if (result.status === status) return result;
     await new Promise(resolve => setTimeout(resolve, 200));
   }
@@ -62,8 +62,8 @@ try {
   assert.equal(captures.at(-1).appContext.report.country, 'POL');
   assert.equal(captures.at(-1).appContext.focus, 'FIN');
   const packet = await tool('prepare_report'); assert.equal(packet.basis, 'viewed'); assert.equal(packet.country, 'POL');
-  const command = await tool('set_map_state', { payload: JSON.stringify({ country: 'CAN', system: 'frigate', flat: true }) });
-  assert.equal(command.status, 'pending');
+  const command = await tool('set_map_state', { country: '캐나다', system: '호위함', flat: true });
+  assert.equal(command.status, 'applied', JSON.stringify(command));
   await page.waitForFunction(() => window.__app.state.focus === 'CAN' && window.__app.state.mode === 'frigate' && window.__app.state.flat);
   await commandResult(command.commandId, 'applied');
 
@@ -74,7 +74,7 @@ try {
     if (data.length) { seen(); await gate; }
     await route.fulfill({ response, json: data });
   });
-  const stale = await tool('set_map_state', { payload: '{"country":"POL"}' });
+  const stale = await tool('set_map_state', { country: 'POL' });
   await ready;
   await page.evaluate(() => window.__app.focusCountry('AUS')); release();
   await commandResult(stale.commandId, 'conflict');

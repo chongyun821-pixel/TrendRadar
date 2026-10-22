@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { commandVersionMatches, type AppContext } from '../shared/app-context';
 import { resolveCountry, resolveSystem, isGeneral } from '../shared/data';
-import { SYSTEM_KEYS } from '../shared/types';
-import { execution } from './execution';
+import { SYSTEM_KEYS, type SystemKey } from '../shared/types';
+import { execution, executions } from './execution';
 import { now, type Repository } from './store';
-import type { ToolDef } from './agent';
+import type { ToolDef, ChatOut } from './agent';
 import { modelChoiceSchema, modelOptionsSchema } from './model-choice';
 
 const system = z.enum(SYSTEM_KEYS);
@@ -16,14 +16,19 @@ export const appContextSchema = z.object({
   filters: z.object({ system: system.nullable() }).strict(),
   report: z.object({ id: z.string().uuid(), country: z.string().nullable(), system: system.nullable(), kind: z.literal('country-analysis'), basisDate: z.string(), dataVersion: z.number().int() }).nullable(),
   dataVersion: z.number().int().nonnegative(),
+  /** 탭이 백그라운드면 true(브라우저가 숨김 전환 때 알린다). 버전에는 넣지 않는다 */
+  hidden: z.boolean().optional(),
 }).strict();
 const S = (description: string) => ({ type: 'string' as const, description });
 const target = { screenId: S('대상 화면 ID. 생략하면 실행을 시작한 화면') };
+/** 화면 도구(모델에게 먼저 보인다). set_map_state 하나로 국가·체계·2D/3D를 맞춘다 */
+export const SCREEN_DEFS: ToolDef[] = [
+  { name: 'set_map_state', description: '지도 화면을 국가·무기체계·2D/3D로 맞춘다(한 번에). 브라우저 적용 결과(applied·conflict·inactive·failed)를 바로 돌려준다', properties: { country: S('국가 이름·ISO 코드·별칭(예: 폴란드, POL). 선택 해제는 "해제"'), system: S('자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함 또는 일반'), flat: { type: 'boolean', description: 'true=2D 지도, false=3D 지구본' }, ...target, expectedVersion: { type: 'integer', description: '생략 권장' } } },
+  { name: 'get_app_context', description: '요청 당시와 지금의 화면 상태(모드·선택 국가·열린 보고서·탭 표시 여부)', properties: target },
+];
+/** 예전 이름. 모델에게는 보이지 않고 액션 블록·기존 호출만 받는다 */
+export const LEGACY_SCREEN_TOOLS = ['set_mode', 'focus_country', 'toggle_map_mode', 'get_map_state'] as const;
 export const APP_DEFS: ToolDef[] = [
-  { name: 'get_app_context', description: '요청 당시 화면과 최신 화면의 필터, 선택 국가, 열린 보고서를 조회한다', properties: target },
-  { name: 'get_map_state', description: '대상 화면의 지도 상태를 조회한다', properties: target },
-  { name: 'set_map_state', description: '국가·무기체계·2D/3D를 한 번에 변경한다. 예: {"country":"POL","system":"mrl"}. pending은 접수이므로 get_app_command로 적용을 확인한다', properties: { ...target, payload: S('JSON: system?(일반은 null), country?(선택 해제는 null), flat?'), expectedVersion: { type: 'integer' } }, required: ['payload'] },
-  { name: 'get_app_command', description: '화면 명령의 실제 적용 결과를 최대 3초 기다려 조회한다. pending이면 아직 적용되지 않았다', properties: { commandId: S('명령 ID') }, required: ['commandId'] },
   { name: 'list_conversations', description: '저장된 대화 목록을 조회한다', properties: {} },
   { name: 'search_conversations', description: '대화 제목과 전체 메시지를 문자열로 검색한다', properties: { query: S('찾을 문자열') }, required: ['query'] },
   { name: 'read_conversation', description: '지정한 대화의 메시지와 보고서 및 파일을 읽는다', properties: { conversationId: S('생략하면 실행을 시작한 대화'), query: S('메시지 검색어'), offset: { type: 'integer' }, limit: { type: 'integer' } } },
@@ -33,6 +38,7 @@ export const APP_DEFS: ToolDef[] = [
   { name: 'set_chat_model', description: '지정한 화면의 다음 요청부터 사용할 모델을 변경한다', properties: { ...target, model: S('codex, grok, gpt, nemotron'), cliModel: S('코덱스: gpt-6.1-sol·gpt-6-luna·gpt-6-astra, 그록 빌드: grok-4.7·grok-4.7-build-fast·grok-4.6·grok-4.5'), effort: S('추론 강도(코덱스 low~max·ultra, 그록 빌드 low~xhigh)'), expectedVersion: { type: 'integer' } }, required: ['model'] },
   { name: 'get_run_status', description: '실행 상태와 오류를 조회한다', properties: { runId: S('생략하면 현재 실행') } },
   { name: 'cancel_run', description: '실행에 중지를 요청한다. 자신의 종료를 기다리지 않는다', properties: { runId: S('생략하면 현재 실행') } },
+  { name: 'get_app_command', description: '화면 도구가 pending을 돌려준 경우에만 그 commandId의 적용 결과를 최대 3초 다시 기다린다', properties: { commandId: S('명령 ID') }, required: ['commandId'] },
 ];
 
 export async function saveAppContext(repo: Repository, raw: unknown) {
@@ -109,23 +115,7 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
   switch (name) {
     case 'get_app_context': return { request: ctx.appContext || null, current: await readAppContext(repo, a.screenId || ctx.appContext?.screenId) };
     case 'get_map_state': return readAppContext(repo, a.screenId || ctx.appContext?.screenId);
-    case 'set_map_state': {
-      const p = z.object({ system: z.string().nullable().optional(), country: z.string().nullable().optional(), flat: z.boolean().optional() }).strict().parse(JSON.parse(a.payload));
-      const state: Record<string, unknown> = { ...p };
-      if (p.system != null) { const s = resolveSystem(p.system); if (!s && !isGeneral(p.system)) throw new Error('무기체계 확인 필요'); state.system = s; }
-      if (p.country != null) { const c = resolveCountry(p.country); if (!c) throw new Error('국가 확인 필요'); state.country = c; }
-      return requestAppCommand({ type: 'set_map_state', ...state }, a.screenId, a.expectedVersion);
-    }
-    case 'get_app_command': {
-      const deadline = Date.now() + 3000;
-      while (true) {
-        ctx.signal.throwIfAborted();
-        const row = await repo.one('SELECT id,status,result FROM app_commands WHERE id=? AND conversation_id=?', a.commandId, ctx.conversationId);
-        if (!row) return { error: '명령 없음' };
-        if (row.status !== 'pending' || Date.now() >= deadline) return { ...row, ...(row.result ? { result: JSON.parse(row.result) } : {}) };
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    }
+    case 'get_app_command': return waitCommand(z.string().uuid().parse(a.commandId), 3000);
     case 'list_conversations': return repo.all('SELECT * FROM conversations ORDER BY updated_at DESC');
     case 'search_conversations': {
       const query = z.string().min(1).parse(a.query);
@@ -140,7 +130,7 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
       return { ...conversation, messages: msgs.slice(offset, offset + limit), total: msgs.length };
     }
     case 'create_conversation': { const c = await repo.createConversation(a.title || '새 대화'); return { id: c.id, title: c.title }; }
-    case 'switch_conversation': await repo.conversation(a.conversationId); return requestAppCommand({ type: name, conversationId: a.conversationId }, a.screenId, a.expectedVersion);
+    case 'switch_conversation': await repo.conversation(a.conversationId); return screenCommand({ type: name, conversationId: a.conversationId }, a.screenId, a.expectedVersion);
     case 'delete_conversation': {
       if (a.conversationId === ctx.conversationId) throw new Error('현재 실행 중인 대화는 응답 중지 후 앱에서 삭제하세요');
       if (await repo.one("SELECT id FROM runs WHERE conversation_id=? AND status IN ('running','stopping')", a.conversationId)) throw new Error('진행 중 작업을 먼저 중지하세요');
@@ -152,7 +142,7 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
       const { provider: model, model: cliModel, effort } = parsed.data;
       const { listModels } = await import('./models');
       if (!(await listModels(ctx.env)).some(m => m.id === model && m.available)) throw new Error('사용할 수 없는 모델');
-      return requestAppCommand({ type: name, model, ...(cliModel ? { cliModel } : {}), ...(effort ? { effort } : {}) }, a.screenId, a.expectedVersion);
+      return screenCommand({ type: name, model, ...(cliModel ? { cliModel } : {}), ...(effort ? { effort } : {}) }, a.screenId, a.expectedVersion);
     }
     case 'get_run_status': return repo.one('SELECT * FROM runs WHERE id=? AND conversation_id=?', a.runId || ctx.runId, ctx.conversationId);
     case 'cancel_run': {
@@ -169,4 +159,101 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
     }
     default: throw new Error('알 수 없는 앱 도구');
   }
+}
+
+/* ───────── 화면 명령 결과: 브라우저 적용을 잠시 기다려 최종 상태를 돌려준다 ───────── */
+/** 적용 대기 시간. 테스트는 줄일 수 있다 */
+export const screenSettings = { waitMs: 3000 };
+const MESSAGES = {
+  conflict: '요청 이후 사용자가 화면을 바꿔 적용하지 않았다. 사용자 화면을 유지하고, 반영하지 못한 내용을 답에 한 줄로 알린다',
+  hidden: '앱 탭이 백그라운드에 있어 아직 적용되지 않았다. 탭을 다시 열면 자동으로 적용된다고 사용자에게 알린다',
+  closed: '앱 화면이 닫혀 있거나 응답하지 않아 화면을 바꾸지 못했다. 앱 화면을 열고 다시 요청해 달라고 사용자에게 알린다',
+  otherConversation: '사용자가 화면에서 다른 대화를 보고 있어 바꾸지 않았다. 반영하지 못한 내용을 사용자에게 알린다',
+  pending: '브라우저가 아직 적용하지 않았다. 필요하면 get_app_command(commandId)로 한 번 더 확인한다',
+};
+type ScreenResult = { ok: boolean; status: 'applied' | 'conflict' | 'failed' | 'cancelled' | 'inactive' | 'pending'; commandId?: string; detail?: string; message?: string; error?: string; version?: number; result?: unknown };
+const fail = (status: ScreenResult['status'], message: string, extra: Partial<ScreenResult> = {}): ScreenResult => ({ ok: false, status, message, error: message, ...extra });
+
+/** 명령을 접수하고 적용 결과(applied·conflict·failed·inactive, 시간 안에 못 받으면 pending)를 돌려준다. 앱 화면이 없거나 다른 대화면 접수하지 않는다 */
+export async function screenCommand(data: Record<string, unknown>, screenId?: string, expectedVersion?: number): Promise<ScreenResult> {
+  const ctx = await execution();
+  const current = await readAppContext(ctx.repo, screenId || ctx.appContext?.screenId);
+  if (!current.available || current.stale) return fail('inactive', MESSAGES.closed);
+  if (current.state.conversationId !== ctx.conversationId) return fail('conflict', MESSAGES.otherConversation);
+  let queued: { commandId: string };
+  try { queued = await requestAppCommand(data, screenId, expectedVersion); }
+  catch (error) { if (/버전 충돌/.test(String(error))) return fail('conflict', MESSAGES.conflict); throw error; }
+  return waitCommand(queued.commandId);
+}
+export async function waitCommand(commandId: string, ms = screenSettings.waitMs): Promise<ScreenResult> {
+  const ctx = await execution(), deadline = Date.now() + ms;
+  for (;;) {
+    ctx.signal.throwIfAborted();
+    const row = await ctx.repo.one('SELECT id,screen_id,status,result FROM app_commands WHERE id=? AND conversation_id=?', commandId, ctx.conversationId);
+    if (!row) return fail('failed', '화면 명령이 없습니다');
+    const result = row.result ? JSON.parse(row.result) : undefined;
+    if (row.status === 'applied') return { ok: true, status: 'applied', commandId, ...(result?.version !== undefined ? { version: result.version } : {}), ...(result ? { result } : {}) };
+    if (row.status === 'conflict') return fail('conflict', MESSAGES.conflict, { commandId, detail: result?.detail, result });
+    if (row.status === 'failed') return fail('failed', `화면 적용 실패: ${result?.detail || '원인 미상'}. 사용자에게 알린다`, { commandId, detail: result?.detail, result });
+    if (row.status === 'cancelled') return fail('cancelled', '실행이 끝나 화면 명령을 취소했다', { commandId });
+    if (Date.now() >= deadline) {
+      const screen = await readAppContext(ctx.repo, row.screen_id);
+      if (!screen.available || screen.stale) return fail('inactive', MESSAGES.closed, { commandId });
+      if (screen.state.hidden) return fail('inactive', MESSAGES.hidden, { commandId });
+      return { ok: false, status: 'pending', commandId, message: MESSAGES.pending };
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+}
+
+const CLEAR = /^(해제|없음|선택\s*해제|none|null|clear)$/i;
+/** 국가: 데이터 국가 이름·별칭 → ISO 3자리 코드 → 세계 지도 국가 이름 */
+async function mapCountry(raw: string): Promise<string | null> {
+  const known = resolveCountry(raw);
+  if (known) return known;
+  if (/^[A-Za-z]{3}$/.test(raw.trim())) return raw.trim().toUpperCase();
+  const { countryId } = await import('./ingest/common');
+  return countryId(raw);
+}
+/** set_map_state 입력(일반 필드, 예전 payload JSON, 예전 도구 이름)을 { country?, system?, flat? }로 정리한다 */
+export async function mapTarget(name: string, a: Record<string, any>, currentFlat?: () => Promise<boolean | undefined>) {
+  let raw: Record<string, unknown> = name === 'set_mode' ? { system: a.system ?? null } : name === 'focus_country' ? { country: a.country } : name === 'toggle_map_mode' ? { flat: a.flat } : { country: a.country, system: a.system, flat: a.flat };
+  if (name === 'set_map_state' && typeof a.payload === 'string' && a.payload.trim()) raw = { ...raw, ...z.record(z.unknown()).parse(JSON.parse(a.payload)) };
+  const target: { country?: string | null; system?: SystemKey | null; flat?: boolean } = {};
+  if (raw.country === null || (typeof raw.country === 'string' && CLEAR.test(raw.country.trim()))) target.country = null;
+  else if (raw.country != null && String(raw.country).trim()) {
+    const c = await mapCountry(String(raw.country));
+    if (!c) throw new Error(`국가 확인 필요: ${raw.country}`);
+    target.country = c;
+  }
+  if (raw.system === null || (typeof raw.system === 'string' && isGeneral(raw.system))) target.system = null;
+  else if (raw.system != null && String(raw.system).trim()) {
+    const s = resolveSystem(String(raw.system));
+    if (!s) throw new Error(`무기체계 확인 필요: ${raw.system} (자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함·일반)`);
+    target.system = s;
+  }
+  const flat = typeof raw.flat === 'string' ? (/^(2d|true|flat|평면)$/i.test(raw.flat) ? true : /^(3d|false|globe|지구본)$/i.test(raw.flat) ? false : undefined) : raw.flat;
+  if (typeof flat === 'boolean') target.flat = flat;
+  else if (name === 'toggle_map_mode') { const now = await currentFlat?.(); if (now !== undefined) target.flat = !now; }
+  return target;
+}
+/** 지도 도구: 앱 화면이 있으면 브라우저 명령으로 보내고 결과를 기다린다. 화면 없이 호출되면 답과 함께 적용할 동작으로 남긴다 */
+export async function mapTool(name: string, a: Record<string, any>, out: ChatOut) {
+  const ctx = executions.getStore();
+  let target: Awaited<ReturnType<typeof mapTarget>>;
+  try {
+    await ctx?.repo.data(); // 국가·체계 이름 해석은 적재된 조달 데이터를 쓴다
+    target = await mapTarget(name, a, async () => {
+      if (!ctx?.appContext) return undefined;
+      const current = await readAppContext(ctx.repo, ctx.appContext.screenId);
+      return current.available ? current.state.flat : ctx.appContext.flat;
+    });
+  } catch (error) { return fail('failed', error instanceof Error ? error.message : String(error)); }
+  if (name === 'toggle_map_mode' && !('flat' in target) && !ctx?.appContext) { out.actions.push({ type: 'toggle_map_mode' }); return { ok: true, status: 'queued', message: '답과 함께 화면에 적용된다' }; }
+  if (!Object.keys(target).length) return fail('failed', '바꿀 항목이 없습니다. country·system·flat 중 하나 이상을 지정한다');
+  if (ctx?.appContext) return screenCommand({ type: 'set_map_state', ...target }, a.screenId, a.expectedVersion);
+  if ('system' in target) out.actions.push({ type: 'set_mode', system: target.system });
+  if ('flat' in target) out.actions.push({ type: 'toggle_map_mode', flat: target.flat });
+  if (target.country) out.actions.push({ type: 'focus_country', country: target.country });
+  return { ok: true, status: 'queued', message: '답과 함께 화면에 적용된다', ...target };
 }

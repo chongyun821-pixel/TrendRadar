@@ -36,4 +36,6 @@ export interface AppContext {
   filters: { system: SystemKey | null };
   report: ReportRef | null;
   dataVersion: number;
+  /** 탭이 백그라운드(브라우저가 숨김 전환 때 알린다). 화면 버전에는 넣지 않는다 */
+  hidden?: boolean;
 }

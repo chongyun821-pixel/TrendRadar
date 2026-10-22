@@ -9,13 +9,15 @@ import { ReqError, sleep } from './http';
 export const NEMOTRON_SUPER = 'nvidia/nemotron-3-super-120b-a12b:free';
 export const FREE_MODELS_ROUTER = 'openrouter/free';
 
-const TEXT_PROTOCOL = [
+/** 함수 호출을 못 하는 모델용 핵심 도구(화면 먼저). 전체 목록은 너무 길어 쓰지 않는다 */
+export const TEXT_TOOLS = ['set_map_state', 'write_report', 'get_app_context', 'query_procurement', 'get_forecast', 'list_forecasts', 'calculate_forecast', 'get_country_analysis', 'search_programs', 'get_inventory', 'get_lifespan', 'get_score_breakdown', 'search_sources', 'collect_source', 'read_source'];
+export const TEXT_PROTOCOL = [
   '도구는 함수 호출 대신 답 맨 끝의 JSON 블록으로 요청한다:',
   '```json',
-  '{"tools":[{"name":"get_forecast","args":{"country":"폴란드","system":"자주포"}},{"name":"focus_country","args":{"country":"폴란드"}}]}',
+  '{"tools":[{"name":"set_map_state","args":{"country":"폴란드","system":"자주포"}},{"name":"get_forecast","args":{"country":"폴란드","system":"자주포"}}]}',
   '```',
   '조회 도구 결과는 다음 메시지로 전달된다. 결과를 받은 뒤에는 블록 없이 답하거나 화면 도구만 블록으로 보낸다.',
-  '도구: ' + TOOL_DEFS.map(t => `${t.name}(${Object.keys(t.properties).join(',')}) ${t.description}`).join('; '),
+  '도구: ' + TEXT_TOOLS.map(name => TOOL_DEFS.find(t => t.name === name)!).map(t => `${t.name}(${Object.keys(t.properties).filter(k => k !== 'screenId' && k !== 'expectedVersion').join(',')}) ${t.description}`).join('; '),
 ].join('\n');
 
 const toolUnsupported = (e: unknown) => e instanceof ReqError && (e.status === 400 || e.status === 404) && /no endpoints.{0,80}support.{0,40}(?:tool|function)|(?:tool|function).{0,80}(?:not supported|unsupported)|(?:does not|doesn't|do not|don't) support.{0,40}(?:tool|function)/i.test(e.body);
@@ -90,7 +92,7 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
       } else {
         const p = parseActionBlock(String(msg.content ?? ''));
         const data: string[] = [];
-        for (const c of p.calls) { out.tools.push(c.name); const res = await runTool(c.name, c.args, out); if (!PAGE_TOOLS.has(c.name)) data.push(`${c.name}: ${JSON.stringify(res)}`); }
+        for (const c of p.calls) { out.tools.push(c.name); const res = await runTool(c.name, c.args, out); if (!PAGE_TOOLS.has(c.name) || (res as { ok?: boolean })?.ok === false) data.push(`${c.name}: ${JSON.stringify(res)}`); }
         if (!data.length) { out.reply = p.text || (out.reports.length ? '보고서를 표시했습니다.' : '…'); return out; }
         msgs.push({ role: 'assistant', content: String(msg.content ?? '') }, { role: 'user', content: `도구 결과:\n${data.join('\n')}` });
       }

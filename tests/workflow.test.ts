@@ -7,7 +7,10 @@ import { zipSync, strToU8 } from 'fflate';
 import { Repository, now, hash } from '../server/store';
 import { executions } from '../server/execution';
 import { runTool, newOut, systemPrompt, TOOL_DEFS } from '../server/agent';
-import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand } from '../server/app-context';
+import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand, screenSettings } from '../server/app-context';
+
+// 브라우저가 없는 단위 시험: 화면 도구는 기다리지 않고 접수(pending) 결과를 바로 돌려준다. 대기 동작은 아래 전용 시험에서 확인한다.
+screenSettings.waitMs = 0;
 import { publicAddress, robotsAllowed, htmlText, sourceNetwork } from '../server/sources';
 import { publishArtifact, POWERPOINT_MIME } from '../server/artifacts';
 import type { AppContext } from '../shared/app-context';
@@ -27,6 +30,50 @@ async function submission() {
   const saved: any = await runTool('save_source', { url: 'https://example.org/evidence', content: '가상 검증 원문. 신규 장비 12문을 2028년에 도입한다.', kind: 'original', publishedAt: '2026-10-17' }, newOut());
   return { record: { country: '폴란드', system: '자주포', batches: [{ model: '새 장비', qty: '12문', introYear: '2028년', src: ['new-source'] }], src: ['new-source'] }, sources: { 'new-source': { ...saved, t: '가상 원문', u: 'https://example.org/evidence', y: 2026 } }, evidence: [{ path: 'batches', sourceId: 'new-source', quote: '신규 장비 12문을 2028년에 도입한다.' }], reason: '가상 도입 기록 추가', asOf: '2026-10-17' };
 }
+describe('화면 도구 set_map_state', () => {
+  afterEach(() => { screenSettings.waitMs = 0; });
+  it('일반 필드에 한국어 이름·ISO 코드·별칭을 받고, 브라우저 적용 결과를 기다려 바로 돌려준다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      screenSettings.waitMs = 2000;
+      const call = runTool('set_map_state', { country: '핀란드', system: '자주포', flat: true }, newOut());
+      let command: any;
+      for (let i = 0; i < 50 && !command; i++) { command = (await pendingCommands(f.repo, f.state.screenId))[0]; if (!command) await new Promise(r => setTimeout(r, 20)); }
+      expect(command.data).toMatchObject({ type: 'set_map_state', country: 'FIN', system: 'sph', flat: true });
+      await acknowledgeCommand(f.repo, f.state.screenId, command.id, { status: 'applied', version: 2 });
+      expect(await call).toMatchObject({ ok: true, status: 'applied', commandId: command.id, version: 2 });
+      screenSettings.waitMs = 0;
+      for (const [country, iso] of [['UK', 'GBR'], ['JPN', 'JPN'], ['해제', null]] as const) {
+        const r: any = await runTool('set_map_state', { country }, newOut());
+        expect((await f.repo.one('SELECT data FROM app_commands WHERE id=?', r.commandId)).data).toContain(JSON.stringify({ type: 'set_map_state', country: iso }).slice(1, -1));
+      }
+      expect(await runTool('set_map_state', { system: '레이저' }, newOut())).toMatchObject({ ok: false, status: 'failed', error: expect.stringContaining('무기체계 확인 필요') });
+      expect(await runTool('set_map_state', {}, newOut())).toMatchObject({ ok: false, status: 'failed' });
+    }); } finally { await f.repo.close(); }
+  });
+  it('탭이 숨겨졌으면 inactive와 안내를 돌려주고 명령은 남겨 두며, 화면이 끊겼으면 접수하지 않는다', async () => {
+    const f = await fixture();
+    try { await executions.run(f.ctx, async () => {
+      await saveAppContext(f.repo, { ...f.state, hidden: true });
+      screenSettings.waitMs = 50;
+      const hidden: any = await runTool('set_map_state', { country: '폴란드', system: '다연장로켓' }, newOut());
+      expect(hidden).toMatchObject({ ok: false, status: 'inactive', message: expect.stringContaining('백그라운드') });
+      expect((await pendingCommands(f.repo, f.state.screenId)).map(c => c.id)).toEqual([hidden.commandId]);
+      await f.repo.run('UPDATE app_contexts SET updated_at=? WHERE screen_id=?', '2000-01-01T00:00:00Z', f.state.screenId);
+      expect(await runTool('set_map_state', { country: '핀란드' }, newOut())).toMatchObject({ ok: false, status: 'inactive', message: expect.stringContaining('닫혀') });
+      expect(await pendingCommands(f.repo, f.state.screenId)).toHaveLength(1);
+    }); } finally { await f.repo.close(); }
+  });
+  it('앱 화면 없이 부르면(화면 맥락 없음) 답과 함께 적용할 동작으로 남기고 예전 이름도 받는다', async () => {
+    const out = newOut();
+    expect(await runTool('set_map_state', { country: '폴란드', system: '자주포', flat: false }, out)).toMatchObject({ ok: true, status: 'queued' });
+    expect(out.actions).toEqual([{ type: 'set_mode', system: 'sph' }, { type: 'toggle_map_mode', flat: false }, { type: 'focus_country', country: 'POL' }]);
+    const legacy = newOut();
+    await runTool('set_mode', { system: '일반' }, legacy); await runTool('toggle_map_mode', {}, legacy); await runTool('focus_country', { country: '핀란드' }, legacy);
+    expect(legacy.actions).toEqual([{ type: 'set_mode', system: null }, { type: 'toggle_map_mode' }, { type: 'focus_country', country: 'FIN' }]);
+  });
+});
+
 describe('새 조달 도구의 공통 실행 흐름', () => {
   it('기존 배치와 신규 자료를 합치고 원래 값과 규칙을 보존하며 사전 검증은 데이터를 바꾸지 않는다', async () => {
     const f = await fixture();

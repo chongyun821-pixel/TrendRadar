@@ -7,7 +7,7 @@ import { seed, resolveSystem } from '../shared/data';
 import { SYSTEM_KEYS } from '../shared/types';
 import { appContextSchema } from '../server/app-context';
 import { recordSchema } from '../server/research';
-import { TOOL_DEFS, ACTION_BLOCK_GUIDE } from '../server/agent';
+import { TOOL_DEFS, SCREEN_RULE } from '../server/agent';
 import { selectRows } from '../server/collection';
 
 const LASER = { ko: '레이저대공무기', unit: '기', designLife: 20, unitCost: [300, 1500], unitCostEst: true, costSrc: [] };
@@ -38,11 +38,11 @@ describe('모드 정리: IFV 표기와 레이저대공무기 삭제 (마이그�
     expect(resolveSystem('대공미사일')).toBe('sam');
   });
   it('도구 설명·화면 맥락·조사 양식이 laser를 받지 않는다', () => {
-    const setMode = TOOL_DEFS.find(t => t.name === 'set_mode')!;
-    expect(setMode.properties.system.description).toContain('IFV');
-    expect(setMode.properties.system.description).not.toContain('레이저');
-    expect(setMode.properties.system.description).not.toContain('장갑차');
-    expect(ACTION_BLOCK_GUIDE).not.toContain('레이저');
+    const setMap = TOOL_DEFS.find(t => t.name === 'set_map_state')!;
+    expect(setMap.properties.system.description).toContain('IFV');
+    expect(setMap.properties.system.description).not.toContain('레이저');
+    expect(setMap.properties.system.description).not.toContain('장갑차');
+    expect(SCREEN_RULE).not.toContain('레이저');
     expect(appContextSchema.shape.mode.safeParse('laser').success).toBe(false);
     expect(recordSchema.safeParse({ id: 'X', country: 'GBR', system: 'laser', batches: [], src: [] }).success).toBe(false);
   });

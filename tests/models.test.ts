@@ -23,9 +23,14 @@ describe('공유 도구 정의', () => {
     const names = TOOL_DEFS.map(t => t.name);
     expect(responsesTools().map(f => f.name)).toEqual(names);
     expect(openaiTools().map(t => t.function.name)).toEqual(names);
-    expect(names).toEqual(expect.arrayContaining(['set_mode', 'toggle_map_mode', 'focus_country', 'get_forecast', 'search_programs', 'get_lifespan', 'search_mro', 'write_report']));
-    expect((responsesTools().find(t => t.name === 'set_mode')!.parameters.properties as any).system.type).toBe('string');
-    expect((openaiTools().find(t => t.function.name === 'toggle_map_mode')!.function.parameters.properties as any).flat.type).toBe('boolean');
+    // 화면 도구가 먼저이고, 예전 지도 도구(set_mode·focus_country·toggle_map_mode)는 모델에게 보이지 않는다
+    expect(names.slice(0, 3)).toEqual(['set_map_state', 'get_app_context', 'write_report']);
+    expect(names).toEqual(expect.arrayContaining(['get_forecast', 'search_programs', 'get_lifespan', 'search_mro']));
+    for (const legacy of ['set_mode', 'toggle_map_mode', 'focus_country', 'get_map_state']) expect(names).not.toContain(legacy);
+    const map = responsesTools().find(t => t.name === 'set_map_state')!.parameters.properties as any;
+    expect([map.country.type, map.system.type, map.flat.type]).toEqual(['string', 'string', 'boolean']);
+    expect(map.payload).toBeUndefined();
+    expect((openaiTools().find(t => t.function.name === 'set_map_state')!.function.parameters.properties as any).flat.type).toBe('boolean');
   });
 });
 
@@ -233,9 +238,10 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(a.find(x => x.startsWith('mcp_servers.procurement.args='))).toBe('mcp_servers.procurement.args=["C:\\\\w\\\\tsx.mjs","C:\\\\w\\\\mcp\\\\server.ts"]');
     expect(a.at(-1)).toBe('-');
   });
-  it('프롬프트: MCP 사용·액션 블록 안내·이전 대화', () => {
+  it('프롬프트: MCP 화면 도구 우선(액션 블록 안내 없음)·이전 대화', () => {
     const p = buildPrompt({ messages: [{ role: 'user', text: '안녕' }, { role: 'model', text: '네' }, { role: 'user', text: '폴란드 자주포' }], state: { mode: 'sph' } });
-    expect(p).toContain('procurement MCP'); expect(p).toContain('"actions"'); expect(p).toContain('도우미: 네'); expect(p.trim().endsWith('사용자: 폴란드 자주포')).toBe(true);
+    expect(p).toContain('procurement MCP'); expect(p).not.toContain('"actions"'); expect(p).toContain('set_map_state(country="폴란드", system="자주포")');
+    expect(p.indexOf('화면 맞추기')).toBeLessThan(p.indexOf('research_procurement')); expect(p).toContain('도우미: 네'); expect(p.trim().endsWith('사용자: 폴란드 자주포')).toBe(true);
     expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'codex')).toContain('Documents 플러그인의 documents 스킬');
     expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'grok')).toContain('Grok Build 기본 docx 스킬');
     expect(p).toContain('publish_artifact(path, preparationId, review)'); expect(p).toContain('prepare_report'); expect(p).toContain('get_app_context');
@@ -319,5 +325,27 @@ describe('모델 API', () => {
   it('!모델 이름 해석', () => {
     const ms = [{ id: 'grok', name: '그록 빌드', available: true }, { id: 'gpt', name: '지피티', available: true }];
     expect(pickModel('그록 빌드', ms)).toBe('grok'); expect(pickModel('코덱스', ms)).toBe('codex'); expect(pickModel('지피티', ms)).toBe('gpt'); expect(pickModel('GPT', ms)).toBe('gpt'); expect(pickModel('네모트론', ms)).toBe('nemotron'); expect(pickModel('foo', ms)).toBeNull();
+  });
+});
+
+describe('화면 도구 안내와 사용률 집계', () => {
+  it('네모트론 텍스트 모드는 화면 도구를 앞에 둔 핵심 도구만 나열한다', async () => {
+    const { TEXT_PROTOCOL, TEXT_TOOLS } = await import('../server/openrouter');
+    expect(TEXT_TOOLS[0]).toBe('set_map_state');
+    expect(TEXT_PROTOCOL).toContain('"name":"set_map_state"');
+    expect(TEXT_PROTOCOL).not.toContain('research_procurement(');
+    expect(TEXT_PROTOCOL).not.toContain('focus_country');
+  });
+  it('모델별로 화면 도구를 부른 실행 비율과 적용 결과를 센다', async () => {
+    const { screenToolStats } = await import('../server/screen-stats');
+    const ev = (run_id: string, name: string, data: unknown) => ({ run_id, name, data: JSON.stringify(data) });
+    const stats = screenToolStats(
+      [{ id: 'a', model: 'gpt' }, { id: 'b', model: 'gpt' }, { id: 'c', model: 'codex' }],
+      [ev('a', 'tool.start', { name: 'set_map_state' }), ev('a', 'tool.complete', { name: 'set_map_state', result: { status: 'applied' } }), ev('b', 'tool.call', { name: 'get_forecast' }), ev('c', 'tool.call', { name: 'write_report' }), ev('c', 'tool.complete', { name: 'set_map_state', result: { status: 'inactive' } })],
+    );
+    expect(stats).toEqual([
+      { model: 'gpt', runs: 2, withScreenTool: 1, rate: 50, calls: 1, applied: 1, notApplied: 0 },
+      { model: 'codex', runs: 1, withScreenTool: 1, rate: 100, calls: 1, applied: 0, notApplied: 1 },
+    ]);
   });
 });

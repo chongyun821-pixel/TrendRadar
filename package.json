@@ -32,6 +32,7 @@
     "cancel:check": "node scripts/cancel-check.mjs",
     "context:check": "node scripts/context-check.mjs",
     "screen:check": "tsx scripts/screen-control-check.ts",
+    "screen:stats": "tsx scripts/screen-stats.ts",
     "markdown:check": "node scripts/markdown-check.mjs",
     "mcp:check": "node scripts/mcp-check.mjs",
     "data:countries": "node scripts/slim-countries.mjs"

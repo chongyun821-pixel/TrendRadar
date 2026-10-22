@@ -9,7 +9,7 @@ import { databaseClient, postgresQuery } from '../server/supabase';
 import { importSnapshot, localSnapshot, verifySnapshot, exportSnapshot } from '../server/migration';
 import { executions } from '../server/execution';
 import { researchTool, submitResearch } from '../server/research';
-import { saveAppContext, readAppContext, pendingCommands } from '../server/app-context';
+import { saveAppContext, readAppContext, pendingCommands, screenSettings } from '../server/app-context';
 import { runTool, newOut } from '../server/agent';
 import type { AppContext } from '../shared/app-context';
 
@@ -89,7 +89,8 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
     await saveAppContext(repo, screen);
     await executions.run({ ...ctx, appContext: screen }, async () => {
       expect(await runTool('get_app_context', {}, newOut())).toMatchObject({ request: { focus: 'POL' }, current: { state: { focus: 'POL' } } });
-      expect(await runTool('set_map_state', { payload: '{"country":"FIN"}' }, newOut())).toMatchObject({ status: 'pending' });
+      screenSettings.waitMs = 0;
+      expect(await runTool('set_map_state', { country: 'FIN' }, newOut())).toMatchObject({ status: 'pending' });
     });
     let path = '';
     await executions.run(ctx,async () => {

@@ -62,10 +62,11 @@ export function initChat(o: ChatOpts) {
     return { ...state, version: contextVersion };
   }
   let lastSyncedVersion = -1, lastSyncedAt = 0;
-  async function syncContext() {
+  /** 화면 상태 전송. 탭 숨김·표시 전환 때는 바로 보내 서버가 백그라운드 탭을 알 수 있게 한다(hidden은 버전에 넣지 않는다) */
+  async function syncContext(force = false) {
     const state = appSnapshot();
-    if (state.version !== lastSyncedVersion || Date.now() - lastSyncedAt > 10_000) {
-      await api('/app-context', post(state)); lastSyncedVersion = state.version; lastSyncedAt = Date.now();
+    if (force || state.version !== lastSyncedVersion || Date.now() - lastSyncedAt > 10_000) {
+      await api('/app-context', post(document.hidden ? { ...state, hidden: true } : state)); lastSyncedVersion = state.version; lastSyncedAt = Date.now();
     }
     return state;
   }

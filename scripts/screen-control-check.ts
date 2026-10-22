@@ -27,8 +27,10 @@ let requestContext: AppContext;
 async function tool(name: string, args: Record<string, unknown> = {}): Promise<any> {
   return executions.run({ repo, runId, conversationId: conversation.id, appContext: requestContext, signal: new AbortController().signal, env: {} }, () => runTool(name, args, newOut()));
 }
+/** 화면 도구는 적용 결과를 바로 돌려준다. 명령을 붙잡아 둔 경우(pending·inactive)만 get_app_command로 이어서 확인한다 */
 async function confirmed(command: any, status = 'applied') {
-  assert.equal(command.status, 'pending', JSON.stringify(command));
+  if (command.status === status) return;
+  assert.ok(['pending', 'inactive'].includes(command.status), JSON.stringify(command));
   for (let i = 0; i < 4; i++) {
     const result = await tool('get_app_command', { commandId: command.commandId });
     if (result.status !== 'pending') { assert.equal(result.status, status, JSON.stringify(result)); return; }
@@ -53,11 +55,12 @@ try {
   requestContext = await state(); await saveAppContext(repo, requestContext);
   await repo.event(runId, 'app.context', requestContext);
 
-  await confirmed(await tool('set_mode', { system: '다연장로켓' }));
-  await confirmed(await tool('focus_country', { country: '폴란드' }));
+  // 기다림 없이 바로 applied: 한국어 이름을 일반 필드로 받는다
+  const initial = await tool('set_map_state', { system: '다연장로켓' }); assert.equal(initial.status, 'applied', JSON.stringify(initial));
+  const pol = await tool('set_map_state', { country: '폴란드' }); assert.equal(pol.status, 'applied', JSON.stringify(pol));
   assert.equal((await state()).mode, 'mrl'); assert.equal((await state()).focus, 'POL');
   const report = await tool('write_report', { country: '폴란드', system: '다연장로켓' });
-  assert.equal(report.shown, false); await confirmed(report);
+  assert.equal(report.status, 'applied'); assert.equal(report.shown, true);
   let current = await state();
   assert.equal(current.activeView, 'report'); assert.equal(current.report?.id, report.reportId);
   assert.equal(current.report?.country, 'POL'); assert.equal(current.report?.system, 'mrl');
@@ -68,8 +71,8 @@ try {
 
   // 같은 버전으로 접수된 두 명령은 한 번에 도착하거나 서로 다른 주기에 도착해도 이어서 적용한다.
   let held = await holdCommands();
-  const mode = await tool('set_mode', { system: '대공미사일' });
-  const focus = await tool('focus_country', { country: '핀란드' });
+  const mode = await tool('set_map_state', { system: '대공미사일' });
+  const focus = await tool('set_map_state', { country: '핀란드' });
   held.release(); await confirmed(mode); await confirmed(focus); await held.close();
   assert.equal((await state()).mode, 'sam'); assert.equal((await state()).focus, 'FIN');
 
@@ -78,34 +81,45 @@ try {
   await page.route('**/api/app-context/*/commands/*', async route => {
     if (!failedAcknowledgements++) await route.abort(); else await route.continue();
   });
-  await confirmed(await tool('toggle_map_mode'));
+  await confirmed(await tool('set_map_state', { flat: true }));
   assert.equal((await state()).flat, true);
   assert.ok(failedAcknowledgements >= 2);
   await page.unroute('**/api/app-context/*/commands/*');
-  await confirmed(await tool('toggle_map_mode'));
+  await confirmed(await tool('set_map_state', { flat: '3D' }));
   assert.equal((await state()).flat, false);
 
   // 명시한 expectedVersion은 챗봇 자신의 앞선 변경에도 정확히 일치해야 한다.
   held = await holdCommands();
   const before = await state();
-  const first = await tool('set_mode', { system: '장갑차' });
-  const strict = await tool('set_map_state', { payload: '{"country":"CAN"}', expectedVersion: before.version });
+  const first = await tool('set_map_state', { system: '장갑차' });
+  const strict = await tool('set_map_state', { country: 'CAN', expectedVersion: before.version });
   held.release(); await confirmed(first); await confirmed(strict, 'conflict'); await held.close();
   assert.equal((await state()).focus, 'FIN');
 
   held = await holdCommands();
-  const stale = await tool('focus_country', { country: '폴란드' });
+  const stale = await tool('set_map_state', { country: '폴란드' });
   await held.ready; await page.evaluate(() => (window as any).__app.focusCountry('AUS')); held.release();
   await confirmed(stale, 'conflict'); await held.close();
   assert.equal((await state()).focus, 'AUS');
   await saveAppContext(repo, await state());
-  assert.ok((await tool('focus_country', { country: '폴란드' })).error);
+  const rejected = await tool('set_map_state', { country: '폴란드' });
+  assert.equal(rejected.status, 'conflict'); assert.ok(rejected.error);
 
   // 사용자가 새로 요청한 상황을 재현하고 모바일에서도 같은 도구로 보고서를 연다.
   requestContext = await state(); await saveAppContext(repo, requestContext);
+  // 탭이 백그라운드면 inactive와 안내를 바로 받고, 탭이 다시 보이면 남은 명령이 적용된다
+  const setHidden = (hidden: boolean) => page.evaluate(`Object.defineProperty(document, 'hidden', { configurable: true, value: ${hidden} }); document.dispatchEvent(new Event('visibilitychange'))`);
+  await setHidden(true);
+  await page.waitForTimeout(300);
+  const background = await tool('set_map_state', { country: '일본' });
+  assert.equal(background.status, 'inactive', JSON.stringify(background)); assert.match(background.message, /백그라운드/);
+  assert.equal((await state()).focus, 'AUS');
+  await setHidden(false);
+  await confirmed(background);
+  assert.equal((await state()).focus, 'JPN');
   await page.setViewportSize({ width: 390, height: 844 });
   const mobile = await tool('write_report', { country: '폴란드', system: '다연장로켓' });
-  await confirmed(mobile);
+  assert.equal(mobile.status, 'applied');
   current = await state(); assert.equal(current.report?.id, mobile.reportId);
   assert.equal(current.focus, 'POL'); assert.equal(current.mode, 'mrl'); assert.equal(current.activeView, 'report');
   assert.equal(await page.locator('#modes button.on').getAttribute('data-sys'), 'mrl');
@@ -129,7 +143,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#chatStatus')!.textContent === '완료');
   assert.equal((await state()).focus, 'CAN'); assert.equal((await state()).activeView, 'map');
   assert.deepEqual(errors, []);
-  const receipt = { sequentialCommands: 'pass', pendingBatch: 'pass', acknowledgementRetry: 'pass', repeatedToggle: 'pass', strictVersion: 'pass', userConflict: 'pass', reportDuringRun: 'pass', mobileReport: 'pass', delayedReportConflict: 'pass', completionConflict: 'pass', errors };
+  const receipt = { sequentialCommands: 'pass', pendingBatch: 'pass', acknowledgementRetry: 'pass', repeatedToggle: 'pass', hiddenTab: 'pass', directResult: 'pass', strictVersion: 'pass', userConflict: 'pass', reportDuringRun: 'pass', mobileReport: 'pass', delayedReportConflict: 'pass', completionConflict: 'pass', errors };
   writeFileSync(join(folder, 'result.json'), JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify({ ...receipt, folder }));
 } finally {
