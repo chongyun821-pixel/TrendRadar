@@ -3,13 +3,10 @@ import type { Env } from './env';
 import { chatOpenAI } from './openai';
 import { chatOpenRouter } from './openrouter';
 import { localAvailability, chatGrok, chatCodex } from './cli';
+import { PROVIDERS, hasSubOptions } from '../shared/model-options';
 
-export const MODELS: { id: ModelId; name: string; local?: boolean }[] = [
-  { id: 'grok', name: '그록 빌드', local: true },
-  { id: 'codex', name: '코덱스', local: true },
-  { id: 'gpt', name: '지피티' },
-  { id: 'nemotron', name: '네모트론' },
-];
+/** 표시 순서: 그록 빌드, 코덱스, 지피티, 네모트론(shared/model-options.ts). CLI 모델은 로컬 설치 여부로 사용 가능을 판단한다 */
+export const MODELS: { id: ModelId; name: string; local?: boolean }[] = PROVIDERS.map(p => ({ ...p, ...(hasSubOptions(p.id) ? { local: true } : {}) }));
 export const DEFAULT_MODEL: ModelId = 'gpt';
 
 export async function listModels(env: Env) {

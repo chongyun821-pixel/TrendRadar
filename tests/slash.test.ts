@@ -51,7 +51,7 @@ describe('모델 선택 단계', () => {
   it('제공자 → 코덱스 모델 → 추론 강도 → 완료', () => {
     const providers = modelStep([], current, new Set(['codex', 'gpt']));
     if ('done' in providers) throw new Error('단계');
-    expect(providers.items.map(i => i.label)).toEqual(['코덱스', '그록 빌드', '지피티', '네모트론']);
+    expect(providers.items.map(i => i.label)).toEqual(['그록 빌드', '코덱스', '지피티', '네모트론']);
     expect(providers.items.find(i => i.id === 'grok')!.disabled).toBe(true);
     const codex = modelStep(['codex'], current);
     if ('done' in codex) throw new Error('단계');

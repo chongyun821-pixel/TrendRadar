@@ -1,8 +1,8 @@
-/** 채팅 모델 선택표: 제공자 → (CLI 모델 → 추론 강도). 화면 선택기와 서버 검증이 같은 표를 쓴다. */
+/** 채팅 모델 선택표: 제공자 → (CLI 모델 → 추론 강도). 화면 선택기·서버 검증·모델 목록이 같은 표(같은 순서)를 쓴다. */
 export type ProviderId = 'codex' | 'grok' | 'gpt' | 'nemotron';
 export interface ModelChoice { provider: ProviderId; model?: string; effort?: string }
 export const PROVIDERS: { id: ProviderId; name: string }[] = [
-  { id: 'codex', name: '코덱스' }, { id: 'grok', name: '그록 빌드' }, { id: 'gpt', name: '지피티' }, { id: 'nemotron', name: '네모트론' },
+  { id: 'grok', name: '그록 빌드' }, { id: 'codex', name: '코덱스' }, { id: 'gpt', name: '지피티' }, { id: 'nemotron', name: '네모트론' },
 ];
 /**
  * CLI 모델과 허용 추론 강도.

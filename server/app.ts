@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Env } from './env';
 import { listModels, defaultModel } from './models';
 import { GPT_MODEL } from './openai';
+import { cliChoice } from './cli';
 import { TOOL_IMPLS, listForecasts, writeReport } from '../shared/tools';
 import { seed } from '../shared/data';
 import { repository, hash } from './store';
@@ -21,7 +22,11 @@ app.use('*', async (_c, next) => { await repository().data(); await next(); });
 app.onError((e, c) => c.json({ error: e.message }, /찾을 수|파일 없음/.test(e.message) ? 404 : /진행 중|충돌/.test(e.message) ? 409 : 400));
 
 app.get('/health', c => c.json({ ok: true, storage: repository().kind, ai: !!c.env?.OPENAI_API_KEY, openrouter: !!c.env?.OPENROUTER_API_KEY, model: c.env?.OPENAI_MODEL || GPT_MODEL, records: seed.records.length }));
-app.get('/models', async c => { const models = await listModels(c.env ?? {}); return c.json({ default: defaultModel(c.env ?? {}, models), models }); });
+app.get('/models', async c => {
+  const env = c.env ?? {}, models = await listModels(env);
+  // defaults: 세부 선택이 없을 때 서버가 실제로 쓰는 CLI 모델·추론 강도(환경 변수 반영). 상태 줄 표시용
+  return c.json({ default: defaultModel(env, models), models, defaults: { grok: cliChoice('grok', env), codex: cliChoice('codex', env) } });
+});
 app.get('/forecasts', c => c.json(listForecasts({ system: c.req.query('system') ?? undefined, limit: 100 })));
 app.get('/scores', async c => {
   const system = resolveSystem(c.req.query('system'));
