@@ -26,7 +26,7 @@ try {
   const fixture: Seed = await (await fetch(`${base}/api/data`)).json();
   const catalog = JSON.parse(readFileSync('shared/country-catalog.json', 'utf8'));
   fixture.countries = Object.fromEntries(catalog.map((c: { id: string }) => [c.id, c]));
-  const year = new Date().getFullYear();
+  const year = fixture.meta.baseYear; // 기준 연도는 meta.baseYear 하나(shared/base-year.ts)
   fixture.sources = {
     stock: { t: '격리 장비 자료', u: 'https://example.com/stock', y: year },
     plan: { t: '격리 사업 일정', u: 'https://example.com/plan', y: year },
