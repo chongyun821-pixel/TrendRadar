@@ -13,3 +13,5 @@ dist/
 shots/
 *.sqlite-wal
 *.sqlite-shm
+.secrets*
+!.secrets.example
