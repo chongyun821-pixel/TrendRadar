@@ -109,8 +109,6 @@ export function initChat(o: ChatOpts) {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && (picker.isOpen() || !workspace.hidden)) { closeMenus(); input.focus(); }
   });
-  // 상태를 바꿀 때 마지막 메시지를 보던 사용자는 새 진행 상태도 계속 볼 수 있다.
-  new MutationObserver(() => { if (status.textContent) open(); }).observe(status, { childList: true });
   function resizeInput() {
     input.style.height = 'auto';
     input.style.height = `${Math.min(150, Math.max(34, input.scrollHeight))}px`;
@@ -294,6 +292,8 @@ export function initChat(o: ChatOpts) {
   }
   bindTitleEditor(titleEl, { onEdit: () => picker.close(), rename: (next, previous) => { void renameConversation(next, previous); } });
   choiceLabelEl.addEventListener('click', () => { open(); openModels(); });
+  // ^: /sessions 선택기(다시 누르면 닫기)
+  get('#sessionsButton').addEventListener('click', () => { if (picker.isOpen('sessions')) picker.close(); else { open(); openSessions(); } });
   /** /models: 제공자 → (코덱스·그록 빌드) 모델 → 추론 강도 */
   function openModels(path: string[] = []) {
     const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));
@@ -309,24 +309,24 @@ export function initChat(o: ChatOpts) {
     deliveryTarget = newTarget(id); queuedMessages = []; messages.resetQueue();
     currentReport = null; activeView = 'map';
   }
-  function newConversation() {
+  function newConversation(reveal = true) {
     view++; resetSession(null); save('pr.conversation', '');
     messages.clear(); uploader.reset(); clearInput(); progress.set('');
     titleEl.textContent = '새 대화'; get('#workspaceFiles').textContent = '추가한 자료가 없습니다.'; get('#fileCount').hidden = true; closeMenus();
-    open(); input.focus();
+    if (reveal) { open(); input.focus(); }
   }
   /** 낙관적 전환: 바로 선택을 바꾸고 캐시(없으면 제목만)를 보여준 뒤 최신 내용으로 갱신한다. 실패하면 이전 대화로 되돌린다 */
-  async function selectConversation(id: string) {
+  async function selectConversation(id: string, reveal = true) {
     const token = ++view, previous = conversationId;
     const show = (c: Conversation) => {
       resetSession(c.id); save('pr.conversation', c.id); uploader.reset();
-      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); open();
+      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); if (reveal) open();
     };
     const cached = conversations.get(id);
     if (cached) show(cached);
     else {
       resetSession(id); messages.clear();
-      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; open();
+      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; if (reveal) open();
       progress.set('대화 불러오는 중…');
     }
     let c: Conversation;
@@ -334,7 +334,7 @@ export function initChat(o: ChatOpts) {
     catch (e) {
       if (view !== token) return;
       const back = previous && conversations.get(previous);
-      if (back) { view++; show(back); followConversation(back, view); } else newConversation();
+      if (back) { view++; show(back); followConversation(back, view); } else newConversation(reveal);
       progress.set(`대화를 열지 못했습니다${e instanceof Error && e.message ? `: ${e.message}` : ''}`);
       return;
     }
@@ -520,12 +520,12 @@ export function initChat(o: ChatOpts) {
       o.actions.set_mode(data.system); o.actions.focus_country(data.country);
       let element = list.querySelector<HTMLElement>(`[data-report-id="${entry.id}"]`);
       if (!element) { messages.removeEmpty(); element = messages.add('report', md(entry.markdown)); element.dataset.reportId = entry.id; }
-      open(); activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop;
+      activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop;
     } else if (data.type === 'set_map_state') {
       if ('system' in data) o.actions.set_mode(data.system);
       if ('flat' in data) o.actions.toggle_map_mode(data.flat);
       if ('country' in data) o.actions.focus_country(data.country);
-    } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId);
+    } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId, false);
     else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
     else throw new Error('지원하지 않는 화면 명령');
   }

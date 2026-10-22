@@ -114,7 +114,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .menu-caption { color: var(--mut); font-size: 11.5px; margin-bottom: 8px; overflow-wrap: anywhere; }
 .menu-caption:empty { display: none; }
 #conversationTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#conversationTitle, #modelLabel { cursor: pointer; }
+#sessionsButton, #conversationTitle, #modelLabel { cursor: pointer; }
 #conversationTitle:focus { outline: none; }
 .conversation-list { max-height: 300px; overflow-y: auto; }
 .chat-status { flex: none; font-size: 11.5px; color: #b5c9e9; max-height: 68px; overflow-y: auto; white-space: pre-wrap; border-top: 1px solid var(--line); padding: 8px 14px; overflow-wrap: anywhere; }

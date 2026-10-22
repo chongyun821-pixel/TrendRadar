@@ -56,6 +56,31 @@ try {
   const stored = await (await page.request.get(`${base}/api/conversations/${ids[0]}`)).json();
   assert.deepEqual(stored.messages.map(m => `${m.role}:${m.text.slice(0, 20)}`), ['user:멈춤 첫 요청', 'model:사용자가 조사를 중지했습니다', 'user:멈춤 둘째 요청', 'model:사용자가 조사를 중지했습니다', 'user:모델 확인', `model:${reply.trim().slice(0, 20)}`]);
   assert.deepEqual(stored.runs.map(r => r.status), ['completed', 'cancelled', 'cancelled']);
+  // 4) 작업 중 접은 채팅 창은 진행 상태 갱신·중지·완료 뒤에도 접힌 채로 있고, 사용자가 누르면 펼쳐진다
+  const isOpen = () => page.locator('#chat').evaluate(element => element.classList.contains('open'));
+  await send('멈춤 접기 확인');
+  await status(/진행 중|처리 중|검색 중/);
+  await page.click('#chatToggle'); assert.equal(await isOpen(), false);
+  await page.waitForTimeout(3000); assert.equal(await isOpen(), false, '진행 중 자동 펼침');
+  await page.click('#stopButton'); await status(/중지/);
+  await page.waitForTimeout(1500); assert.equal(await isOpen(), false, '중지 후 자동 펼침');
+  await send('접기 완료 확인'); await page.click('#chatToggle');
+  await status(/^완료$/); await page.waitForTimeout(1500);
+  assert.equal(await isOpen(), false, '완료 후 자동 펼침');
+  await page.click('#chatToggle'); assert.equal(await isOpen(), true);
+
+  // 5) 상태 줄 '^ 세션 | 모델': ^ 는 /sessions 선택기를 열고 닫는다. 제목은 그 자리에서 바꾼다
+  assert.match(await page.textContent('.composer-meta'), /^\^ .+ \| 그록 빌드 \| grok-4\.6 \| low$/);
+  await page.click('#chatToggle'); await page.click('#sessionsButton');
+  assert.equal(await isOpen(), true);
+  await page.locator('#picker .picker-item[data-id=""]').waitFor();
+  assert.match(await page.textContent('#picker .picker-title'), /^대화/);
+  await page.click('#sessionsButton'); assert.equal(await page.locator('#picker').isHidden(), true);
+  await page.click('#conversationTitle');
+  assert.equal(await page.locator('#conversationTitle').evaluate(element => element.isContentEditable), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#conversationTitle').evaluate(element => element.isContentEditable), false);
+
   await page.waitForTimeout(2000);
   const leftover = fakeProcesses(); // ps가 없는 환경(-1)은 건너뛴다
   if (leftover >= 0) assert.equal(leftover, 0, '중지 후 남은 CLI 프로세스');
@@ -63,7 +88,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: `${folder}/mobile.png` });
   assert.deepEqual(errors, []);
-  const result = { optimisticUserMessage: 'pass', visibleWhileRunning: 'pass', stopRunning: 'pass', stopMs, queueContinues: 'pass', sendAfterStop: 'pass', modelArgs: 'pass', processTreeKilled: 'pass', actualProviderInvoked: false, errors };
+  const result = { optimisticUserMessage: 'pass', visibleWhileRunning: 'pass', stopRunning: 'pass', stopMs, queueContinues: 'pass', sendAfterStop: 'pass', modelArgs: 'pass', processTreeKilled: 'pass', staysCollapsed: 'pass', sessionsCaret: 'pass', actualProviderInvoked: false, errors };
   writeFileSync(`${folder}/result.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ ...result, folder }));
 } finally {

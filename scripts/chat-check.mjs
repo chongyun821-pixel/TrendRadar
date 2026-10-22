@@ -46,9 +46,9 @@ try {
   await page.waitForFunction(() => document.querySelector('#chat.open .panel')?.clientHeight > 200);
   assert.equal(await page.locator('#modelLabel').textContent(), '네모트론');
   assert.equal(await page.locator('.m.user').count(), 2);
-  // 한 줄 표시: 제목 | 모델, 구분자는 |
+  // 한 줄 표시: ^ 제목 | 모델, 구분자는 |
   const metaTitle = await page.locator('#conversationTitle').textContent();
-  assert.equal(await page.locator('.composer-meta').textContent(), `${metaTitle} | 네모트론`);
+  assert.equal(await page.locator('.composer-meta').textContent(), `^ ${metaTitle} | 네모트론`);
   // / 명령 자동완성: 입력하면 거르고, ↑↓·Tab 완성·Esc 닫기, 완성된 명령 Enter는 선택기를 연다
   const hints = () => page.locator('#picker .picker-item').evaluateAll(rows => rows.map(r => `${r.querySelector('.picker-label').textContent} ${r.querySelector('.picker-hint')?.textContent}`));
   await page.fill('#q', ''); await page.focus('#q'); await page.keyboard.type('/');
