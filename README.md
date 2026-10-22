@@ -66,6 +66,8 @@ Supabase 대시보드에서 프로젝트 URL과 서버용 Secret API key를 가�
 | 지피티 | `.secrets`에 `OPENAI_API_KEY` 입력(기본 `gpt-5.4-mini`, `OPENAI_MODEL`로 변경) |
 | 네모트론 | `.secrets`에 `OPENROUTER_API_KEY` 입력 |
 
+네모트론은 `nvidia/nemotron-3-super-120b-a12b:free`를 먼저 사용하고, 호출이 실패하면 OpenRouter의 `openrouter/free`로 전환해 요청에 맞는 무료 모델을 자동 선택합니다. 응답에는 실제 사용한 모델을 기록합니다. 키 인증 오류와 사용자가 중지한 요청은 대체 호출하지 않으며, 무료 모델 호출까지 실패하면 오류를 표시합니다.
+
 OpenAI 키가 있으면 지피티가 기본 모델이고, 없으면 쓸 수 있는 첫 모델을 고릅니다. 지피티와 네모트론에 Firecrawl을 연결하려면 `FIRECRAWL_API_KEY`도 입력합니다. 지도 조회와 국가별 예측 확인은 모델 인증 없이 사용할 수 있습니다.
 
 ### 4. 데이터 준비 후 실행

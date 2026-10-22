@@ -3,7 +3,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readdirSync } from '
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
-import { chatOpenRouter, NEMOTRON_SUPER } from '../server/openrouter';
+import { randomUUID } from 'node:crypto';
+import { chatOpenRouter, NEMOTRON_SUPER, FREE_MODELS_ROUTER } from '../server/openrouter';
+import { repository, now } from '../server/store';
+import { executions } from '../server/execution';
 import { parseActionBlock, TOOL_DEFS, openaiTools, responsesTools } from '../server/agent';
 import { parseGrokStream, parseCodexJsonl, grokArgs, codexArgs, buildPrompt, removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName, isNodeRuntime, isAuthError, GROK_ENV } from '../server/cli';
 import { app } from '../server/app';
@@ -54,7 +57,7 @@ describe('네모트론 (OpenRouter)', () => {
     expect(r.model).toBe(NEMOTRON_SUPER);
     expect(r.reply).toContain('보고서');
   });
-  it('기존 모델 설정이 남아 있어도 슈퍼 하나만 요청한다', async () => {
+  it('기존 모델 설정이 남아 있어도 먼저 슈퍼를 요청한다', async () => {
     const models: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_u: string, init: any) => {
       const b = JSON.parse(init.body); models.push(b.model);
@@ -65,15 +68,70 @@ describe('네모트론 (OpenRouter)', () => {
     expect(models).toEqual([NEMOTRON_SUPER]);
     expect(r.model).toBe(NEMOTRON_SUPER); expect(r.reply).toBe('안녕하세요');
   });
-  it('네트워크 오류나 본문 오류는 다른 모델로 재요청하지 않는다', async () => {
-    const failed = vi.fn(async () => { throw new Error('network'); });
-    vi.stubGlobal('fetch', failed);
+  it.each([402, 404, 429, 500, 503])('슈퍼 HTTP %i 오류는 무료 라우터로 전환하고 실제 응답 모델을 기록한다', async status => {
+    const calls: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body); calls.push(body);
+      if (body.model === NEMOTRON_SUPER) return ok({ error: { message: 'Provider returned error', metadata: { raw: "Function 'test': Not found for account 'test'" } } }, status);
+      return ok({ model: 'test/selected-model', choices: [{ message: { content: '무료 대체 응답' } }] });
+    }));
     const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
-    expect(r.model).toBe(NEMOTRON_SUPER); expect(r.error).toBe('OpenRouter 연결 실패'); expect(failed).toHaveBeenCalledTimes(1);
-    const bodyError = vi.fn(async () => ok({ error: { code: 503, message: 'down' } }));
-    vi.stubGlobal('fetch', bodyError);
-    expect((await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' })).error).toBe('AI 오류 503');
-    expect(bodyError).toHaveBeenCalledTimes(1);
+    expect(calls.map(body => body.model)).toEqual([NEMOTRON_SUPER, FREE_MODELS_ROUTER]);
+    expect(calls[1].tools).toBeDefined();
+    expect(r.model).toBe('test/selected-model'); expect(r.reply).toBe('무료 대체 응답'); expect(r.error).toBeUndefined();
+  });
+  it.each(['network', 'body-error', 'invalid-json', 'empty'])('%s 실패에도 무료 모델을 재요청한다', async failure => {
+    const models: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body); models.push(body.model);
+      if (body.model === NEMOTRON_SUPER) {
+        if (failure === 'network') throw new Error('network');
+        if (failure === 'body-error') return ok({ error: { code: 503, message: 'down' } });
+        if (failure === 'invalid-json') return new Response('broken');
+        return ok({ choices: [] });
+      }
+      return ok({ choices: [{ message: { content: '대체 응답' } }] });
+    }));
+    const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
+    expect(models).toEqual([NEMOTRON_SUPER, FREE_MODELS_ROUTER]);
+    expect(r.reply).toBe('대체 응답'); expect(r.model).toBe(FREE_MODELS_ROUTER);
+  });
+  it('무료 라우터도 실패하면 반복하지 않고 마지막 오류를 반환한다', async () => {
+    const models: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      models.push(JSON.parse(init.body).model);
+      return new Response('busy', { status: 429 });
+    }));
+    const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
+    expect(models).toEqual([NEMOTRON_SUPER, FREE_MODELS_ROUTER]);
+    expect(r.error).toContain('요청 한도');
+  });
+  it('도구 실행 뒤 실패해도 도구 결과를 유지하고 남은 요청은 무료 라우터만 사용한다', async () => {
+    const calls: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body); calls.push(body);
+      if (calls.length === 1) return ok({ choices: [{ message: { tool_calls: [{ id: 'mode', type: 'function', function: { name: 'set_mode', arguments: '{"system":"자주포"}' } }] } }] });
+      if (calls.length === 2) return new Response('down', { status: 503 });
+      if (calls.length === 3) return ok({ model: 'test/selected-model', choices: [{ message: { tool_calls: [{ id: 'forecast', type: 'function', function: { name: 'get_forecast', arguments: '{"country":"폴란드","system":"자주포"}' } }] } }] });
+      return ok({ model: 'test/selected-model', choices: [{ message: { content: '도구 결과 확인' } }] });
+    }));
+    const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
+    expect(calls.map(body => body.model)).toEqual([NEMOTRON_SUPER, NEMOTRON_SUPER, FREE_MODELS_ROUTER, FREE_MODELS_ROUTER]);
+    expect(calls[2].messages.filter((m: any) => m.role === 'tool').map((m: any) => m.tool_call_id)).toEqual(['mode']);
+    expect(r.actions).toEqual([{ type: 'set_mode', system: 'sph' }]);
+    expect(r.tools).toEqual(['set_mode', 'get_forecast']);
+    expect(r.model).toBe('test/selected-model'); expect(r.reply).toBe('도구 결과 확인');
+  });
+  it('슈퍼의 텍스트 도구 재시도까지 실패하면 무료 라우터에서 함수 도구를 다시 사용한다', async () => {
+    const calls: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body); calls.push(body);
+      if (body.model === NEMOTRON_SUPER) return body.tools ? ok({ error: { message: 'No endpoints found that support tool use' } }, 404) : new Response('down', { status: 503 });
+      return ok({ choices: [{ message: { content: '무료 응답' } }] });
+    }));
+    expect((await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' })).reply).toBe('무료 응답');
+    expect(calls.map(body => body.model)).toEqual([NEMOTRON_SUPER, NEMOTRON_SUPER, FREE_MODELS_ROUTER]);
+    expect(calls[1].tools).toBeUndefined(); expect(calls[2].tools).toBeDefined();
   });
   it('401 은 전환하지 않고 키 오류', async () => {
     const f = vi.fn(async () => ok({ error: { message: 'bad key', code: 401 } }, 401));
@@ -81,11 +139,31 @@ describe('네모트론 (OpenRouter)', () => {
     const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
     expect(f).toHaveBeenCalledTimes(1); expect(r.error).toBe('OpenRouter 키 오류');
   });
-  it('슈퍼의 요청 한도를 바로 알리고 울트라로 재시도하지 않는다', async () => {
-    const fetch = vi.fn(async () => new Response('busy', { status: 429 }));
-    vi.stubGlobal('fetch', fetch);
-    const r = await chatOpenRouter(user('x'), { OPENROUTER_API_KEY: 'k' });
-    expect(r.error).toContain('요청 한도'); expect(fetch).toHaveBeenCalledTimes(1);
+  it('취소된 요청은 무료 모델을 새로 호출하지 않는다', async () => {
+    const controller = new AbortController();
+    const f = vi.fn(async () => { controller.abort(new Error('stopped')); throw new Error('network'); });
+    vi.stubGlobal('fetch', f);
+    await expect(chatOpenRouter({ ...user('x'), signal: controller.signal }, { OPENROUTER_API_KEY: 'k' })).rejects.toThrow('stopped');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+  it('긴 대화의 요약 요청도 무료 모델로 전환하고 이어서 답한다', async () => {
+    const repo = repository(), c = await repo.createConversation(), runId = randomUUID();
+    await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'nemotron', 'running', now());
+    const bodies: any[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: any) => {
+      const body = JSON.parse(init.body); bodies.push(body);
+      if (body.model === NEMOTRON_SUPER) return new Response('down', { status: 503 });
+      return ok({ model: 'test/selected-model', choices: [{ message: { content: body.tools ? '요약 이후 답변' : '인계 요약' } }] });
+    }));
+    try {
+      const r = await executions.run({ repo, conversationId: c.id, runId, env: {}, signal: new AbortController().signal }, () => chatOpenRouter({ messages: Array.from({ length: 20 }, (_, i) => ({ role: 'user', text: `${i}:` + '가'.repeat(4000) })) }, { OPENROUTER_API_KEY: 'k' }));
+      expect(r.reply).toBe('요약 이후 답변');
+      expect(bodies[0].model).toBe(NEMOTRON_SUPER);
+      expect(bodies.slice(1).every(body => body.model === FREE_MODELS_ROUTER)).toBe(true);
+      expect((await repo.one('SELECT summary FROM context_summaries WHERE conversation_id=?', c.id)).summary).toBe('인계 요약');
+      const fallback = await repo.all("SELECT data FROM events WHERE run_id=? AND name='model.fallback'", runId);
+      expect(fallback.map(row => JSON.parse(row.data))).toEqual([{ from: NEMOTRON_SUPER, to: FREE_MODELS_ROUTER, status: 503 }]);
+    } finally { await repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); }
   });
   it('도구 미지원(404 tool use) → 텍스트 액션 블록 프로토콜', async () => {
     const bodies: any[] = [];

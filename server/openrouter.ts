@@ -1,4 +1,4 @@
-/** 네모트론 슈퍼: OpenRouter와 공통 도구 정의를 사용한다. */
+/** 네모트론 슈퍼를 먼저 호출하고 실패하면 OpenRouter 무료 모델 라우터를 사용한다. */
 import { openaiTools, systemPrompt, recentMessages, runTool, trim, newOut, parseActionBlock, PAGE_TOOLS, TOOL_DEFS, type ChatIn, type ChatOut } from './agent';
 import type { Env } from './env';
 import { executions } from './execution';
@@ -6,6 +6,7 @@ import { imageAttachments } from './attachments';
 import { contextMessages, SUMMARY_PROMPT } from './context';
 
 export const NEMOTRON_SUPER = 'nvidia/nemotron-3-super-120b-a12b:free';
+export const FREE_MODELS_ROUTER = 'openrouter/free';
 
 const TEXT_PROTOCOL = [
   '도구는 함수 호출 대신 답 맨 끝의 JSON 블록으로 요청한다:',
@@ -17,36 +18,21 @@ const TEXT_PROTOCOL = [
 ].join('\n');
 
 class ReqError extends Error { constructor(public status: number, public body: string) { super(`HTTP ${status}`); } }
-const toolUnsupported = (e: unknown) => e instanceof ReqError && (e.status === 400 || e.status === 404) && /tool|function/i.test(e.body);
+const toolUnsupported = (e: unknown) => e instanceof ReqError && (e.status === 400 || e.status === 404) && /no endpoints.{0,80}support.{0,40}(?:tool|function)|(?:tool|function).{0,80}(?:not supported|unsupported)|(?:does not|doesn't|do not|don't) support.{0,40}(?:tool|function)/i.test(e.body);
 
 export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> {
   const out = newOut();
   const key = env.OPENROUTER_API_KEY?.trim();
-  const model = NEMOTRON_SUPER;
+  let model = NEMOTRON_SUPER;
+  let textMode = false;
   out.model = model;
   if (!key) return { ...out, nokey: true, reply: 'OpenRouter 키 없음' };
   const url = `${(env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').replace(/\/$/, '')}/chat/completions`;
-  const history = await contextMessages(input, async prompt => {
-    input.signal?.throwIfAborted();
-    const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` }, body: JSON.stringify({ model, messages: [{ role: 'system', content: SUMMARY_PROMPT }, { role: 'user', content: prompt }] }), signal: input.signal });
-    if (!r.ok) throw new Error(`대화 요약 오류 ${r.status}`);
-    const j: any = await r.json(); return String(j.choices?.[0]?.message?.content || '');
-  });
-  const hist = recentMessages({ ...input, messages: history });
-  if (!hist.length || hist[hist.length - 1].role !== 'user') return { ...out, error: '메시지 없음' };
-  const sys = systemPrompt(input.state, 'nemotron');
-  const msgs: any[] = hist.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.text }));
-  if (executions.getStore()) {
-    const images = await imageAttachments();
-    if (images.length) msgs.at(-1).content = [{ type: 'text', text: msgs.at(-1).content }, ...images.map(image => ({ type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.base64}` } }))];
-  }
-  let textMode = false;
-
-  async function call(withTools: boolean): Promise<any> {
+  async function call(messages: any[], system: string, withTools = false): Promise<any> {
     for (;;) {
-      const text = textMode;
+      const text = withTools && textMode;
       input.signal?.throwIfAborted();
-      const body: any = { model, temperature: 0.3, messages: [{ role: 'system', content: text ? `${sys}\n${TEXT_PROTOCOL}` : sys }, ...msgs] };
+      const body: any = { model, temperature: 0.3, messages: [{ role: 'system', content: text ? `${system}\n${TEXT_PROTOCOL}` : system }, ...messages] };
       if (withTools && !text) { body.tools = openaiTools(); body.tool_choice = 'auto'; }
       try {
         const ctx = executions.getStore();
@@ -59,21 +45,39 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
         const j = JSON.parse(t);
         if (j?.error) throw new ReqError(Number(j.error.code) || 502, JSON.stringify(j.error).slice(0, 400));
         if (!j?.choices?.[0]?.message) throw new ReqError(502, 'empty');
-        out.model = model;
+        // 실제 모델 이름은 표시용이다. 다음 요청도 무료 라우터를 유지해 유료 별칭으로 바뀌지 않게 한다.
+        out.model = typeof j.model === 'string' && j.model.trim() ? j.model : model;
         return { msg: j.choices[0].message, text };
       } catch (e) {
         input.signal?.throwIfAborted();
         if (e instanceof ReqError && e.status === 401) throw e;
         if (withTools && !text && toolUnsupported(e)) { textMode = true; continue; }
+        if (model === NEMOTRON_SUPER) {
+          const ctx = executions.getStore();
+          await ctx?.repo.event(ctx.runId, 'model.fallback', { from: model, to: FREE_MODELS_ROUTER, status: e instanceof ReqError ? e.status : null });
+          model = FREE_MODELS_ROUTER;
+          out.model = model;
+          textMode = false;
+          continue;
+        }
         throw e;
       }
     }
   }
 
   try {
+    const history = await contextMessages(input, async prompt => String((await call([{ role: 'user', content: prompt }], SUMMARY_PROMPT)).msg.content || ''));
+    const hist = recentMessages({ ...input, messages: history });
+    if (!hist.length || hist[hist.length - 1].role !== 'user') return { ...out, error: '메시지 없음' };
+    const sys = systemPrompt(input.state, 'nemotron');
+    const msgs: any[] = hist.map(m => ({ role: m.role === 'model' ? 'assistant' : 'user', content: m.text }));
+    if (executions.getStore()) {
+      const images = await imageAttachments();
+      if (images.length) msgs.at(-1).content = [{ type: 'text', text: msgs.at(-1).content }, ...images.map(image => ({ type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.base64}` } }))];
+    }
     for (;;) {
       input.signal?.throwIfAborted();
-      const { msg, text } = await call(true);
+      const { msg, text } = await call(msgs, sys, true);
       if (!text) {
         const calls: any[] = msg.tool_calls ?? [];
         if (!calls.length) { out.reply = String(msg.content ?? '').trim() || (out.reports.length ? '보고서를 표시했습니다.' : '…'); return out; }
@@ -94,6 +98,7 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
       }
     }
   } catch (e) {
+    input.signal?.throwIfAborted();
     const st = e instanceof ReqError ? e.status : 0;
     const msg = st === 401 ? 'OpenRouter 키 오류' : st === 429 ? '요청 한도 초과. 잠시 후 다시 시도' : st === 402 ? 'OpenRouter 크레딧 부족' : st ? `AI 오류 ${st}` : 'OpenRouter 연결 실패';
     return { ...out, error: msg, detail: e instanceof ReqError ? e.body.slice(0, 300) : String(e).slice(0, 200) };
