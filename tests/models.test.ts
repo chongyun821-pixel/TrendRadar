@@ -8,7 +8,9 @@ import { chatOpenRouter, NEMOTRON_SUPER, FREE_MODELS_ROUTER } from '../server/op
 import { repository, now } from '../server/store';
 import { executions } from '../server/execution';
 import { parseActionBlock, TOOL_DEFS, openaiTools, responsesTools } from '../server/agent';
-import { parseGrokStream, parseCodexJsonl, grokArgs, codexArgs, buildPrompt, removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName, isNodeRuntime, isAuthError, GROK_ENV } from '../server/cli';
+import { grokArgs, codexArgs, buildPrompt, isNodeRuntime, GROK_ENV } from '../server/cli';
+import { parseGrokStream, parseCodexJsonl, isAuthError } from '../server/cli-output';
+import { removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName } from '../server/grok-sessions';
 import { app } from '../server/app';
 import { pickModel } from '../src/chat';
 

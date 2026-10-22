@@ -1,9 +1,10 @@
 /** 네모트론 슈퍼를 먼저 호출하고 실패하면 OpenRouter 무료 모델 라우터를 사용한다. */
-import { openaiTools, systemPrompt, recentMessages, runTool, trim, newOut, parseActionBlock, PAGE_TOOLS, TOOL_DEFS, type ChatIn, type ChatOut } from './agent';
+import { openaiTools, systemPrompt, recentMessages, runTool, newOut, parseActionBlock, PAGE_TOOLS, TOOL_DEFS, type ChatIn, type ChatOut } from './agent';
 import type { Env } from './env';
 import { executions } from './execution';
 import { imageAttachments } from './attachments';
 import { contextMessages, SUMMARY_PROMPT } from './context';
+import { ReqError, sleep } from './http';
 
 export const NEMOTRON_SUPER = 'nvidia/nemotron-3-super-120b-a12b:free';
 export const FREE_MODELS_ROUTER = 'openrouter/free';
@@ -17,7 +18,6 @@ const TEXT_PROTOCOL = [
   '도구: ' + TOOL_DEFS.map(t => `${t.name}(${Object.keys(t.properties).join(',')}) ${t.description}`).join('; '),
 ].join('\n');
 
-class ReqError extends Error { constructor(public status: number, public body: string) { super(`HTTP ${status}`); } }
 const toolUnsupported = (e: unknown) => e instanceof ReqError && (e.status === 400 || e.status === 404) && /no endpoints.{0,80}support.{0,40}(?:tool|function)|(?:tool|function).{0,80}(?:not supported|unsupported)|(?:does not|doesn't|do not|don't) support.{0,40}(?:tool|function)/i.test(e.body);
 
 export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> {
@@ -37,9 +37,7 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
       try {
         const ctx = executions.getStore();
         await ctx?.repo.event(ctx.runId, 'model.request', { model });
-        const init: RequestInit = { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, 'x-title': 'procurement-radar' }, body: JSON.stringify(body) };
-        init.signal = input.signal;
-        const r = await fetch(url, init);
+        const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`, 'x-title': 'procurement-radar' }, body: JSON.stringify(body), signal: input.signal });
         const t = await r.text();
         if (!r.ok) throw new ReqError(r.status, t.slice(0, 400));
         const j = JSON.parse(t);
@@ -87,7 +85,7 @@ export async function chatOpenRouter(input: ChatIn, env: Env): Promise<ChatOut> 
           let args: any = {};
           try { args = JSON.parse(c.function?.arguments || '{}'); } catch { args = {}; }
           out.tools.push(name);
-          msgs.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(trim(await runTool(name, args, out))) });
+          msgs.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(await runTool(name, args, out)) });
         }
       } else {
         const p = parseActionBlock(String(msg.content ?? ''));

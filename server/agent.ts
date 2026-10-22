@@ -14,8 +14,9 @@ import { INGEST_DEFS, ingestTool } from './ingest-tools';
 import { computeForecast } from '../shared/forecast';
 import { now, repository } from './store';
 import { evidenceTableMarkdown, scoreCase } from './scoring';
+import type { ProviderId } from '../shared/model-options';
 
-export type ModelId = 'grok' | 'codex' | 'gpt' | 'nemotron';
+export type ModelId = ProviderId;
 export interface ChatIn { model?: string; /** CLI 모델·추론 강도(코덱스·그록 빌드) */ options?: { model?: string; effort?: string }; conversationId?: string; runId?: string; signal?: AbortSignal; messages: { role: 'user' | 'model'; text: string }[]; state?: { mode?: string | null; flat?: boolean; focus?: string | null }; appContext?: AppContext }
 export interface ChatOut { reply: string; actions: Record<string, unknown>[]; reports: string[]; reportRefs?: (ReportRef | null)[]; files?: ArtifactDownload[]; tools: string[]; model?: string; usage?: { input: number; cached: number; output: number }; nokey?: boolean; error?: string; detail?: string }
 export const newOut = (): ChatOut => ({ reply: '', actions: [], reports: [], tools: [] });
@@ -95,8 +96,6 @@ export function systemPrompt(st: ChatIn['state'], model?: ModelId) {
 export function recentMessages(input: ChatIn) {
   return (input.messages ?? []).filter(m => m && m.text).map(m => ({ role: m.role === 'model' ? 'model' as const : 'user' as const, text: String(m.text) }));
 }
-
-export const trim = (v: unknown, _n?: number) => v;
 
 export async function runTool(name: string, args: Record<string, any>, out: ChatOut): Promise<unknown> {
   args = args && typeof args === 'object' ? args : {};

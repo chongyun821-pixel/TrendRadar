@@ -10,7 +10,7 @@ import { runCommand } from '../src/commands';
 import { saveAppContext, reportTarget } from './app-context';
 
 const globals = globalThis as typeof globalThis & {
-  __radarRuns?: Map<string, { controller: AbortController; done: Promise<void> }>;
+  __radarRuns?: Map<string, { controller: AbortController; done: Promise<void>; finished: Promise<void> }>;
   __radarQueueWorkers?: Map<string, Promise<void>>;
   __radarQueueTimer?: ReturnType<typeof setInterval>;
   __radarQueueEnv?: Map<string, Env>;
@@ -73,7 +73,7 @@ function dispatchQueue(conversationId: string, env: Env) {
         return { input, runId: row.id };
       });
       if (!next) return;
-      try { await executeRun(next.input, queuedEnvs.get(next.runId) || env, next.runId).done; }
+      try { await executeRun(next.input, queuedEnvs.get(next.runId) || env, next.runId).finished; }
       finally { queuedEnvs.delete(next.runId); }
     }
   })().catch(() => { /* 트랜잭션 충돌과 일시적인 연결 실패는 다음 주기에 재시도한다. */ }).finally(() => { queueWorkers.delete(conversationId); });
@@ -109,88 +109,129 @@ async function waitForRun(runId: string) {
   }
 }
 
+/** 사용자 중지(API·대화 삭제)로 실행을 끝낼 때의 사유 */
+export const STOPPED_MESSAGE = '사용자가 조사를 중지했습니다';
+class StopRequest extends Error { constructor() { super(STOPPED_MESSAGE); this.name = 'StopRequest'; } }
+/** stopGraceMs: 중지 요청 후 모델·CLI 정리를 기다리는 최대 시간. 넘으면 실행을 중지됨으로 확정하고 대기열을 이어간다 */
+export const runSettings = { stopGraceMs: 5000 };
+const ACTIVE = ['running', 'stopping'];
+
+/** 실행 종료 기록은 한 번만 남긴다. 강제 종료 뒤 늦게 끝난 원래 실행이 상태·메시지를 덮어쓰지 않는다 */
+async function finalizeRun(runId: string, conversationId: string, status: 'cancelled' | 'failed', error: string) {
+  const repo = repository();
+  return queueTransaction(async () => {
+    const row = await repo.one('SELECT status FROM runs WHERE id=?', runId);
+    if (!row || !ACTIVE.includes(row.status)) return false;
+    await repo.run('UPDATE runs SET status=?,error=?,ended_at=? WHERE id=?', status, error, now(), runId);
+    if (await repo.conversationExists(conversationId)) await repo.message(conversationId, 'model', error);
+    return true;
+  });
+}
+
+async function assertRunning(runId: string, signal: AbortSignal) {
+  signal.throwIfAborted();
+  if ((await repository().one('SELECT status FROM runs WHERE id=?', runId))?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
+}
+
+/** 로컬 명령(!모델·!보고서 등) 또는 선택한 모델로 답을 만든다 */
+async function answer(input: ChatIn, env: Env, runId: string, signal: AbortSignal) {
+  const repo = repository(), conversationId = input.conversationId!, text = input.messages[0].text;
+  await repo.prepareWorkspace(conversationId);
+  const conversation = await repo.conversation(conversationId);
+  const snapshot = await repo.versionedData();
+  const names: Record<string, string> = Object.fromEntries(Object.entries(snapshot.data.countries).map(([id, c]) => [id, c.ko]));
+  const local = runCommand(text, names);
+  if (/^[!！]\s*(?:모델|model)(?:\s|$)/i.test(text)) return { snapshot, local: true, out: { reply: `선택 모델: ${input.model || DEFAULT_MODEL}`, reports: [], actions: [], tools: ['model'] } as ChatOut };
+  if (local) return { snapshot, local: true, out: { reply: local.text || '', reports: local.report ? [local.report] : [], actions: local.actions, tools: ['command'] } as ChatOut };
+  const messages = conversation.messages.map((m: any) => ({ role: m.role === 'user' ? 'user' as const : 'model' as const, text: m.text + (m.reports?.length ? `\n보고서:\n${m.reports.join('\n')}` : '') }));
+  const files = repo.files(conversationId);
+  if (files.length) messages[messages.length - 1].text += `\n\n[대화 작업 파일 목록: ${JSON.stringify(files)}. 필요한 파일은 workspace_read로 읽으세요.]`;
+  return { snapshot, local: false, out: await chatWith({ ...input, conversationId, runId, signal, messages }, env) };
+}
+
+/** 답변에 포함되거나 실행 중 저장된 보고서를 등록하고 화면 참조를 붙인다 */
+async function saveReports(out: ChatOut, conversationId: string, runId: string, revision: () => Promise<number>) {
+  const repo = repository();
+  for (const saved of await repo.all('SELECT markdown FROM reports WHERE run_id=? ORDER BY created_at,id', runId)) if (!out.reports.includes(saved.markdown)) out.reports.push(saved.markdown);
+  for (const report of out.reports) {
+    if (await repo.one('SELECT 1 FROM reports WHERE run_id=? AND markdown=?', runId, report)) continue;
+    const id = randomUUID(), date = now();
+    const dataVersion = await revision();
+    const file = await repo.artifact(conversationId, `reports/${id}.md`, report, { runId, kind: 'report', mime: 'text/markdown' });
+    await repo.run('INSERT INTO reports VALUES(?,?,?,?,?,?,?,?)', id, conversationId, runId, dataVersion, date.slice(0, 10), report, repo.storedPath(file.path), date);
+  }
+  const savedReports = await repo.all('SELECT * FROM reports WHERE run_id=? ORDER BY created_at,id', runId);
+  const used = new Set<string>();
+  out.reportRefs = out.reports.map(markdown => {
+    const row = savedReports.find(r => r.markdown === markdown && !used.has(r.id));
+    if (!row) return null;
+    used.add(row.id);
+    return { id: row.id, ...reportTarget(row.markdown), kind: 'country-analysis', basisDate: row.basis_date, dataVersion: row.data_version };
+  });
+}
+
 function executeRun(input: ChatIn, env: Env, runId: string) {
   const repo = repository(), conversationId = input.conversationId!, appContext = input.appContext;
-  const last = input.messages[0], controller = new AbortController();
-  let begin!: () => void;
-  const gate = new Promise<void>(r => { begin = r; });
+  const controller = new AbortController();
+  let settle!: () => void;
+  // finished: 실행이 끝났거나 중지가 확정된 시점. 대기열은 이것을 기다린다.
+  const finished = new Promise<void>(resolve => { settle = resolve; });
   let checking = false;
+  // 다른 프로세스(MCP cancel_run 등)의 중지도 반영한다.
   const cancellation = setInterval(async () => {
     if (checking || controller.signal.aborted) return;
     checking = true;
     try {
       const current = await repo.one('SELECT status FROM runs WHERE id=?', runId);
-      if (current?.status !== 'running') controller.abort(new Error('종료되거나 중지된 조사 실행'));
+      if (current?.status === 'stopping') controller.abort(new StopRequest());
+      else if (current?.status !== 'running') controller.abort(new Error('종료되거나 중지된 조사 실행'));
     } catch { controller.abort(new Error('조사 실행 상태 확인 실패')); }
     finally { checking = false; }
   }, 1000);
-  const done = gate.then(() => executions.run({ conversationId, runId, signal: controller.signal, repo, env, appContext }, async () => {
+  // 중지 후 CLI·모델 호출이 정해진 시간 안에 정리되지 않아도 실행을 중지됨으로 확정한다.
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
+  controller.signal.addEventListener('abort', () => {
+    watchdog = setTimeout(() => { void finalizeRun(runId, conversationId, 'cancelled', STOPPED_MESSAGE).catch(() => {}).finally(settle); }, runSettings.stopGraceMs);
+    watchdog.unref?.();
+  }, { once: true });
+  const done = executions.run({ conversationId, runId, signal: controller.signal, repo, env, appContext }, async () => {
     try {
       await execution();
-      await repo.prepareWorkspace(conversationId);
-      const conversation = await repo.conversation(conversationId);
-      const snapshot = await repo.versionedData();
-      const names: Record<string, string> = Object.fromEntries(Object.entries(snapshot.data.countries).map(([id, c]) => [id, c.ko]));
-      const local = runCommand(last.text, names);
-      let out: ChatOut;
-      if (/^[!！]\s*(?:모델|model)(?:\s|$)/i.test(last.text)) {
-        out = { reply: `선택 모델: ${input.model || DEFAULT_MODEL}`, reports: [], actions: [], tools: ['model'] };
-      } else if (local) {
-        out = { reply: local.text || '', reports: local.report ? [local.report] : [], actions: local.actions, tools: ['command'] };
-      } else {
-        const messages = conversation.messages.map((m: any) => ({ role: m.role === 'user' ? 'user' as const : 'model' as const, text: m.text + (m.reports?.length ? `\n보고서:\n${m.reports.join('\n')}` : '') }));
-        const files = repo.files(conversationId);
-        messages[messages.length - 1].text += files.length ? `\n\n[대화 작업 파일 목록: ${JSON.stringify(files)}. 필요한 파일은 workspace_read로 읽으세요.]` : '';
-        out = await chatWith({ ...input, conversationId, runId, signal: controller.signal, messages }, env);
-      }
-      controller.signal.throwIfAborted();
-      if ((await repo.one('SELECT status FROM runs WHERE id=?', runId))?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
+      const { out, local, snapshot } = await answer(input, env, runId, controller.signal);
+      await assertRunning(runId, controller.signal);
       if (['codex', 'grok'].includes(input.model || '')) out.files = await collectDocuments(executions.getStore()!);
-      for (const saved of await repo.all('SELECT markdown FROM reports WHERE run_id=? ORDER BY created_at,id', runId)) if (!out.reports.includes(saved.markdown)) out.reports.push(saved.markdown);
-      for (const report of out.reports) {
-        if (!await repo.one('SELECT 1 FROM reports WHERE run_id=? AND markdown=?', runId, report)) {
-          const id = randomUUID(), date = now();
-          const dataVersion = local ? snapshot.revision : await repo.revision();
-          const file = await repo.artifact(conversationId, `reports/${id}.md`, report, { runId, kind: 'report', mime: 'text/markdown' });
-          await repo.run('INSERT INTO reports VALUES(?,?,?,?,?,?,?,?)', id, conversationId, runId, dataVersion, date.slice(0, 10), report, repo.storedPath(file.path), date);
-        }
-      }
-      const savedReports = await repo.all('SELECT * FROM reports WHERE run_id=? ORDER BY created_at,id', runId);
-      const usedReports = new Set<string>();
-      out.reportRefs = out.reports.map(markdown => {
-        const row = savedReports.find(r => r.markdown === markdown && !usedReports.has(r.id));
-        if (!row) return null;
-        usedReports.add(row.id);
-        return { id: row.id, ...reportTarget(row.markdown), kind: 'country-analysis', basisDate: row.basis_date, dataVersion: row.data_version };
-      });
+      await saveReports(out, conversationId, runId, async () => local ? snapshot.revision : await repo.revision());
       await repo.syncWorkspace(conversationId);
-      controller.signal.throwIfAborted();
-      if ((await repo.one('SELECT status FROM runs WHERE id=?', runId))?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
+      await assertRunning(runId, controller.signal);
       await repo.transaction(async () => {
         await execution();
-        if (out.error) await repo.message(conversationId, 'model', `${out.error}${out.detail ? `\n${out.detail}` : ''}`, out);
-        else await repo.message(conversationId, 'model', out.reply, out);
+        await repo.message(conversationId, 'model', out.error ? `${out.error}${out.detail ? `\n${out.detail}` : ''}` : out.reply, out);
         await repo.run('UPDATE runs SET status=?,error=?,ended_at=?,result=? WHERE id=?', out.error ? 'failed' : 'completed', out.error || null, now(), JSON.stringify(out), runId);
       }, controller.signal);
     } catch (e) {
-      const stopped = controller.signal.aborted || ['stopping', 'cancelled'].includes((await repo.one('SELECT status FROM runs WHERE id=?', runId))?.status);
-      const error = stopped ? '사용자가 조사를 중지했습니다' : String(e);
-      await repo.run('UPDATE runs SET status=?,error=?,ended_at=? WHERE id=?', stopped ? 'cancelled' : 'failed', error, now(), runId);
-      if (await repo.one('SELECT id FROM conversations WHERE id=?', conversationId)) await repo.message(conversationId, 'model', error);
-    } finally { clearInterval(cancellation); activeRuns.delete(runId); }
-  }));
-  activeRuns.set(runId, { controller, done });
-  begin();
-  return { runId, conversationId, done };
+      const status = (await repo.one('SELECT status FROM runs WHERE id=?', runId).catch(() => undefined))?.status;
+      const reason = controller.signal.aborted ? controller.signal.reason : e;
+      const userStop = reason instanceof StopRequest || ['stopping', 'cancelled'].includes(status);
+      await finalizeRun(runId, conversationId, userStop ? 'cancelled' : 'failed', userStop ? STOPPED_MESSAGE : String(reason instanceof Error ? reason.message : reason)).catch(() => {});
+    } finally {
+      clearInterval(cancellation); clearTimeout(watchdog); activeRuns.delete(runId); settle();
+    }
+  });
+  activeRuns.set(runId, { controller, done, finished });
+  return { runId, conversationId, done, finished };
 }
+
+/** 대기 요청은 실행하지 않고 취소하고, 진행 중 요청은 중지 상태로 바꾼 뒤 모델·CLI 프로세스를 중단한다 */
 export async function stopRun(runId: string) {
-  await repository().run("UPDATE runs SET status='cancelled',error=?,ended_at=? WHERE id=? AND status='queued'", '대기 메시지를 취소했습니다', now(), runId);
+  const repo = repository();
+  await repo.run("UPDATE runs SET status='cancelled',error=?,ended_at=? WHERE id=? AND status='queued'", '대기 메시지를 취소했습니다', now(), runId);
   queuedEnvs.delete(runId);
+  // 상태를 먼저 바꿔 중지 직후 끝난 답변이 완료로 저장되지 않게 한다.
+  await repo.run("UPDATE runs SET status='stopping' WHERE id=? AND status='running'", runId);
   const live = activeRuns.get(runId);
-  live?.controller.abort(new Error('사용자 중지'));
-  await repository().run("UPDATE runs SET status='stopping' WHERE id=? AND status='running'", runId);
   if (!live) return;
-  await live.done;
+  live.controller.abort(new StopRequest());
+  await live.finished;
 }
 
 export async function stopConversation(conversationId: string) {

@@ -1,12 +1,12 @@
 /** 지피티: OpenAI Responses API(함수 호출)와 공용 도구 정의를 사용한다. */
-import { responsesTools, systemPrompt, recentMessages, runTool, trim, newOut, type ChatIn, type ChatOut } from './agent';
+import { responsesTools, systemPrompt, recentMessages, runTool, newOut, type ChatIn, type ChatOut } from './agent';
 import type { Env } from './env';
 import { executions } from './execution';
 import { imageAttachments } from './attachments';
 import { contextMessages, SUMMARY_PROMPT } from './context';
+import { ReqError, sleep } from './http';
 
 export const GPT_MODEL = 'gpt-5.4-mini';
-class ReqError extends Error { constructor(public status: number, public body: string) { super(`HTTP ${status}`); } }
 
 /** 응답의 output 배열에서 최종 문장을 모은다 */
 export const outputText = (output: any[]) => output.filter(i => i?.type === 'message').flatMap(i => i.content || []).filter((c: any) => c?.type === 'output_text').map((c: any) => c.text || '').join('').trim();
@@ -27,7 +27,7 @@ export async function chatOpenAI(input: ChatIn, env: Env): Promise<ChatOut> {
       if (r.ok) { const j = JSON.parse(t); if (j?.error) throw new ReqError(502, JSON.stringify(j.error).slice(0, 400)); return j; }
       last = new ReqError(r.status, t.slice(0, 400));
       if (r.status < 500) throw last;
-      await new Promise(res => setTimeout(res, 700 * (i + 1)));
+      await sleep(700 * (i + 1), input.signal);
     }
     throw last!;
   }
@@ -56,7 +56,7 @@ export async function chatOpenAI(input: ChatIn, env: Env): Promise<ChatOut> {
         let args: any = {};
         try { args = JSON.parse(c.arguments || '{}'); } catch { args = {}; }
         out.tools.push(c.name);
-        items.push({ type: 'function_call_output', call_id: c.call_id, output: JSON.stringify(trim(await runTool(c.name, args, out)) ?? null) });
+        items.push({ type: 'function_call_output', call_id: c.call_id, output: JSON.stringify(await runTool(c.name, args, out) ?? null) });
       }
     }
   } catch (e) {

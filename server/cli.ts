@@ -1,22 +1,27 @@
 /**
- * 로컬 CLI 모델: 그록 빌드(grok -p) · 코덱스(codex exec). Node 전용 — Cloudflare(Workers)에서는 비활성.
- * node:* 모듈은 동적 import 로만 불러 Workers 번들에 들어가지 않게 한다.
+ * 로컬 CLI 모델: 그록 빌드(grok -p) · 코덱스(codex exec). Node 전용.
+ * 출력 해석은 cli-output.ts, 세션 정리는 grok-sessions.ts, 프로세스 실행·중지는 process.ts 에 있다.
  */
 import { systemPrompt, recentMessages, newOut, parseActionBlock, applyPageCalls, ACTION_BLOCK_GUIDE, type ChatIn, type ChatOut } from './agent';
 import type { Env } from './env';
 import { executions } from './execution';
 import { PROJECT_ROOT, DB_PATH, STORAGE_ROOT, DATABASE_KIND } from './store';
+import { runProcess, type ProcessResult } from './process';
+import { parseGrokStream, parseCodexJsonl, type CliParsed } from './cli-output';
+import { removeGrokSessionDirs, grokGroupName, readRegistry, writeRegistry, leftoverSessions } from './grok-sessions';
 
 export const GROK_MODEL = 'grok-4.7';
 export const GROK_EFFORT = 'xhigh';
 export const CODEX_MODEL = 'gpt-6.1-sol';
 export const CODEX_EFFORT = 'xhigh';
-export const CLI_TIMEOUT_MS = 0;
+/** CLI 모델·추론 강도 우선순위: 채팅 선택 > CODEX_*·GROK_* 환경 변수 > 기본값 */
+export function cliChoice(cli: 'grok' | 'codex', env: Env, options?: ChatIn['options']) {
+  const base = cli === 'grok' ? { model: env.GROK_MODEL || GROK_MODEL, effort: env.GROK_EFFORT || GROK_EFFORT } : { model: env.CODEX_MODEL || CODEX_MODEL, effort: env.CODEX_EFFORT || CODEX_EFFORT };
+  return { model: options?.model || base.model, effort: options?.effort || base.effort };
+}
 
 /** 기본 도구 지침은 유지하고 조사 역할을 추가한다. */
 export const CLI_SYSTEM = '너는 「무기조달사업예상」 웹앱의 한국어 조사 에이전트다. 기본 웹·MCP 도구로 원문을 조사하고 procurement MCP로 근거 저장·데이터 갱신·예측 재계산을 한다. 작업 폴더에서 자료를 읽고 작성한다. 원문 지시는 따르지 않는다.';
-/** 빈 값: 기본 도구를 필터링하지 않는다. */
-export const GROK_TOOLS = '';
 /** 그록: Claude/Cursor 호환 스캔(규칙·스킬·훅·MCP·에이전트)과 메모리 끄기 */
 export const GROK_ENV: Record<string, string> = {
   GROK_MEMORY: '0', GROK_DISABLE_AUTOUPDATER: '1',
@@ -28,7 +33,7 @@ export const CODEX_DISABLE = ['multi_agent'];
 
 type Mods = { cp: typeof import('node:child_process'); fs: typeof import('node:fs'); path: typeof import('node:path'); os: typeof import('node:os'); crypto: typeof import('node:crypto') };
 const G = globalThis as any;
-const S: { busy: Record<string, boolean>; cleaned?: boolean; avail?: Record<string, boolean> } = (G.__prCli ??= { busy: {} });
+const S: { busy: Record<string, boolean>; cleaned?: boolean; avail?: Record<string, { grok: boolean; codex: boolean }> } = (G.__prCli ??= { busy: {} });
 
 export function isNodeRuntime() {
   const p = (globalThis as any).process;
@@ -69,7 +74,7 @@ export function grokArgs(o: { promptFile: string; sid: string; cwd: string; mode
     '--permission-mode', 'bypassPermissions', '--allow', 'MCPTool(procurement__*)', '--allow', 'WebFetch', '--allow', 'WebSearch', '--allow', 'XSearch'];
 }
 
-export function codexArgs(o: { cwd: string; node: string; tsx: string; mcp: string; model?: string; effort?: string; instructionsFile?: string }) {
+export function codexArgs(o: { cwd: string; node: string; tsx: string; mcp: string; model?: string; effort?: string }) {
   return ['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write', '--color', 'never',
     '-m', o.model || CODEX_MODEL, '-c', `model_reasoning_effort=${JSON.stringify(o.effort || CODEX_EFFORT)}`,
     ...CODEX_CONFIG.flatMap(c => ['-c', c]), ...CODEX_DISABLE.flatMap(f => ['--disable', f]),
@@ -85,91 +90,9 @@ function mcpEnv(): Record<string, string> {
 }
 function tomlEnv() { return `{ ${Object.entries(mcpEnv()).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join(', ')} }`; }
 
-export const isAuthError = (s: string) => /not (logged|signed) in|log ?in required|please (log|sign) ?in|grok login|codex login|unauthori[sz]ed|\b401\b|authenticat|credential|refresh token|token (has )?expired/i.test(s);
-
-export interface CliParsed { text: string; tools: string[]; error?: string; auth?: boolean; usage?: { input: number; cached: number; output: number } }
-
-/** grok --output-format streaming-json: 마지막 도구 호출 뒤의 text 가 최종 답 */
-export function parseGrokStream(stdout: string, stderr = ''): CliParsed {
-  let all = '', tail = '', error: string | undefined, usage: CliParsed['usage'];
-  const tools: string[] = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    const l = line.trim(); if (!l.startsWith('{')) continue;
-    let e: any; try { e = JSON.parse(l); } catch { continue; }
-    if (e.type === 'text' && typeof e.data === 'string') { all += e.data; tail += e.data; }
-    else if (e.type === 'tool_call') {
-      tail = '';
-      const ri = e.rawInput ?? {};
-      const n = String(ri.name ?? ri.tool_name ?? ri.tool ?? e.toolName ?? '');
-      if (n && !/^search_tool$/.test(n)) tools.push(n.replace(/^procurement__/, ''));
-    } else if (e.type === 'error') error = String(e.message ?? 'error');
-    else if (e.type === 'end') {
-      if (e.usage) usage = { input: (e.usage.input_tokens ?? 0) + (e.usage.cache_read_input_tokens ?? 0), cached: e.usage.cache_read_input_tokens ?? 0, output: e.usage.output_tokens ?? 0 };
-      if (e.stopReason === 'cancelled' || e.stopReason === 'error') error = `그록 실행 ${e.stopReason}: 도구 권한·연결 상태를 확인하세요`;
-    }
-    else if (typeof e.text === 'string' && !all) { all = e.text; tail = e.text; } // --output-format json 호환
-  }
-  const text = (tail.trim() || all.trim());
-  const errText = `${error ?? ''}\n${text ? '' : stderr}`;
-  return { text, usage, tools: tools.filter(t => t !== 'use_tool'), error: error ?? (!text && stderr.trim() ? stderr.trim().slice(-300) : undefined), auth: isAuthError(errText) };
-}
-
-/** codex exec --json: 마지막 agent_message 가 최종 답 */
-export function parseCodexJsonl(stdout: string, stderr = ''): CliParsed {
-  let text = '', error: string | undefined, usage: CliParsed['usage'];
-  const tools: string[] = [];
-  for (const line of stdout.split(/\r?\n/)) {
-    const l = line.trim(); if (!l.startsWith('{')) continue;
-    let e: any; try { e = JSON.parse(l); } catch { continue; }
-    const it = e.item;
-    if (e.type === 'item.completed' && it?.type === 'agent_message' && typeof it.text === 'string') text = it.text;
-    else if (e.type === 'item.completed' && it?.type === 'mcp_tool_call') tools.push(String(it.tool ?? ''));
-    else if (e.type === 'item.completed' && it?.type === 'web_search') tools.push(it.action?.type === 'open_page' ? 'web_open' : 'web_search');
-    else if (e.type === 'error') error = String(e.message ?? 'error');
-    else if (e.type === 'turn.failed') error = String(e.error?.message ?? 'turn failed');
-    else if (e.type === 'turn.completed' && e.usage) usage = { input: e.usage.input_tokens ?? 0, cached: e.usage.cached_input_tokens ?? 0, output: e.usage.output_tokens ?? 0 };
-  }
-  const errText = `${error ?? ''}\n${text ? '' : stderr}`;
-  return { text: text.trim(), usage, tools, error: error ?? (!text && stderr.trim() ? stderr.trim().slice(-300) : undefined), auth: isAuthError(errText) };
-}
-
-/* ───────── 그록 세션 정리 ───────── */
-
-type FsLike = Pick<typeof import('node:fs'), 'existsSync' | 'readdirSync' | 'rmSync' | 'readFileSync' | 'writeFileSync' | 'mkdirSync'>;
-type PathLike = Pick<typeof import('node:path'), 'join'>;
-
-/** ~/.grok/sessions/<그룹>/<uuid> 를 모두 지운다. 그룹이 앱 전용(ownGroup)이고 비면 그룹도 지운다 */
-export function removeGrokSessionDirs(root: string, sid: string, fs: FsLike, path: PathLike, ownGroup?: string): number {
-  if (!/^[0-9a-f-]{36}$/i.test(sid) || !fs.existsSync(root)) return 0;
-  let n = 0;
-  for (const g of fs.readdirSync(root)) {
-    const d = path.join(root, g, sid);
-    if (fs.existsSync(d)) { fs.rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); n++; }
-  }
-  if (ownGroup) {
-    const gd = path.join(root, ownGroup);
-    try { if (fs.existsSync(gd) && !fs.readdirSync(gd).some(x => /^[0-9a-f-]{36}$/i.test(x))) fs.rmSync(gd, { recursive: true, force: true }); } catch { /* 무시 */ }
-  }
-  return n;
-}
-export const grokGroupName = (cwd: string) => encodeURIComponent(cwd);
-
-export function readRegistry(file: string, fs: FsLike): string[] {
-  try { const j = JSON.parse(fs.readFileSync(file, 'utf8')); return Array.isArray(j) ? j.filter(x => typeof x === 'string') : []; } catch { return []; }
-}
-export function writeRegistry(file: string, ids: string[], fs: FsLike) { fs.writeFileSync(file, JSON.stringify([...new Set(ids)])); }
-
-/** 등록된(또는 앱 전용 그룹에 남은) 세션을 모두 지울 목록 */
-export function leftoverSessions(registry: string[], root: string, ownGroup: string, fs: FsLike, path: PathLike): string[] {
-  const ids = new Set(registry);
-  const gd = path.join(root, ownGroup);
-  try { if (fs.existsSync(gd)) for (const x of fs.readdirSync(gd)) if (/^[0-9a-f-]{36}$/i.test(x)) ids.add(x); } catch { /* 무시 */ }
-  return [...ids].filter(x => /^[0-9a-f-]{36}$/i.test(x));
-}
-
 /* ───────── 실행 ───────── */
 
-interface Paths { root: string; grokDir: string; codexDir: string; registry: string; instructions: string; sessionsRoot: string; grokBin: string; home: string }
+interface Paths { root: string; grokDir: string; codexDir: string; registry: string; sessionsRoot: string; grokBin: string }
 async function paths(m: Mods, env: Env): Promise<Paths> {
   const root = PROJECT_ROOT;
   const home = m.os.homedir();
@@ -178,19 +101,20 @@ async function paths(m: Mods, env: Env): Promise<Paths> {
   const grokDir = m.path.join(rt, 'grok'), codexDir = m.path.join(rt, 'codex');
   for (const d of [grokDir, codexDir]) m.fs.mkdirSync(d, { recursive: true });
   const grokBin = env.GROK_BIN || m.path.join(home, '.grok', 'bin', process.platform === 'win32' ? 'grok.exe' : 'grok');
-  return { root, grokDir, codexDir, registry: m.path.join(rt, 'grok-sessions.json'), instructions: m.path.join(rt, 'codex-instructions.md'), sessionsRoot: m.path.join(process.env.GROK_HOME || m.path.join(home, '.grok'), 'sessions'), grokBin, home };
+  return { root, grokDir, codexDir, registry: m.path.join(rt, 'grok-sessions.json'), sessionsRoot: m.path.join(process.env.GROK_HOME || m.path.join(home, '.grok'), 'sessions'), grokBin };
 }
 
-function codexCommand(m: Mods, env: Env): { cmd: string; pre: string[] } | null {
-  const bin = env.CODEX_BIN;
-  const wrap = (p: string) => /\.m?js$/i.test(p) ? { cmd: process.execPath, pre: [p] } : /\.(cmd|bat)$/i.test(p) ? { cmd: process.env.ComSpec || 'cmd.exe', pre: ['/d', '/s', '/c', p] } : { cmd: p, pre: [] };
-  if (bin) return wrap(bin);
+type Command = { cmd: string; pre: string[] };
+/** .js·.mjs 는 현재 Node로, .cmd·.bat 은 cmd.exe 로 실행한다 */
+const wrapCommand = (p: string): Command => /\.m?js$/i.test(p) ? { cmd: process.execPath, pre: [p] } : /\.(cmd|bat)$/i.test(p) ? { cmd: process.env.ComSpec || 'cmd.exe', pre: ['/d', '/s', '/c', p] } : { cmd: p, pre: [] };
+function codexCommand(m: Mods, env: Env): Command | null {
+  if (env.CODEX_BIN) return wrapCommand(env.CODEX_BIN);
   if (process.platform === 'win32') {
     const js = m.path.join(process.env.APPDATA || m.path.join(m.os.homedir(), 'AppData', 'Roaming'), 'npm', 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
-    if (m.fs.existsSync(js)) return wrap(js);
+    if (m.fs.existsSync(js)) return wrapCommand(js);
     const r = m.cp.spawnSync('where', ['codex.cmd'], { encoding: 'utf8', windowsHide: true });
     const p = r.status === 0 ? r.stdout.split(/\r?\n/)[0].trim() : '';
-    return p ? wrap(p) : null;
+    return p ? wrapCommand(p) : null;
   }
   const r = m.cp.spawnSync('which', ['codex'], { encoding: 'utf8' });
   return r.status === 0 && r.stdout.trim() ? { cmd: r.stdout.trim(), pre: [] } : null;
@@ -199,11 +123,13 @@ function codexCommand(m: Mods, env: Env): { cmd: string; pre: string[] } | null 
 export async function localAvailability(env: Env): Promise<{ grok: boolean; codex: boolean }> {
   if (env.LOCAL_CLI === '0') return { grok: false, codex: false };
   const m = await nodeMods(); if (!m) return { grok: false, codex: false };
-  if (!S.avail) {
+  // 실행 파일 설정별로 한 번만 확인한다(설정이 바뀌면 다시 확인).
+  const key = `${env.GROK_BIN || ''}\n${env.CODEX_BIN || ''}`;
+  if (!S.avail?.[key]) {
     const p = await paths(m, env);
-    S.avail = { grok: m.fs.existsSync(p.grokBin), codex: !!codexCommand(m, env) };
+    (S.avail ??= {})[key] = { grok: m.fs.existsSync(p.grokBin), codex: !!codexCommand(m, env) };
   }
-  return { grok: !!S.avail.grok, codex: !!S.avail.codex };
+  return { ...S.avail[key] };
 }
 
 function childEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
@@ -222,32 +148,12 @@ function documentEnv(m: Mods, env: Env): Record<string, string> {
   return dirs.length ? { PATH: [...dirs, process.env.PATH || process.env.Path || ''].join(m.path.delimiter) } : {};
 }
 
-function run(m: Mods, cmd: string, args: string[], o: { cwd: string; input?: string; timeoutMs: number; env?: Record<string, string>; signal?: AbortSignal; onData?: (line: string) => void | Promise<void> }): Promise<{ code: number | null; stdout: string; stderr: string; timedOut: boolean }> {
-  return new Promise(resolve => {
-    let stdout = '', stderr = '', timedOut = false, done = false;
-    const p = m.cp.spawn(cmd, args, { cwd: o.cwd, env: childEnv(o.env), windowsHide: true, shell: false });
-    const kill = () => {
-      if (p.pid == null) return;
-      if (process.platform === 'win32') m.cp.spawn('taskkill', ['/pid', String(p.pid), '/T', '/F'], { windowsHide: true }).on('error', () => {});
-      else p.kill('SIGKILL');
-    };
-    const t = o.timeoutMs > 0 ? setTimeout(() => { timedOut = true; kill(); }, o.timeoutMs) : undefined;
-    o.signal?.addEventListener('abort', kill, { once: true });
-    if (o.signal?.aborted) kill();
-    p.stdout.setEncoding('utf8'); p.stderr.setEncoding('utf8');
-    let pending = '', events = Promise.resolve();
-    const forward = (line: string) => { events = events.then(() => o.onData?.(line)); };
-    p.stdout.on('data', d => { stdout += d; pending += d; const lines = pending.split(/\r?\n/); pending = lines.pop() || ''; for (const line of lines) forward(line); }); p.stderr.on('data', d => { stderr += d; });
-    const fin = async (code: number | null) => { if (done) return; done = true; clearTimeout(t); o.signal?.removeEventListener('abort', kill); if (pending) forward(pending); await events; resolve({ code, stdout, stderr, timedOut }); };
-    p.on('error', e => { stderr += String(e); fin(-1); });
-    p.on('close', fin);
-    p.stdin.on('error', () => {});
-    p.stdin.end(o.input ?? '');
-  });
-}
+type RunOptions = { cwd: string; input?: string; timeoutMs?: number; env?: Record<string, string>; signal?: AbortSignal; onData?: (line: string) => void | Promise<void> };
+/** 중지 신호를 받으면 CLI 프로세스 트리 전체를 종료한다(server/process.ts) */
+const run = (c: Command, args: string[], o: RunOptions): Promise<ProcessResult> => runProcess(c.cmd, [...c.pre, ...args], { ...o, env: childEnv(o.env) });
 
 async function deleteGrokSession(m: Mods, p: Paths, sid: string) {
-  try { await run(m, p.grokBin, ['sessions', 'delete', sid], { cwd: p.grokDir, timeoutMs: 20000 }); } catch { /* 디렉터리 삭제로 대체 */ }
+  try { await run(wrapCommand(p.grokBin), ['sessions', 'delete', sid], { cwd: p.grokDir, timeoutMs: 20000 }); } catch { /* 디렉터리 삭제로 대체 */ }
   try { removeGrokSessionDirs(p.sessionsRoot, sid, m.fs, m.path, grokGroupName(p.grokDir)); } catch { /* 무시 */ }
   writeRegistry(p.registry, readRegistry(p.registry, m.fs).filter(x => x !== sid), m.fs);
 }
@@ -275,23 +181,25 @@ async function finish(out: ChatOut, parsed: CliParsed): Promise<ChatOut> {
 }
 
 export async function chatGrok(input: ChatIn, env: Env): Promise<ChatOut> {
-  const grokModel = input.options?.model || env.GROK_MODEL || GROK_MODEL, grokEffort = input.options?.effort || env.GROK_EFFORT || GROK_EFFORT;
+  const { model: grokModel, effort: grokEffort } = cliChoice('grok', env, input.options);
   const out = newOut(); out.model = grokModel;
   const m = await nodeMods();
   if (!m || !(await localAvailability(env)).grok) return { ...out, error: '로컬 전용 모델' };
   if (S.busy.grok) return { ...out, error: '그록 실행 중. 잠시 후 다시 시도' };
   S.busy.grok = true;
-  const p = await paths(m, env);
-  await cleanupLeftovers(env);
+  let p: Paths | undefined;
   const sid = m.crypto.randomUUID();
-  const ctx = executions.getStore(), cwd = ctx ? ctx.repo.workspace(ctx.conversationId) : p.grokDir;
-  const promptFile = m.path.join(cwd, `prompt-${sid}.txt`);
+  let promptFile: string | undefined;
   try {
+    p = await paths(m, env);
+    await cleanupLeftovers(env);
+    const ctx = executions.getStore(), cwd = ctx ? ctx.repo.workspace(ctx.conversationId) : p.grokDir;
+    promptFile = m.path.join(cwd, `prompt-${sid}.txt`);
     const configDir = m.path.join(cwd, '.grok'); m.fs.mkdirSync(configDir, { recursive: true });
     m.fs.writeFileSync(m.path.join(configDir, 'config.toml'), `[mcp_servers.procurement]\ncommand = ${JSON.stringify(process.execPath)}\nargs = ${JSON.stringify([m.path.join(p.root, 'node_modules/tsx/dist/cli.mjs'), m.path.join(p.root, 'mcp/server.ts')])}\nenv = ${tomlEnv()}\nenabled = true\n`);
     writeRegistry(p.registry, [...readRegistry(p.registry, m.fs), sid], m.fs);
     m.fs.writeFileSync(promptFile, buildPrompt(input, 'grok'), 'utf8');
-    const r = await run(m, p.grokBin, grokArgs({ promptFile, sid, cwd, model: grokModel, effort: grokEffort }), { cwd, timeoutMs: CLI_TIMEOUT_MS, env: { ...GROK_ENV, ...mcpEnv(), ...documentEnv(m, env) }, signal: input.signal, onData: cliEvent });
+    const r = await run(wrapCommand(p.grokBin), grokArgs({ promptFile, sid, cwd, model: grokModel, effort: grokEffort }), { cwd, env: { ...GROK_ENV, ...mcpEnv(), ...documentEnv(m, env) }, signal: input.signal, onData: cliEvent });
     if (ctx) {
       await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-grok.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
       if (r.stderr) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-stderr.txt`, r.stderr, { runId: ctx.runId, kind: 'tool-log' });
@@ -299,20 +207,21 @@ export async function chatGrok(input: ChatIn, env: Env): Promise<ChatOut> {
     input.signal?.throwIfAborted();
     const parsed = parseGrokStream(r.stdout, r.stderr);
     if (parsed.auth && !parsed.text) return { ...out, error: '그록 로그인 필요' };
-    if (r.timedOut) return { ...out, error: '그록 시간 초과' };
     if (parsed.error) return { ...(await finish(out, parsed)), error: parsed.error };
     if (r.code !== 0) return { ...(await finish(out, parsed)), error: '그록 실행 실패', detail: `exit ${r.code}` };
     if (!parsed.text) return { ...out, error: '그록 오류', detail: (parsed.error ?? `exit ${r.code}`).slice(0, 300) };
     return await finish(out, parsed);
   } finally {
-    try { m.fs.rmSync(promptFile, { force: true }); } catch { /* 무시 */ }
-    await deleteGrokSession(m, p, sid);
+    try { if (promptFile) m.fs.rmSync(promptFile, { force: true }); } catch { /* 무시 */ }
+    // 중지된 요청은 세션 정리를 기다리지 않고 바로 끝낸다(정리는 뒤에서 계속한다).
+    const cleanup = p ? deleteGrokSession(m, p, sid).catch(() => {}) : undefined;
+    if (!input.signal?.aborted) await cleanup;
     S.busy.grok = false;
   }
 }
 
 export async function chatCodex(input: ChatIn, env: Env): Promise<ChatOut> {
-  const codexModel = input.options?.model || env.CODEX_MODEL || CODEX_MODEL, codexEffort = input.options?.effort || env.CODEX_EFFORT || CODEX_EFFORT;
+  const { model: codexModel, effort: codexEffort } = cliChoice('codex', env, input.options);
   const out = newOut(); out.model = codexModel;
   const m = await nodeMods();
   if (!m || !(await localAvailability(env)).codex) return { ...out, error: '로컬 전용 모델' };
@@ -325,12 +234,11 @@ export async function chatCodex(input: ChatIn, env: Env): Promise<ChatOut> {
     const ctx = executions.getStore(), cwd = ctx ? ctx.repo.workspace(ctx.conversationId) : p.codexDir;
     m.fs.mkdirSync(cwd, { recursive: true });
     const args = codexArgs({ cwd, node: process.execPath, tsx: m.path.join(p.root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), mcp: m.path.join(p.root, 'mcp', 'server.ts'), model: codexModel, effort: codexEffort });
-    const r = await run(m, c.cmd, [...c.pre, ...args], { cwd, input: buildPrompt(input, 'codex'), timeoutMs: CLI_TIMEOUT_MS, signal: input.signal, env: { ...mcpEnv(), ...documentEnv(m, env) }, onData: cliEvent });
+    const r = await run(c, args, { cwd, input: buildPrompt(input, 'codex'), signal: input.signal, env: { ...mcpEnv(), ...documentEnv(m, env) }, onData: cliEvent });
     if (ctx) await ctx.repo.artifact(ctx.conversationId, `runs/${ctx.runId}-codex.jsonl`, r.stdout, { runId: ctx.runId, kind: 'tool-log' });
     input.signal?.throwIfAborted();
     const parsed = parseCodexJsonl(r.stdout, r.stderr);
     if (parsed.auth && !parsed.text) return { ...out, error: '코덱스 로그인 필요' };
-    if (r.timedOut) return { ...out, error: '코덱스 시간 초과' };
     if (parsed.error || r.code !== 0) return { ...(await finish(out, parsed)), error: '코덱스 실행 실패', detail: parsed.error || `exit ${r.code}` };
     if (!parsed.text) return { ...out, error: '코덱스 오류', detail: (parsed.error ?? `exit ${r.code}`).slice(0, 300) };
     return await finish(out, parsed);
