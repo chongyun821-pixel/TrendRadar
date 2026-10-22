@@ -11,7 +11,8 @@ export const SYSTEM_COLOR: Record<SystemKey, string> = {
 export type Rgb = [number, number, number];
 export const UNKNOWN_COLOR = '#929ba8';
 export const MISSING_RGB: Rgb = [0.075, 0.105, 0.14];
-const PALE: Rgb = [0.82, 0.85, 0.89];
+// 흰색으로 희석하지 않고 지도 바탕 위에서 농도를 낮춰 기둥과 같은 원색을 유지한다.
+const TINT_BASE: Rgb = [0.10, 0.13, 0.18];
 export const hexRgb = (h: string): Rgb => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];
 const mix = (a: Rgb, b: Rgb, k: number): Rgb => a.map((v, i) => v + (b[i] - v) * k) as Rgb;
 export const rgbCss = (rgb: Rgb) => `rgb(${rgb.map(v => Math.round(v * 255)).join(',')})`;
@@ -19,14 +20,13 @@ export const rgbCss = (rgb: Rgb) => `rgb(${rgb.map(v => Math.round(v * 255)).joi
 export function urgencyIntensity(remaining: number | null) {
   if (remaining == null) return 0;
   if (remaining <= 2) return 1;
-  if (remaining <= 5) return 0.78;
-  if (remaining <= 10) return 0.56;
-  return 0.34;
+  if (remaining <= 5) return 0.88;
+  if (remaining <= 10) return 0.74;
+  return 0.60;
 }
 export function systemTint(system: SystemKey, remaining: number | null, partial = false): Rgb {
   if (remaining == null) return hexRgb(UNKNOWN_COLOR);
-  const tint = mix(PALE, hexRgb(SYSTEM_COLOR[system]), urgencyIntensity(remaining));
-  return partial ? mix(PALE, tint, 0.38) : tint;
+  return mix(TINT_BASE, hexRgb(SYSTEM_COLOR[system]), urgencyIntensity(remaining) * (partial ? 0.70 : 1));
 }
 
 export interface CountryMapStyle {

@@ -23,7 +23,7 @@ function data(records: ProgramRecord[]): Seed {
 
 describe('무기체계별 지도 색과 농도', () => {
   it('기간 경계마다 같은 색의 농도만 바뀌며 임박할수록 진하다', () => {
-    expect([-1, 0, 2, 3, 5, 6, 10, 11, 100, null].map(urgencyIntensity)).toEqual([1, 1, 1, 0.78, 0.78, 0.56, 0.56, 0.34, 0.34, 0]);
+    expect([-1, 0, 2, 3, 5, 6, 10, 11, 100, null].map(urgencyIntensity)).toEqual([1, 1, 1, 0.88, 0.88, 0.74, 0.74, 0.60, 0.60, 0]);
     systemTint('sph', 0).forEach((v, i) => expect(v).toBeCloseTo(hexRgb(SYSTEM_COLOR.sph)[i], 12));
     for (const system of Object.keys(SYSTEM_COLOR) as SystemKey[]) {
       const saturation = (years: number) => { const rgb = systemTint(system, years); return Math.max(...rgb) - Math.min(...rgb); };
