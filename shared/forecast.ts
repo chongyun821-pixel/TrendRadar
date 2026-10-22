@@ -9,7 +9,7 @@ export const SIZE_LOG_MIN = 2, SIZE_LOG_MAX = 5.7;
 /** 교체 시점 = 도입 연도 + 설계 수명 + MRO로 늘어난 수명 */
 export const replacementYear = (introYear: number, designLife: number, lifeExt = 0) => introYear + designLife + lifeExt;
 
-/** 임박도 색: 남은 기간(년) 기준 */
+/** 남은 기간(년)별 임박도 구간. 기존 API의 색 이름 ID는 유지하며 지도 색상은 무기체계로 정한다. */
 export function categoryOf(remaining: number | null): Category {
   if (remaining == null) return 'gray';
   if (remaining <= 2) return 'red';

@@ -95,7 +95,7 @@ export class Globe {
     this.texPrev = new THREE.DataTexture(this.prev, N, 1, THREE.RGBAFormat); this.texNext = new THREE.DataTexture(this.next, N, 1, THREE.RGBAFormat);
     this.uniforms = {
       uMorph: { value: 0 }, uR: { value: R }, uPrev: { value: this.texPrev }, uNext: { value: this.texNext }, uMix: { value: 1 },
-      uN: { value: N }, uHover: { value: -1 }, uSel: { value: -1 }, uLight: { value: new THREE.Vector3(0, 0, 1) },
+      uN: { value: N }, uHover: { value: -1 }, uSel: { value: -1 }, uLight: { value: new THREE.Vector3(0, 0, 1) }, uPixelRatio: { value: this.renderer.getPixelRatio() },
     };
     this.buildCountries(features);
     this.buildOcean();
@@ -163,10 +163,12 @@ export class Globe {
       vertexShader: MORPH_GLSL + /* glsl */ `
         attribute vec2 lonlat; attribute float cidx;
         uniform sampler2D uPrev; uniform sampler2D uNext; uniform float uMix; uniform float uN; uniform float uHover; uniform float uSel; uniform vec3 uLight;
-        varying vec3 vCol; varying float vShade;
+        varying vec3 vCol; varying float vShade; varying float vHatch;
         void main(){
           vec2 uv = vec2((cidx + 0.5) / uN, 0.5);
-          vec3 c = mix(texture2D(uPrev, uv).rgb, texture2D(uNext, uv).rgb, uMix);
+          vec4 style = mix(texture2D(uPrev, uv), texture2D(uNext, uv), uMix);
+          vec3 c = style.rgb;
+          vHatch = style.a;
           if (abs(cidx - uSel) < 0.5) c = c * 1.25 + vec3(0.10, 0.12, 0.16);
           if (abs(cidx - uHover) < 0.5) c = c * 1.2 + vec3(0.07, 0.08, 0.10);
           vCol = c;
@@ -174,7 +176,15 @@ export class Globe {
           vShade = mix(0.5 + 0.6 * max(dot(n, uLight), 0.0), 1.0, uMorph);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, 0.25), 1.0);
         }`,
-      fragmentShader: /* glsl */ `varying vec3 vCol; varying float vShade; void main(){ gl_FragColor = vec4(vCol * vShade, 1.0); }`,
+      fragmentShader: /* glsl */ `
+        uniform float uPixelRatio;
+        varying vec3 vCol; varying float vShade; varying float vHatch;
+        void main(){
+          float d = mod((gl_FragCoord.x + gl_FragCoord.y) / uPixelRatio, 10.0);
+          float stripe = smoothstep(0.5, 1.2, d) * (1.0 - smoothstep(3.0, 3.7, d));
+          vec3 hatched = mix(vec3(0.22, 0.26, 0.31), vCol, 0.12 + 0.78 * stripe);
+          gl_FragColor = vec4(mix(vCol, hatched, vHatch) * vShade, 1.0);
+        }`,
       side: THREE.DoubleSide,
     });
     const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 1; this.scene.add(mesh);
@@ -241,8 +251,8 @@ export class Globe {
   }
 
   // ---------- 색·막대 ----------
-  /** colors: 국가 id → [r,g,b] 0..1. null이면 기본 지도 */
-  setBaseColors(colors: Map<string, [number, number, number]> | null, dimOthers = false) {
+  /** RGB는 채움색, 텍스처 alpha는 빗금 여부다. null이면 기본 지도. */
+  setBaseColors(colors: Map<string, [number, number, number]> | null, dimOthers = false, hatched: ReadonlySet<string> = new Set()) {
     const N = this.countries.length;
     // 현재 보이는 색을 prev로
     const m = ease(Math.min(1, this.colorAnim));
@@ -251,7 +261,7 @@ export class Globe {
       const v = (c.idx * 37) % 7;
       let rgb: [number, number, number] = dimOthers ? [0.075, 0.105, 0.14] : [0.11 + v * 0.004, 0.16 + v * 0.005, 0.22 + v * 0.006];
       const got = colors?.get(c.id); if (got) rgb = got;
-      this.next.set([rgb[0] * 255, rgb[1] * 255, rgb[2] * 255, 255].map(x => Math.max(0, Math.min(255, Math.round(x)))), c.idx * 4);
+      this.next.set([rgb[0] * 255, rgb[1] * 255, rgb[2] * 255, hatched.has(c.id) ? 255 : 0].map(x => Math.max(0, Math.min(255, Math.round(x)))), c.idx * 4);
     }
     this.texPrev.needsUpdate = true; this.texNext.needsUpdate = true;
     this.colorAnim = 0;

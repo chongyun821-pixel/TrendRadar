@@ -16,9 +16,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .brand { font-weight: 700; font-size: 14px; letter-spacing: -.01em; color: #cfe0ff; white-space: nowrap; text-shadow: 0 1px 8px #000; }
 .modes { margin: 0 auto; display: flex; gap: 2px; padding: 3px; background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); overflow-x: auto; scrollbar-width: none; max-width: 100%; }
 .modes::-webkit-scrollbar { display: none; }
-.modes button { border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--mut); white-space: nowrap; transition: background .2s, color .2s; }
+.modes button { border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--mut); white-space: nowrap; transition: background .2s, color .2s; display: inline-flex; align-items: center; gap: 5px; }
+.modes button[style]::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--system-color); flex: none; }
 .modes button:hover { color: var(--tx); }
-.modes button.on { background: rgba(76, 141, 255, .22); color: #fff; box-shadow: inset 0 0 0 1px rgba(76, 141, 255, .55); }
+.modes button.on { background: color-mix(in srgb, var(--system-color, var(--acc)) 22%, transparent); color: #fff; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--system-color, var(--acc)) 55%, transparent); }
 .map-btn { border: 1px solid var(--line); background: var(--glass); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); padding: 7px 13px; border-radius: 999px; font-size: 13px; color: var(--mut); white-space: nowrap; transition: .2s; }
 .map-btn:hover { color: var(--tx); }
 .map-btn.on { color: #fff; border-color: rgba(76, 141, 255, .6); background: rgba(76, 141, 255, .22); }
@@ -26,8 +27,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* 범례 */
 .legend { position: fixed; left: 16px; bottom: 18px; display: flex; flex-direction: column; gap: 4px; padding: 9px 11px; font-size: 11.5px; color: var(--mut); background: var(--glass); border: 1px solid var(--line); border-radius: 10px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); opacity: 0; transform: translateY(6px); transition: .3s; pointer-events: none; z-index: 4; }
 .legend.show { opacity: 1; transform: none; }
-.legend span { display: flex; align-items: center; gap: 7px; }
-.legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.legend span, .legend-title { display: flex; align-items: center; gap: 7px; }
+.legend-title { color: var(--tx); font-size: 12px; margin-bottom: 3px; }
+.legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.legend .hatch { background: repeating-linear-gradient(135deg, #394351 0 4px, var(--hue) 4px 6px, #394351 6px 10px); }
+.legend small { font-size: 10px; line-height: 1.5; margin: 2px 0; }
 .legend .sz b { width: 9px; height: 14px; border-radius: 2px; background: linear-gradient(#fff8, #fff2); display: inline-block; margin-top: 2px; }
 
 /* 툴팁 */
@@ -44,6 +48,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tip .src { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
 .tip .src a { color: #8fb6ff; text-decoration: none; } .tip .src a:hover { text-decoration: underline; }
 .tip .src span { color: var(--mut); }
+.tip .map-note { margin: 8px 0 0; color: var(--mut); font-size: 11.5px; }
 .tip .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.05); border: 1px solid var(--line); font-size: 11px; }
 .chip i { width: 7px; height: 7px; border-radius: 50%; }
@@ -142,7 +147,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (max-width: 760px) {
   .top { flex-wrap: wrap; gap: 8px; padding: 10px; }
   .brand { order: 1; } .map-btn { order: 2; margin-left: auto; } .modes { order: 3; width: 100%; }
-  .legend { bottom: 76px; left: 10px; }
+  .legend { bottom: 76px; left: 10px; display: grid; grid-template-columns: repeat(2, max-content); gap: 4px 14px; max-width: calc(100vw - 20px); }
+  .legend-title, .legend small, .legend .sz { grid-column: 1 / -1; }
   .tip { max-width: calc(100vw - 16px); }
   .chat.open .panel { max-height: 52vh; }
   .bar { gap: 1px; }

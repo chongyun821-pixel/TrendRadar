@@ -19,6 +19,7 @@ Use Node.js 22.16+ (22.x) or 24+ and `npm install`.
 - `npm test`: run Vitest; target a file with `npm test -- tests/forecast.test.ts`.
 - `npm run mcp:check`: verify MCP stdio and HTTP integration.
 - `npm run shots`: capture UI screenshots with a running server and installed Chrome.
+- `npm run map:check`: after building, verify system hues, urgency/faded/unknown-data states, clipped hatching, cards and desktop/mobile layouts in an automatically isolated SQLite server and headless Chrome. `CHROME_PATH` can select Chrome/Edge; operating data and providers are not used.
 - `npm run chat:check`: verify history, file selection/drop uploads, popovers, in-panel status, square stop icon, model changes, and desktop/mobile layouts.
 - `npm run queue:check`: verify submitting during a response, FIFO processing, reload, conversation switching, queued cancellation and compact desktop/mobile status on an isolated SQLite server. Set `BASE_URL`, `CHROME_PATH` and the server's `RADAR_DB_PATH`; it uses local commands without provider calls.
 - `npm run context:check`: verify request-time screen context, viewed country reports, map commands and acknowledgements, stale commands, model selection and conversation switching on an isolated server. Set `BASE_URL` and `CHROME_PATH`; no model provider calls are made.
@@ -35,6 +36,8 @@ Keep keys in ignored `.secrets`, using `.secrets.example` for supported settings
 Country registration uses the shared Natural Earth catalog (`shared/country-catalog.json`, regenerated with `npm run data:countries`). `find_country` reads candidates; `add_country` atomically registers metadata, revision, and a change entry. Keep registration separate from evidence-backed procurement research; never create invented zero inventories or forecasts just to register a country. Both chat providers and MCP use the same tools.
 
 A normal request to add a country includes researching missing operating systems unless the user explicitly asks for names only. Check `get_country_data_status` before claiming completion; a record with only project descriptions is partial. Preserve confirmed equipment with nullable quantity/year, calculate timing independently of unknown quantity, and keep forecast quantity/amount null when unavailable. Exclude retired/planned batches from current equipment and replacement demand. Historical delivery totals are research context, not an automatic current-stock fallback.
+
+Map hues belong to weapon systems (`src/map-style.ts`), with urgency controlling saturation and partial/low-confidence data fading the same hue. Unknown timing is light gray. Only data-missing countries with at least two distinct, directly land-adjacent data-ready countries for that same system receive hatching; never propagate hatching or infer equipment/forecasts from it. Preserve its explanatory legend/card in globe and flat views. Score gates remain card information and must not override this color scheme.
 
 Run UI checks with a running server and Chrome or Edge selected by `CHROME_PATH`; `BASE_URL` selects the server. For isolated checks, set a temporary storage directory and DB path and use another port. Do not interrupt an existing user server or alter operational data just to run checks. Restart Node after backend/config changes.
 

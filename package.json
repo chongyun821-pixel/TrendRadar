@@ -27,6 +27,7 @@
     "mcp:http": "tsx mcp/server.ts --http",
     "test": "vitest run",
     "shots": "node scripts/shots.mjs",
+    "map:check": "tsx scripts/map-style-check.ts",
     "chat:check": "node scripts/chat-check.mjs",
     "queue:check": "node scripts/queue-check.mjs",
     "context:check": "node scripts/context-check.mjs",
