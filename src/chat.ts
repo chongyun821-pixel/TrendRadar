@@ -443,10 +443,18 @@ export function initChat(o: ChatOpts) {
       while (token === view && activeRun === runId) {
         const run = await api(`/runs/${runId}?after=${after}`);
         if (token !== view || activeRun !== runId) return;
-        renderQueued(run.queued || []);
+        const started = ['running', 'stopping'].includes(run.status) && !['running', 'stopping'].includes(previousStatus);
         const activity = (message: string) => progress.start({ message, startedAt: run.started_at });
         if (!after || previousStatus !== run.status) activity(run.status === 'queued' ? '메시지 대기 중' : '요청 처리 중');
         previousStatus = run.status;
+        if (started) {
+          // 대기 → 실행 전환 시 사용자 메시지가 대기열에서 messages로 옮겨지므로 대화를 다시 그린다. 종료 시에는 아래에서 대화 전체를 다시 그린다.
+          const c = await loadConversation(conversationId!, true);
+          if (token !== view || activeRun !== runId) return;
+          const atBottom = list.scrollHeight - list.clientHeight - list.scrollTop < 40, top = list.scrollTop;
+          renderConversation(c, false);
+          list.scrollTop = atBottom ? list.scrollHeight : top;
+        } else if (['queued', 'running', 'stopping'].includes(run.status)) renderQueued(run.queued || []);
         for (const event of run.events) {
           after = event.id;
           if (event.name === 'app.context') requestVersion = event.data.version;
