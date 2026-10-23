@@ -7,7 +7,7 @@ import { useDataProvider } from '../shared/data';
 import { SYSTEM_KEYS, type Seed } from '../shared/types';
 import { loadDevVars } from './devvars';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { databaseClient, postgresQuery, SupabaseFiles, type SupabaseConfig } from './supabase';
+import { databaseClient, DB_CONNECTIONS, postgresQuery, SupabaseFiles, type SupabaseConfig } from './supabase';
 
 export const PROJECT_ROOT = resolve(process.env.PROCUREMENT_ROOT || fileURLToPath(new URL('..', import.meta.url)));
 const vars = { ...loadDevVars(join(PROJECT_ROOT, '.secrets')), ...process.env };
@@ -29,8 +29,12 @@ export class Repository {
   private cachedRevision = -1;
   private sql?: ReturnType<typeof databaseClient>;
   private cloud?: SupabaseFiles;
-  private transactionState = new AsyncLocalStorage<{ active: boolean; sql?: any }>();
+  private transactionState = new AsyncLocalStorage<{ active: boolean; sql?: any; queue?: Promise<unknown> }>();
   private queue: Promise<unknown> = Promise.resolve();
+  // Supabase 트랜잭션 풀러(6543)는 한 연결에 여러 쿼리를 겹쳐 보내면(파이프라인) 응답이 멈춘다.
+  // 그래서 동시에 DB를 쓰는 작업을 연결 수(DB_CONNECTIONS)까지로 제한하고, 트랜잭션 안의 쿼리는 하나씩 보낸다.
+  private slots = DB_CONNECTIONS;
+  private waiting: (() => void)[] = [];
   readonly kind: 'sqlite' | 'supabase';
   readonly ready: Promise<void>;
   constructor(public file: string, public storage: string, bootstrap = true, config?: SupabaseConfig) {
@@ -68,6 +72,11 @@ export class Repository {
     }
     this.ready = Promise.resolve();
   }
+  private async withSlot<T>(work: () => Promise<T>): Promise<T> {
+    if (this.slots > 0) this.slots--; else await new Promise<void>(r => this.waiting.push(r));
+    try { return await work(); }
+    finally { const next = this.waiting.shift(); if (next) next(); else this.slots++; }
+  }
   private exclusive<T>(work: () => T | Promise<T>): Promise<T> {
     const next = this.queue.then(work);
     this.queue = next.catch(() => {});
@@ -76,9 +85,13 @@ export class Repository {
   async all(query: string, ...args: any[]): Promise<any[]> {
     await this.ready;
     if (this.sql) {
-      const tx = this.transactionState.getStore();
-      const client = tx?.active ? tx.sql : this.sql;
-      const rows = await client.unsafe(postgresQuery(query), args);
+      const tx = this.transactionState.getStore(), text = postgresQuery(query);
+      let rows: any[];
+      if (tx?.active) {
+        const result = (tx.queue ?? Promise.resolve()).then(() => tx.sql.unsafe(text, args));
+        tx.queue = result.catch(() => {});
+        rows = await result;
+      } else rows = await this.withSlot(() => this.sql!.unsafe(text, args));
       return rows.map((row: any) => {
         const result = { ...row }; delete result.row_order;
         if (typeof result.path === 'string' && result.path.startsWith('workspaces/')) result.path = this.localPath(result.path);
@@ -101,11 +114,11 @@ export class Repository {
     if (this.transactionState.getStore()?.active) throw new Error('중첩 트랜잭션은 지원하지 않습니다');
     if (this.sql) {
       try {
-        return await this.sql.begin('isolation level serializable', async sql => {
-          const state = { active: true, sql };
+        return await this.withSlot(() => this.sql!.begin('isolation level serializable', async sql => {
+          const state: { active: boolean; sql: any; queue?: Promise<unknown> } = { active: true, sql };
           try { const result = await this.transactionState.run(state, f); signal?.throwIfAborted(); return result; }
           finally { state.active = false; }
-        }) as T;
+        })) as T;
       } catch (e: any) {
         this.cachedRevision = -1;
         if (e.code === '40001' || e.code === '40P01') throw new Error('데이터 버전 충돌: 재조회 후 제출');

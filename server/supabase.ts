@@ -9,11 +9,14 @@ export interface SupabaseConfig {
   schema: string;
 }
 
+/** 앱·MCP 프로세스 하나가 쓰는 최대 DB 연결 수 */
+export const DB_CONNECTIONS = 3;
+
 export function databaseClient(config: SupabaseConfig) {
   if (!/^[a-z][a-z0-9_]*$/.test(config.schema)) throw new Error('잘못된 PostgreSQL 스키마 이름');
   if (!/^postgres(?:ql)?:\/\//.test(config.databaseUrl)) throw new Error('DATABASE_URL에 PostgreSQL 연결 주소를 입력하세요');
   return postgres(config.databaseUrl, {
-    max: 3, prepare: false, ssl: 'require', connect_timeout: 15, idle_timeout: 10,
+    max: DB_CONNECTIONS, prepare: false, ssl: 'require', connect_timeout: 15, idle_timeout: 10,
     connection: { search_path: config.schema, application_name: 'TrendRadar' },
     onnotice: () => {},
   });
