@@ -103,8 +103,19 @@ async function boot() {
       mapStyles = new Map();
       const styles = new Map(SYSTEM_KEYS.map(system => [system, mapCountryStyles(seed, system, geography, borders)]));
       for (const [country, best] of bestWeapons) mapStyles.set(country, styles.get(best.system)!.get(country)!);
-      fs = allForecasts().filter(f => bestWeapons.get(f.country)?.system === f.system);
+      fs = [];
     }
+    const ranking = $('#hatchRanking');
+    ranking.hidden = !state.mode;
+    if (state.mode) {
+      const top = [...mapStyles].filter(([, style]) => style.hatched && style.referenceRank != null)
+        .sort(([, a], [, b]) => a.referenceRank! - b.referenceRank!).slice(0, 5);
+      ranking.style.setProperty('--ranking-color', SYSTEM_COLOR[state.mode]);
+      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">빗금 국가 TOP 5</h2><p>${esc(seed.systems[state.mode].ko)} · 인접국 참고 점수</p></div></div>`
+        + (top.length ? `<ol>${top.map(([country, style]) => `<li><button type="button" data-hatch-country="${esc(country)}" title="${esc(names[country] ?? country)} 지도에서 보기"><span class="hatch-ranking-number">${style.referenceRank}</span><span class="hatch-ranking-country">${esc(names[country] ?? country)}</span><strong>${style.referenceScore.toFixed(1)}<small>점</small></strong></button></li>`).join('')}</ol>`
+          : '<p class="hatch-ranking-empty">조건에 맞는 빗금 국가가 없습니다.</p>')
+        + '<p class="hatch-ranking-note">인접국 수 50% + 예상 금액 50%</p>';
+    } else ranking.innerHTML = '';
     // 챗봇 표시 조정(숨김·특정 국가만·강조·빗금·막대)을 색과 막대에 반영한다
     const shown = displayStyle(state.display,
       new Map([...mapStyles].map(([id, style]) => [id, style.rgb])),
@@ -123,7 +134,7 @@ async function boot() {
     } else {
       $('#legend').innerHTML = `<strong class="legend-title">일반 · 수주 판단 점수 최고 무기</strong>`
         + SYSTEM_KEYS.map(system => `<span><i style="background:${SYSTEM_COLOR[system]}"></i>${esc(seed.systems[system].ko)}</span>`).join('')
-        + `<small>밝기 · 3년 이내 100% / 10년 이내 50% / 이후 20%<br>판단 점수 미확인·수출 제외 국가는 바탕색</small>${scaleLegend}`;
+        + `<small>밝기 · 3년 이내 100% / 10년 이내 50% / 이후 20%<br>판단 점수 미확인·수출 제외 국가는 바탕색</small>`;
     }
     const adjusted = displaySummary(state.display, id => names[id] ?? id);
     if (adjusted) $('#legend').insertAdjacentHTML('beforeend', `<small class="display-note">${esc(adjusted)}</small>`);
@@ -185,6 +196,10 @@ async function boot() {
   }
   $('#mapViewBtn').addEventListener('click', () => setView(false));
   $('#reportViewBtn').addEventListener('click', () => setView(true));
+  $('#hatchRanking').addEventListener('click', event => {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-hatch-country]');
+    if (button) focusCountry(button.dataset.hatchCountry!);
+  });
 
   const chat = initChat({
     names,
