@@ -9,13 +9,17 @@
 <body>
   <div id="globe"></div>
   <header class="top">
-    <div class="brand"><img id="brandLogo" src="/logo.png" alt="" width="34" height="34" /><span>HORUS</span></div>
+    <div class="top-left">
+      <div class="brand"><img id="brandLogo" src="/logo.png" alt="" width="34" height="34" /><span>HORUS</span></div>
+      <nav class="view-tabs" aria-label="화면 전환"><button id="mapViewBtn" class="on" type="button" aria-current="page">지도</button><button id="reportViewBtn" type="button">보고서</button></nav>
+    </div>
     <nav id="modes" class="modes" aria-label="무기체계"></nav>
     <button id="mapBtn" class="map-btn" type="button" aria-pressed="false">2D 지도</button>
   </header>
   <div id="legend" class="legend"></div>
   <div id="dataUpdated" class="data-updated"></div>
   <div id="tip" class="tip"></div>
+  <main id="rankingReport" class="ranking-report" aria-label="예상 수주 전망 보고서" hidden></main>
   <section id="chat" class="chat">
     <div class="panel">
       <div id="msgs" class="msgs"></div>

@@ -28,6 +28,7 @@
     "test": "vitest run",
     "shots": "node scripts/shots.mjs",
     "map:check": "tsx scripts/map-style-check.ts",
+    "report:check": "tsx scripts/ranking-report-check.ts",
     "chat:check": "node scripts/chat-check.mjs",
     "queue:check": "node scripts/queue-check.mjs",
     "cancel:check": "node scripts/cancel-check.mjs",
@@ -47,6 +48,7 @@
     "hono": "^4.6.0",
     "markdown-it": "^15.0.3",
     "pdf-parse": "^2.4.5",
+    "plotly.js-basic-dist-min": "^4.1.2",
     "postgres": "^3.4.9",
     "three": "^0.170.0",
     "zod": "^3.25.0"
