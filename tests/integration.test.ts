@@ -12,7 +12,11 @@ import { repository, PROJECT_ROOT, now } from '../server/store';
 import { researchTool } from '../server/research';
 import { executions } from '../server/execution';
 import { app } from '../server/app';
-import { saveAppContext } from '../server/app-context';
+import { validateAppContext } from '../server/app-context';
+import { connectScreen, completeCommand, updateScreen } from '../server/screen-hub';
+import { rememberRemote } from '../server/local-only';
+import { getRequestListener } from '@hono/node-server';
+import type { AddressInfo } from 'node:net';
 
 const parsed = (r: any) => JSON.parse(r.content[0].text);
 describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
@@ -48,14 +52,21 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
   it('별도 MCP 프로세스에서 반영한 데이터·예측·6절 보고서를 웹 API에서 조회', async () => {
     const repo = repository(), c = await repo.createConversation(), runId = randomUUID();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test-mcp', 'running', now());
-    const state = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'codex', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
-    await saveAppContext(repo, state); await repo.event(runId, 'app.context', state);
-    await saveAppContext(repo, { ...state, version: 2, focus: 'FIN' });
+    const state = { screenId: randomUUID(), conversationId: c.id, model: 'codex', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
+    await validateAppContext(repo, state); await repo.event(runId, 'app.context', state);
+    // 앱 서버(화면 허브)와 가짜 브라우저 탭: 별도 MCP 프로세스는 RADAR_APP_URL로 화면 명령을 보낸다
+    const web = createServer(getRequestListener(req => { rememberRemote(req, '127.0.0.1'); return app.fetch(req); }));
+    await new Promise<void>(r => web.listen(0, '127.0.0.1', r));
+    const commands: any[] = [];
+    const disconnect = connectScreen(state.screenId, (event, payload: any) => { if (event === 'command') { commands.push(payload.data); queueMicrotask(() => completeCommand(state.screenId, payload.id, { status: 'applied' })); } });
+    updateScreen(state.screenId, { state: { ...state, focus: 'FIN' } as any });
     const client = new Client({ name: 'integration', version: '1' });
     try {
-      await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(PROJECT_ROOT, 'node_modules/tsx/dist/cli.mjs'), join(PROJECT_ROOT, 'mcp/server.ts')], cwd: PROJECT_ROOT, env: { NODE_ENV: 'test', PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_DATABASE: 'sqlite', RADAR_DB_PATH: repo.file, RADAR_STORAGE_DIR: repo.storage, RADAR_CONVERSATION_ID: c.id, RADAR_RUN_ID: runId } }));
+      await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(PROJECT_ROOT, 'node_modules/tsx/dist/cli.mjs'), join(PROJECT_ROOT, 'mcp/server.ts')], cwd: PROJECT_ROOT, env: { NODE_ENV: 'test', PROCUREMENT_ROOT: PROJECT_ROOT, RADAR_DATABASE: 'sqlite', RADAR_DB_PATH: repo.file, RADAR_STORAGE_DIR: repo.storage, RADAR_CONVERSATION_ID: c.id, RADAR_RUN_ID: runId, RADAR_APP_URL: `http://127.0.0.1:${(web.address() as AddressInfo).port}` } }));
       const context = parsed(await client.callTool({ name: 'get_app_context', arguments: {} }));
       expect(context.request.focus).toBe('POL'); expect(context.current.state.focus).toBe('FIN');
+      expect(parsed(await client.callTool({ name: 'set_map_state', arguments: { country: '독일' } }))).toMatchObject({ ok: true, status: 'applied', screenId: state.screenId });
+      expect(commands).toEqual([{ type: 'set_map_state', country: 'DEU' }]);
       expect(parsed(await client.callTool({ name: 'find_country', arguments: { country: '독일' } })).matches[0]).toMatchObject({ country: 'DEU', registered: false });
       expect(parsed(await client.callTool({ name: 'add_country', arguments: { country: 'Germany' } }))).toMatchObject({ ok: true, created: true, country: 'DEU' });
       expect((await (await app.request('/api/data')).json()).countries.DEU).toMatchObject({ ko: '독일', flag: '🇩🇪' });
@@ -79,6 +90,6 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
       expect(repeated.unchanged).toBe(true);
       const raw = parsed(await client.callTool({ name: 'source_read', arguments: { sourceId: 'integration-source' } }));
       expect(raw.text).toBe(quote);
-    } finally { await client.close(); await repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); }
+    } finally { await client.close(); disconnect(); web.closeAllConnections(); await new Promise<void>(r => web.close(() => r())); await repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); }
   });
 });

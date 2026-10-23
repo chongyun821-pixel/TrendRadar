@@ -22,6 +22,11 @@ export function supabaseConfig(): SupabaseConfig {
   return { databaseUrl: config.DATABASE_URL || '', url: config.SUPABASE_URL || '', secretKey: config.SUPABASE_SECRET_KEY || '', bucket: config.SUPABASE_STORAGE_BUCKET || 'trendradar-private', schema: process.env.RADAR_PG_SCHEMA || config.RADAR_PG_SCHEMA || 'trendradar' };
 }
 /** 배포한 SQL 변경 이력. 표 구조는 schema 파일에도 있어 새 스키마에 바로 생성되고, 자료 변경은 버전별로 한 번만 적용한다. */
+/** 같은 저장소(DB·작업 폴더)를 쓰는 서버인지 비교하는 지문. 비밀값은 해시 안에만 들어가고 그대로 내보내지 않는다 */
+export function storeFingerprint() {
+  const db = DATABASE_KIND === 'sqlite' ? DB_PATH : (({ url, schema }) => `${url}#${schema}`)(supabaseConfig());
+  return hash(JSON.stringify([DATABASE_KIND, db, STORAGE_ROOT])).slice(0, 16);
+}
 export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }, { version: 8, name: '레이저대공무기 모드 삭제', sqlite: '008_remove_laser.sql', postgres: '008_remove_laser.postgres.sql' }] as const;
 export class Repository {
   db!: DatabaseSync;

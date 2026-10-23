@@ -7,14 +7,11 @@ import { zipSync, strToU8 } from 'fflate';
 import { Repository, now, hash } from '../server/store';
 import { executions } from '../server/execution';
 import { runTool, newOut, systemPrompt, TOOL_DEFS } from '../server/agent';
-import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand, screenSettings } from '../server/app-context';
-
-// 브라우저가 없는 단위 시험: 화면 도구는 기다리지 않고 접수(pending) 결과를 바로 돌려준다. 대기 동작은 아래 전용 시험에서 확인한다.
-screenSettings.waitMs = 0;
+import { validateAppContext } from '../server/app-context';
+import { hostScreens, connectScreen, completeCommand, updateScreen, screenSettings } from '../server/screen-hub';
 import { publicAddress, robotsAllowed, htmlText, sourceNetwork } from '../server/sources';
 import { publishArtifact, POWERPOINT_MIME } from '../server/artifacts';
 import type { AppContext } from '../shared/app-context';
-import { commandVersionMatches } from '../shared/app-context';
 
 afterEach(() => vi.restoreAllMocks());
 async function fixture() {
@@ -22,47 +19,76 @@ async function fixture() {
   await repo.data();
   const c = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
   await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test', 'running', now());
-  const state: AppContext = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: 1 };
-  await saveAppContext(repo, state);
+  const state: AppContext = { screenId: randomUUID(), conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: 1 };
+  await validateAppContext(repo, state);
   return { repo, state, controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {}, appContext: state } };
 }
+/** 앱 서버 프로세스의 화면 허브에 붙은 가짜 브라우저 탭. reply가 결과를 주면 바로 적용 결과를 돌려준다 */
+const screens: (() => void)[] = [];
+function fakeScreen(reply: ((data: any) => { status: 'applied' | 'failed'; detail?: string; state?: AppContext } | null) = () => ({ status: 'applied' })) {
+  hostScreens();
+  const id = randomUUID(), commands: any[] = [];
+  const disconnect = connectScreen(id, (event, payload: any) => {
+    if (event !== 'command') return;
+    commands.push(payload.data);
+    const result = reply(payload.data);
+    if (result) queueMicrotask(() => completeCommand(id, payload.id, result));
+  });
+  screens.push(disconnect);
+  return { id, commands, disconnect };
+}
+afterEach(() => { for (const disconnect of screens.splice(0)) disconnect(); screenSettings.timeoutMs = 6000; });
 async function submission() {
   const saved: any = await runTool('save_source', { url: 'https://example.org/evidence', content: '가상 검증 원문. 신규 장비 12문을 2028년에 도입한다.', kind: 'original', publishedAt: '2026-10-17' }, newOut());
   return { record: { country: '폴란드', system: '자주포', batches: [{ model: '새 장비', qty: '12문', introYear: '2028년', src: ['new-source'] }], src: ['new-source'] }, sources: { 'new-source': { ...saved, t: '가상 원문', u: 'https://example.org/evidence', y: 2026 } }, evidence: [{ path: 'batches', sourceId: 'new-source', quote: '신규 장비 12문을 2028년에 도입한다.' }], reason: '가상 도입 기록 추가', asOf: '2026-10-17' };
 }
 describe('화면 도구 set_map_state', () => {
-  afterEach(() => { screenSettings.waitMs = 0; });
   it('일반 필드에 한국어 이름·ISO 코드·별칭을 받고, 브라우저 적용 결과를 기다려 바로 돌려준다', async () => {
-    const f = await fixture();
+    const f = await fixture(), screen = fakeScreen(), before = (await f.repo.one('SELECT count(*) AS n FROM app_commands')).n;
     try { await executions.run(f.ctx, async () => {
-      screenSettings.waitMs = 2000;
-      const call = runTool('set_map_state', { country: '핀란드', system: '자주포', flat: true }, newOut());
-      let command: any;
-      for (let i = 0; i < 50 && !command; i++) { command = (await pendingCommands(f.repo, f.state.screenId))[0]; if (!command) await new Promise(r => setTimeout(r, 20)); }
-      expect(command.data).toMatchObject({ type: 'set_map_state', country: 'FIN', system: 'sph', flat: true });
-      await acknowledgeCommand(f.repo, f.state.screenId, command.id, { status: 'applied', version: 2 });
-      expect(await call).toMatchObject({ ok: true, status: 'applied', commandId: command.id, version: 2 });
-      screenSettings.waitMs = 0;
+      expect(await runTool('set_map_state', { country: '핀란드', system: '자주포', flat: true }, newOut())).toMatchObject({ ok: true, status: 'applied', screenId: screen.id });
+      expect(screen.commands[0]).toMatchObject({ type: 'set_map_state', country: 'FIN', system: 'sph', flat: true });
       for (const [country, iso] of [['UK', 'GBR'], ['JPN', 'JPN'], ['해제', null]] as const) {
-        const r: any = await runTool('set_map_state', { country }, newOut());
-        expect((await f.repo.one('SELECT data FROM app_commands WHERE id=?', r.commandId)).data).toContain(JSON.stringify({ type: 'set_map_state', country: iso }).slice(1, -1));
+        await runTool('set_map_state', { country }, newOut());
+        expect(screen.commands.at(-1)).toEqual({ type: 'set_map_state', country: iso });
       }
       expect(await runTool('set_map_state', { system: '레이저' }, newOut())).toMatchObject({ ok: false, status: 'failed', error: expect.stringContaining('무기체계 확인 필요') });
       expect(await runTool('set_map_state', {}, newOut())).toMatchObject({ ok: false, status: 'failed' });
+      // 화면 명령은 DB를 쓰지 않는다(app_commands는 더 이상 쓰지 않는 예전 표)
+      expect((await f.repo.one('SELECT count(*) AS n FROM app_commands')).n).toBe(before);
     }); } finally { await f.repo.close(); }
   });
-  it('탭이 숨겨졌으면 inactive와 안내를 돌려주고 명령은 남겨 두며, 화면이 끊겼으면 접수하지 않는다', async () => {
+  it('숨겨진 탭도 적용하고 hidden을 알리며, 적용 실패·시간 초과를 구분하고 시간 초과는 다시 적용하지 않는다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
-      await saveAppContext(f.repo, { ...f.state, hidden: true });
-      screenSettings.waitMs = 50;
-      const hidden: any = await runTool('set_map_state', { country: '폴란드', system: '다연장로켓' }, newOut());
-      expect(hidden).toMatchObject({ ok: false, status: 'inactive', message: expect.stringContaining('백그라운드') });
-      expect((await pendingCommands(f.repo, f.state.screenId)).map(c => c.id)).toEqual([hidden.commandId]);
-      await f.repo.run('UPDATE app_contexts SET updated_at=? WHERE screen_id=?', '2000-01-01T00:00:00Z', f.state.screenId);
-      expect(await runTool('set_map_state', { country: '핀란드' }, newOut())).toMatchObject({ ok: false, status: 'inactive', message: expect.stringContaining('닫혀') });
-      expect(await pendingCommands(f.repo, f.state.screenId)).toHaveLength(1);
+      const hidden = fakeScreen();
+      updateScreen(hidden.id, { hidden: true });
+      expect(await runTool('set_map_state', { country: '폴란드', system: '다연장로켓' }, newOut())).toMatchObject({ ok: true, status: 'applied', hidden: true, message: expect.stringContaining('백그라운드') });
+      hidden.disconnect();
+      fakeScreen(() => ({ status: 'failed', detail: '지도 준비 안 됨' }));
+      expect(await runTool('set_map_state', { country: '핀란드' }, newOut())).toMatchObject({ ok: false, status: 'failed', detail: '지도 준비 안 됨' });
+      for (const disconnect of screens.splice(0)) disconnect();
+      fakeScreen(() => null);
+      screenSettings.timeoutMs = 50;
+      const out = newOut();
+      expect(await runTool('focus_country', { country: '폴란드' }, out)).toMatchObject({ ok: false, status: 'timeout' });
+      expect(out.actions).toEqual([]);
     }); } finally { await f.repo.close(); }
+  });
+  it('연결된 화면이 없으면 바로 inactive이고, 앱에서 보낸 실행만 답과 함께 적용할 동작으로 남긴다', async () => {
+    const f = await fixture();
+    try {
+      hostScreens();
+      const started = Date.now(), out = newOut();
+      // 앱 화면에서 보낸 실행(요청 화면 맥락 있음): 답이 끝나면 브라우저가 적용한다
+      expect(await executions.run(f.ctx, () => runTool('set_map_state', { country: '폴란드' }, out))).toMatchObject({ ok: true, status: 'queued' });
+      expect(out.actions).toEqual([{ type: 'focus_country', country: 'POL' }]);
+      // 외부 MCP(요청 화면 맥락 없음): 남길 화면이 없으므로 inactive
+      const external = newOut();
+      expect(await executions.run({ ...f.ctx, appContext: undefined }, () => runTool('set_map_state', { country: '폴란드' }, external))).toMatchObject({ ok: false, status: 'inactive', message: expect.stringContaining('화면이 열려 있지 않음') });
+      expect(external.actions).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(1000);
+    } finally { await f.repo.close(); }
   });
   it('앱 화면 없이 부르면(화면 맥락 없음) 답과 함께 적용할 동작으로 남기고 예전 이름도 받는다', async () => {
     const out = newOut();
@@ -131,11 +157,11 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
     }); } finally { await f.repo.close(); }
   });
   it('요청 당시 화면과 최신 화면을 구분하고 명시한 국가를 우선하며 작성 자료는 버전을 고정한다', async () => {
-    const f = await fixture();
+    const f = await fixture(), screen = fakeScreen();
     try { await executions.run(f.ctx, async () => {
-      await saveAppContext(f.repo, { ...f.state, version: 2, focus: 'FIN', mode: 'ifv', filters: { system: 'ifv' } });
+      updateScreen(screen.id, { state: { ...f.state, focus: 'FIN', mode: 'ifv', filters: { system: 'ifv' } } });
       const context: any = await runTool('get_app_context', {}, newOut());
-      expect(context.request.focus).toBe('POL'); expect(context.current.state.focus).toBe('FIN');
+      expect(context.request.focus).toBe('POL'); expect(context.current).toMatchObject({ available: true, screenId: screen.id, state: { focus: 'FIN' } });
       expect(systemPrompt({})).toContain('"focus":"POL"');
       const implicit: any = await runTool('prepare_report', {}, newOut());
       const explicit: any = await runTool('prepare_report', { country: 'FIN', system: 'sph' }, newOut());
@@ -152,72 +178,48 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
     try {
       await executions.run(f.ctx, () => runTool('write_report', { country: 'POL', system: 'sph' }, newOut()));
       const row = await f.repo.one('SELECT * FROM reports WHERE run_id=?', f.ctx.runId);
-      const state: AppContext = { ...f.state, version: 2, activeView: 'report', report: { id: row.id, country: 'POL', system: 'sph', kind: 'country-analysis', basisDate: row.basis_date, dataVersion: row.data_version } };
-      await saveAppContext(f.repo, state);
+      const state: AppContext = await validateAppContext(f.repo, { ...f.state, activeView: 'report', report: { id: row.id, country: 'POL', system: 'sph', kind: 'country-analysis', basisDate: row.basis_date, dataVersion: row.data_version } });
       await f.repo.run("UPDATE metadata SET value='2' WHERE key='revision'");
       await executions.run({ ...f.ctx, appContext: state }, async () => {
         const packet: any = await runTool('prepare_report', {}, newOut());
         expect(packet.basis).toBe('viewed'); expect(packet.revision).toBe(row.data_version); expect(packet.markdown).toBe(row.markdown); expect(packet.records).toBeUndefined();
         expect(await runTool('prepare_report', { basis: 'latest' }, newOut())).toMatchObject({ basis: 'latest', revision: 2 });
       });
-      await expect(saveAppContext(f.repo, { ...state, report: { ...state.report, dataVersion: 999 } })).rejects.toThrow(/기준/);
+      await expect(validateAppContext(f.repo, { ...state, report: { ...state.report, dataVersion: 999 } })).rejects.toThrow(/기준/);
     } finally { await f.repo.close(); }
   });
-  it('화면 명령은 접수와 적용을 구분하고, 사용자가 화면을 바꿔도 접수하며 다른 대화 화면은 거절한다', async () => {
+  it('대화 전환·모델 변경·보고서 표시는 가장 최근에 사용한 탭으로 가고, 사용자가 화면을 바꿨어도 적용한다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
-      const result: any = await runTool('set_map_state', { payload: JSON.stringify({ country: '핀란드', flat: true }) }, newOut());
-      expect(result.status).toBe('pending');
-      expect(await pendingCommands(f.repo, randomUUID())).toEqual([]);
-      expect(await pendingCommands(f.repo, f.state.screenId)).toHaveLength(1);
-      await acknowledgeCommand(f.repo, f.state.screenId, result.commandId, { status: 'applied' });
-      expect(await runTool('get_app_command', { commandId: result.commandId }, newOut())).toMatchObject({ status: 'applied' });
-      await saveAppContext(f.repo, { ...f.state, version: 2, focus: 'CAN' });
-      expect(await runTool('set_map_state', { payload: '{"country":"FIN"}' }, newOut())).toMatchObject({ status: 'pending' }); // 사용자가 화면을 바꿨어도 챗봇 명령은 적용한다
+      const older = fakeScreen(), newer = fakeScreen();
+      updateScreen(newer.id, { state: { ...f.state, focus: 'CAN' } }); // 사용자가 화면을 바꿈(버전·충돌 개념 없음)
       const other = await f.repo.createConversation();
-      await saveAppContext(f.repo, { ...f.state, version: 3, conversationId: other.id });
-      expect(await runTool('switch_conversation', { conversationId: f.ctx.conversationId }, newOut())).toHaveProperty('error');
-      expect(f.ctx.conversationId).not.toBe(other.id);
-      await f.repo.run('UPDATE app_contexts SET updated_at=? WHERE screen_id=?', '2000-01-01T00:00:00Z', f.state.screenId);
-      expect(await readAppContext(f.repo, f.state.screenId)).toMatchObject({ stale: true });
-    }); } finally { await f.repo.close(); }
-  });
-  it('같은 실행의 모드 변경→국가 선택→보고서는 적용 버전을 이어받고 사용자 변경 뒤에도 명령을 접수한다', async () => {
-    const f = await fixture();
-    try { await executions.run(f.ctx, async () => {
-      const mode: any = await runTool('set_mode', { system: '다연장로켓' }, newOut());
-      expect(mode.status).toBe('pending');
-      const changed = { ...f.state, version: 2, mode: 'mrl' as const, filters: { system: 'mrl' as const } };
-      await expect(acknowledgeCommand(f.repo, f.state.screenId, mode.commandId, { status: 'applied', version: 3, state: changed })).rejects.toThrow(/적용 버전/);
-      await acknowledgeCommand(f.repo, f.state.screenId, mode.commandId, { status: 'applied', version: 2, state: changed });
-      expect(await readAppContext(f.repo, f.state.screenId)).toMatchObject({ state: { mode: 'mrl', version: 2 } });
-      const focused: any = await runTool('focus_country', { country: '폴란드' }, newOut());
-      expect(focused.status).toBe('pending');
-      expect((await f.repo.one('SELECT expected_version FROM app_commands WHERE id=?', focused.commandId)).expected_version).toBe(2);
+      expect(await runTool('switch_conversation', { conversationId: other.id }, newOut())).toMatchObject({ status: 'applied', screenId: newer.id });
+      expect(newer.commands.at(-1)).toEqual({ type: 'switch_conversation', conversationId: other.id });
+      expect(await runTool('switch_conversation', { conversationId: randomUUID() }, newOut())).toHaveProperty('error');
+      updateScreen(older.id, { active: true });
+      expect(await runTool('set_mode', { system: '다연장로켓' }, newOut())).toMatchObject({ status: 'applied', screenId: older.id });
+      updateScreen(older.id, { hidden: true }); // 보이는 탭이 우선
       const out = newOut(), report: any = await runTool('write_report', { country: '폴란드', system: '다연장로켓' }, out);
-      expect(report).toMatchObject({ status: 'pending', shown: false });
+      expect(report).toMatchObject({ status: 'applied', shown: true, screenId: newer.id });
       expect(out.actions).toEqual([]);
-      const command = (await pendingCommands(f.repo, f.state.screenId)).find(c => c.id === report.commandId)!;
-      expect(command.data).toMatchObject({ type: 'show_report', country: 'POL', system: 'mrl', reportId: report.reportId });
+      expect(newer.commands.at(-1)).toMatchObject({ type: 'show_report', conversationId: f.ctx.conversationId, country: 'POL', system: 'mrl', reportId: report.reportId });
       expect(await f.repo.one('SELECT id FROM reports WHERE id=?', report.reportId)).toBeTruthy();
-      await saveAppContext(f.repo, { ...changed, version: 3, focus: 'FIN' });
-      expect(await runTool('focus_country', { country: '폴란드' }, newOut())).toMatchObject({ status: 'pending' });
-      expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 1 }, newOut())).toMatchObject({ status: 'pending' });
-      expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 3 }, newOut())).toMatchObject({ status: 'pending' });
+      expect(older.commands.map(c => c.type)).toEqual(['set_map_state']);
     }); } finally { await f.repo.close(); }
   });
-  it('적용 확인은 브라우저 응답을 기다리고 확인된 변경 경로에 없는 버전은 허용하지 않는다', async () => {
+  it('보고서 작성은 화면이 없으면 저장만 하고, 앱에서 보낸 실행이면 답과 함께 국가를 보여 준다', async () => {
     const f = await fixture();
-    try { await executions.run(f.ctx, async () => {
-      const command: any = await runTool('set_map_state', { payload: '{"country":"FIN"}' }, newOut());
-      const pending = runTool('get_app_command', { commandId: command.commandId }, newOut());
-      await acknowledgeCommand(f.repo, f.state.screenId, command.commandId, { status: 'applied', version: 2 });
-      expect(await pending).toMatchObject({ status: 'applied', result: { version: 2 } });
-      const edges = [{ expectedVersion: 2, version: 3 }, { expectedVersion: 1, version: 2 }];
-      expect(commandVersionMatches(1, 3, edges)).toBe(true);
-      expect(commandVersionMatches(1, 4, edges)).toBe(false);
-      expect(commandVersionMatches(1, 3, [{ expectedVersion: 2, version: 3 }])).toBe(false);
-    }); } finally { await f.repo.close(); }
+    try {
+      hostScreens();
+      const out = newOut();
+      const report: any = await executions.run(f.ctx, () => runTool('write_report', { country: '폴란드', system: '자주포' }, out));
+      expect(report).toMatchObject({ shown: false, saved: true });
+      expect(out.actions).toEqual([{ type: 'focus_country', country: 'POL' }]);
+      const external = newOut();
+      expect(await executions.run({ ...f.ctx, appContext: undefined }, () => runTool('write_report', { country: '폴란드', system: '자주포' }, external))).toMatchObject({ status: 'inactive', shown: false, saved: true });
+      expect(external.actions).toEqual([]);
+    } finally { await f.repo.close(); }
   });
   it('자기 실행 중지는 종료를 기다리지 않고 반환하며 대화 삭제는 근거를 보존한다', async () => {
     const f = await fixture();

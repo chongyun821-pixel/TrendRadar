@@ -20,14 +20,6 @@ async function tool(name, args = {}, context, allowError = false) {
   const data = await response.json(); assert.ok(allowError || !data.result?.error, JSON.stringify(data.result)); return data.result;
 }
 async function finished() { await page.waitForFunction(() => document.querySelector('#chatStatus').textContent === '완료'); }
-async function commandResult(id, status) {
-  for (let i = 0; i < 30; i++) {
-    const result = await tool('get_app_command', { commandId: id }, undefined, true);
-    if (result.status === status) return result;
-    await new Promise(resolve => setTimeout(resolve, 200));
-  }
-  throw new Error(`명령 ${id}: ${status} 확인 실패`);
-}
 try {
   const toolResponse = await page.request.post(`${base}/api/tools/get_report_template`, { data: { args: { format: 'pptx' } } });
   const toolSession = await toolResponse.json(); assert.equal(toolResponse.status(), 200); ids.push(toolSession.conversationId);
@@ -64,27 +56,19 @@ try {
   const packet = await tool('prepare_report'); assert.equal(packet.basis, 'viewed'); assert.equal(packet.country, 'POL');
   const command = await tool('set_map_state', { country: '캐나다', system: '호위함', flat: true });
   assert.equal(command.status, 'applied', JSON.stringify(command));
-  await page.waitForFunction(() => window.__app.state.focus === 'CAN' && window.__app.state.mode === 'frigate' && window.__app.state.flat);
-  await commandResult(command.commandId, 'applied');
+  // applied는 브라우저가 적용을 마친 뒤 돌려준다
+  assert.ok(await page.evaluate(() => window.__app.state.focus === 'CAN' && window.__app.state.mode === 'frigate' && window.__app.state.flat));
 
-  let release, seen;
-  const gate = new Promise(resolve => { release = resolve; }), ready = new Promise(resolve => { seen = resolve; });
-  await page.route('**/api/app-context/*/commands', async route => {
-    const response = await route.fetch(), data = await response.json();
-    if (data.length) { seen(); await gate; }
-    await route.fulfill({ response, json: data });
-  });
-  const stale = await tool('set_map_state', { country: 'POL' });
-  await ready;
-  await page.evaluate(() => window.__app.focusCountry('AUS')); release();
-  await commandResult(stale.commandId, 'conflict');
-  assert.equal((await state()).focus, 'AUS');
-  await page.unroute('**/api/app-context/*/commands');
+  // 사용자가 화면을 바꾼 뒤에도 챗봇 명령은 그대로 적용된다(버전·충돌 없음)
+  await page.evaluate(() => window.__app.focusCountry('AUS'));
+  const later = await tool('set_map_state', { country: 'POL' });
+  assert.equal(later.status, 'applied', JSON.stringify(later)); assert.equal((await state()).focus, 'POL');
 
-  await tool('set_chat_model', { model: 'nemotron' });
+  assert.equal((await tool('set_chat_model', { model: 'nemotron' })).status, 'applied');
   await page.waitForFunction(() => document.querySelector('#modelLabel').textContent === '네모트론');
   const created = await tool('create_conversation', { title: '격리 화면 제어 검증' }); ids.push(created.id);
   const switched = await tool('switch_conversation', { conversationId: created.id });
+  assert.equal(switched.status, 'applied', JSON.stringify(switched));
   await page.waitForFunction(id => localStorage.getItem('pr.conversation') === id, created.id);
   assert.equal((await state()).conversationId, created.id);
   assert.equal((await state()).report, null);
@@ -130,7 +114,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({ path: join(folder, 'desktop.png') });
   assert.deepEqual(errors, []);
-  const receipt = { emptyToolConversation: 'pass', continueToolConversation: 'pass', screenContext: 'pass', reportSelection: 'pass', requestSnapshot: 'pass', viewedReport: 'pass', mapCommand: 'pass', staleCommand: 'pass', modelSelection: 'pass', conversationSwitch: 'pass', saudiReportDesktop: 'pass', saudiReportMobile: 'pass', reportClickNoChat: 'pass', reportAttachment: 'pass', mobile: 'pass', errors, switchedCommand: switched.commandId };
+  const receipt = { emptyToolConversation: 'pass', continueToolConversation: 'pass', screenContext: 'pass', reportSelection: 'pass', requestSnapshot: 'pass', viewedReport: 'pass', mapCommand: 'pass', commandAfterUserChange: 'pass', modelSelection: 'pass', conversationSwitch: 'pass', saudiReportDesktop: 'pass', saudiReportMobile: 'pass', reportClickNoChat: 'pass', reportAttachment: 'pass', mobile: 'pass', errors, switched: switched.status };
   writeFileSync(join(folder, 'result.json'), JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify({ ...receipt, folder }));
 } finally {

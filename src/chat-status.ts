@@ -15,7 +15,7 @@ export function toolActivity(name: string): string {
   if (/calculate_forecast|get_forecast|list_forecasts|get_lifespan/.test(tool)) return '예상 시기와 규모 계산 중';
   if (/write_report|prepare_report|get_report_template/.test(tool)) return '보고서 준비 중';
   if (/publish_artifact/.test(tool)) return '보고서 보관 중';
-  if (/get_app_context|get_map_state|get_app_command|set_map_state|set_mode|toggle_map_mode|focus_country/.test(tool)) return '화면 상태 확인 중';
+  if (/get_app_context|get_map_state|set_map_state|set_mode|toggle_map_mode|focus_country/.test(tool)) return '화면 상태 확인 중';
   if (/conversation|chat_model|run_status|cancel_run/.test(tool)) return '대화와 작업 상태 확인 중';
   if (/workspace_read|workspace_list/.test(tool)) return '보관 자료 확인 중';
   if (/workspace_write|file_change/.test(tool)) return '작업 파일 정리 중';

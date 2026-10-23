@@ -53,24 +53,12 @@ export function initChat(o: ChatOpts) {
   let queuedMessages: QueuedMessage[] = [];
   let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], choice: ModelChoice = { provider: 'gpt' }, cliDefaults: CliDefaults = {};
   const screenId = crypto.randomUUID();
-  let contextVersion = 0, contextSignature = '', activeView: 'map' | 'report' = 'map', currentReport: ReportRef | null = null;
+  let activeView: 'map' | 'report' = 'map', currentReport: ReportRef | null = null;
 
   /* ───────── 화면 맥락 ───────── */
   function appSnapshot(): AppContext {
     const map = o.getState();
-    const state = { screenId, conversationId, model: choice.provider, ...(choice.model || choice.effort ? { modelOptions: { ...(choice.model ? { model: choice.model } : {}), ...(choice.effort ? { effort: choice.effort } : {}) } } : {}), activeView, ...map, filters: { system: map.mode }, report: currentReport, dataVersion: o.dataVersion() };
-    const signature = JSON.stringify(state);
-    if (signature !== contextSignature) { contextSignature = signature; contextVersion++; }
-    return { ...state, version: contextVersion };
-  }
-  let lastSyncedVersion = -1, lastSyncedAt = 0;
-  /** 화면 상태 전송. 탭 숨김·표시 전환 때는 바로 보내 서버가 백그라운드 탭을 알 수 있게 한다(hidden은 버전에 넣지 않는다) */
-  async function syncContext(force = false) {
-    const state = appSnapshot();
-    if (force || state.version !== lastSyncedVersion || Date.now() - lastSyncedAt > 10_000) {
-      await api('/app-context', post(document.hidden ? { ...state, hidden: true } : state)); lastSyncedVersion = state.version; lastSyncedAt = Date.now();
-    }
-    return state;
+    return { screenId, conversationId, model: choice.provider, ...(choice.model || choice.effort ? { modelOptions: { ...(choice.model ? { model: choice.model } : {}), ...(choice.effort ? { effort: choice.effort } : {}) } } : {}), activeView, ...map, filters: { system: map.mode }, report: currentReport, dataVersion: o.dataVersion() };
   }
   addEventListener('radar:map-state', () => { activeView = 'map'; });
 
@@ -242,7 +230,7 @@ export function initChat(o: ChatOpts) {
       if (!element) { messages.removeEmpty(); element = messages.addReport(entry); }
       activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop; markProgrammaticScroll();
       reportAttachments.add({ id: entry.id, label: reportLabel(entry) });
-      void syncContext().catch(() => {});
+      void screen.sync();
     } catch (error) { if (token === view) showError(error); }
   }
 
@@ -397,7 +385,6 @@ export function initChat(o: ChatOpts) {
   async function poll(runId: string, token: number) {
     let after = 0;
     let previousStatus = '';
-    let requestVersion: number | undefined;
     let stopping = false;
     const current = () => token === view && activeRun === runId;
     try {
@@ -412,7 +399,6 @@ export function initChat(o: ChatOpts) {
         previousStatus = run.status;
         for (const event of run.events) {
           after = event.id;
-          if (event.name === 'app.context') requestVersion = event.data.version;
           if (event.name === 'tool.start' || event.name === 'tool.call' || event.name === 'cli.tool') {
             const name = event.name === 'cli.tool' ? event.data.toolName || event.data.item?.tool || event.data.item?.type || event.data.type : event.data.name;
             activity(toolActivity(String(name || '')));
@@ -428,9 +414,9 @@ export function initChat(o: ChatOpts) {
           if (run.status === 'failed' || run.status === 'completed') open();
           const c = await loadConversation(conversationId!, true);
           if (!current()) return;
-          const mayChangeView = screen.mayChangeView(runId, requestVersion);
-          if (mayChangeView) exec(run.result?.actions);
-          renderConversation(c, mayChangeView);
+          // 답과 함께 온 화면 동작(화면 연결이 없을 때 남긴 것)은 사용자가 그사이 화면을 바꿨더라도 적용한다
+          exec(run.result?.actions);
+          renderConversation(c);
           progress.set(runStatusText(run));
           followConversation(c, token);
           await o.refreshData(); await refreshHistory(); return;
@@ -494,11 +480,6 @@ export function initChat(o: ChatOpts) {
         if (entry.cancelled) { dropEntry(); if (token === view) progress.set('작업 중지됨'); return; }
         const id = await ensureConversation(token, target);
         const requestContext = { ...appContext, conversationId: id };
-        if (!appContext.conversationId && token === view) {
-          const current = appSnapshot();
-          const comparable = (value: AppContext) => { const { version: _version, conversationId: _conversation, ...rest } = value; return JSON.stringify(rest); };
-          if (comparable(current) === comparable(appContext)) requestContext.version = current.version;
-        }
         const accepted = await api('/chat', post(chatBody(selectedChoice, id, text, state, requestContext, reports.map(r => r.id))));
         entry.runId = accepted.runId;
         // 접수 전에 중지를 눌렀으면 바로 취소한다(대기 중이면 실행하지 않는다).
@@ -542,12 +523,16 @@ export function initChat(o: ChatOpts) {
   }
 
   /* ───────── 화면 명령(MCP·모델이 요청한 지도·보고서·대화·모델 전환) ───────── */
-  async function applyCommand(command: ScreenCommand, matches: () => boolean) {
+  async function applyCommand(command: ScreenCommand) {
     const data = command.data;
     if (data.type === 'show_report') {
-      const c = await loadConversation(command.conversation_id, true);
-      // 보고서를 받는 동안 사용자가 화면을 바꿨으면 해당 화면을 덮어쓰지 않는다.
-      if (!matches()) return { status: 'conflict', detail: '보고서를 불러오는 동안 화면 상태가 변경되었습니다' };
+      // 보고서는 그 대화에 있다. 다른 대화를 보고 있으면 그 대화로 전환한 뒤 표시한다
+      if (data.conversationId && data.conversationId !== conversationId) {
+        await selectConversation(data.conversationId, false);
+        if (conversationId !== data.conversationId) throw new Error('보고서가 있는 대화를 열지 못했습니다');
+      }
+      const id = conversationId!, c = await loadConversation(id, true);
+      if (conversationId !== id) throw new Error('보고서를 불러오는 동안 대화가 바뀌었습니다');
       const entry = c.reportEntries?.find(r => r.id === data.reportId);
       if (!entry) throw new Error('표시할 보고서를 찾을 수 없습니다');
       messages.reportEntries = c.reportEntries!;
@@ -565,7 +550,7 @@ export function initChat(o: ChatOpts) {
     else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
     else throw new Error('지원하지 않는 화면 명령');
   }
-  const screen = createScreenCommands({ screenId, snapshot: appSnapshot, sync: syncContext, apply: applyCommand });
+  const screen = createScreenCommands({ screenId, snapshot: appSnapshot, apply: applyCommand });
   screen.start();
   return { send, viewReport, suggest, collapse, open, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }

@@ -17,7 +17,7 @@ export const TEXT_PROTOCOL = [
   '{"tools":[{"name":"set_map_state","args":{"country":"폴란드","system":"자주포"}},{"name":"get_forecast","args":{"country":"폴란드","system":"자주포"}}]}',
   '```',
   '조회 도구 결과는 다음 메시지로 전달된다. 결과를 받은 뒤에는 블록 없이 답하거나 화면 도구만 블록으로 보낸다.',
-  '도구: ' + TEXT_TOOLS.map(name => TOOL_DEFS.find(t => t.name === name)!).map(t => `${t.name}(${Object.keys(t.properties).filter(k => k !== 'screenId' && k !== 'expectedVersion').join(',')}) ${t.description}`).join('; '),
+  '도구: ' + TEXT_TOOLS.map(name => TOOL_DEFS.find(t => t.name === name)!).map(t => `${t.name}(${Object.keys(t.properties).join(',')}) ${t.description}`).join('; '),
 ].join('\n');
 
 const toolUnsupported = (e: unknown) => e instanceof ReqError && (e.status === 400 || e.status === 404) && /no endpoints.{0,80}support.{0,40}(?:tool|function)|(?:tool|function).{0,80}(?:not supported|unsupported)|(?:does not|doesn't|do not|don't) support.{0,40}(?:tool|function)/i.test(e.body);

@@ -1,12 +1,14 @@
-import { chromium, type Route } from 'playwright-core';
+import { chromium } from 'playwright-core';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { repository, now } from '../server/store';
 import { executions } from '../server/execution';
 import { runTool, newOut } from '../server/agent';
-import { saveAppContext } from '../server/app-context';
 import type { AppContext } from '../shared/app-context';
 
 // 실행 중인 격리 SQLite 서버와 같은 저장 경로를 지정한다. 모델과 운영 DB는 호출하지 않는다.
@@ -14,6 +16,8 @@ assert.equal(process.env.RADAR_DATABASE, 'sqlite');
 assert.equal(process.env.NODE_ENV, 'test');
 assert.ok(process.env.RADAR_DB_PATH);
 const base = process.env.BASE_URL || 'http://localhost:62401';
+// 이 프로세스의 화면 도구는 앱 서버의 화면 허브(/api/screen/command)로 명령을 보낸다(DB 미사용)
+process.env.RADAR_APP_URL = base;
 assert.equal((await (await fetch(`${base}/api/health`)).json()).storage, 'sqlite');
 const repo = repository(), conversation = await repo.createConversation('화면 연속 제어 검증'), runId = randomUUID();
 await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', runId, conversation.id, 'test-screen', 'running', now(), process.pid);
@@ -24,36 +28,25 @@ mkdirSync(folder, { recursive: true });
 page.on('pageerror', error => errors.push(String(error)));
 const state = (): Promise<AppContext> => page.evaluate(() => (window as any).__app.getAppContext());
 let requestContext: AppContext;
+const active = { runId, conversationId: conversation.id };
+async function startRun(conversationId: string) {
+  const id = randomUUID();
+  await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', id, conversationId, 'test-screen', 'running', now(), process.pid);
+  Object.assign(active, { runId: id, conversationId });
+}
 async function tool(name: string, args: Record<string, unknown> = {}): Promise<any> {
-  return executions.run({ repo, runId, conversationId: conversation.id, appContext: requestContext, signal: new AbortController().signal, env: {} }, () => runTool(name, args, newOut()));
+  return executions.run({ repo, runId: active.runId, conversationId: active.conversationId, appContext: requestContext, signal: new AbortController().signal, env: {} }, () => runTool(name, args, newOut()));
 }
-/** 화면 도구는 적용 결과를 바로 돌려준다. 명령을 붙잡아 둔 경우(pending·inactive)만 get_app_command로 이어서 확인한다 */
-async function confirmed(command: any, status = 'applied') {
-  if (command.status === status) return;
-  assert.ok(['pending', 'inactive'].includes(command.status), JSON.stringify(command));
-  for (let i = 0; i < 4; i++) {
-    const result = await tool('get_app_command', { commandId: command.commandId });
-    if (result.status !== 'pending') { assert.equal(result.status, status, JSON.stringify(result)); return; }
-  }
-  throw new Error(`명령 적용 확인 시간 초과: ${command.commandId}`);
-}
-async function holdCommands() {
-  let release!: () => void, seen!: () => void;
-  const gate = new Promise<void>(resolve => { release = resolve; }), ready = new Promise<void>(resolve => { seen = resolve; });
-  const handler = async (route: Route) => {
-    const response = await route.fetch(), data = await response.json();
-    if (data.length) { seen(); await gate; }
-    await route.fulfill({ response, json: data });
-  };
-  await page.route('**/api/app-context/*/commands', handler);
-  return { ready, release, close: () => page.unroute('**/api/app-context/*/commands', handler) };
-}
+const appCommands = async () => Number((await repo.one('SELECT count(*) AS n FROM app_commands')).n);
+const commandsBefore = await appCommands();
+const applied = (result: any) => assert.equal(result.status, 'applied', JSON.stringify(result));
 try {
   await page.addInitScript(id => localStorage.setItem('pr.conversation', id), conversation.id);
   await page.goto(base); await page.waitForSelector('body.ready');
   await page.waitForFunction(id => (window as any).__app.getAppContext().conversationId === id, conversation.id);
-  requestContext = await state(); await saveAppContext(repo, requestContext);
+  requestContext = await state();
   await repo.event(runId, 'app.context', requestContext);
+  await page.waitForFunction(async () => (await (await fetch('/api/screen/context')).json()).available);
 
   // 기다림 없이 바로 applied: 한국어 이름을 일반 필드로 받는다
   const initial = await tool('set_map_state', { system: '다연장로켓' }); assert.equal(initial.status, 'applied', JSON.stringify(initial));
@@ -69,42 +62,25 @@ try {
   await page.waitForFunction(() => !(window as any).__globe.camAnim);
   await page.screenshot({ path: join(folder, 'poland-mrl-report-desktop.png') });
 
-  // 같은 버전으로 접수된 두 명령은 한 번에 도착하거나 서로 다른 주기에 도착해도 이어서 적용한다.
-  let held = await holdCommands();
-  const mode = await tool('set_map_state', { system: '대공미사일' });
-  const focus = await tool('set_map_state', { country: '핀란드' });
-  held.release(); await confirmed(mode); await confirmed(focus); await held.close();
+  // 동시에 보낸 명령도 받은 순서대로 하나씩 적용한다.
+  const [mode, focus] = await Promise.all([tool('set_map_state', { system: '대공미사일' }), tool('set_map_state', { country: '핀란드' })]);
+  applied(mode); applied(focus);
   assert.equal((await state()).mode, 'sam'); assert.equal((await state()).focus, 'FIN');
 
-  // 적용 확인 전송이 실패해도 명령을 다시 실행하지 않고 결과만 재전송한다.
-  let failedAcknowledgements = 0;
-  await page.route('**/api/app-context/*/commands/*', async route => {
-    if (!failedAcknowledgements++) await route.abort(); else await route.continue();
-  });
-  await confirmed(await tool('set_map_state', { flat: true }));
+  // 적용 결과 전송이 실패해도 명령을 다시 실행하지 않고 결과만 재전송한다(상대 확대로 중복 적용 여부 확인).
+  let failedResults = 0;
+  await page.route('**/api/screen/results/*', async route => { if (!failedResults++) await route.abort(); else await route.continue(); });
+  applied(await tool('set_map_state', { flat: true }));
   assert.equal((await state()).flat, true);
-  assert.ok(failedAcknowledgements >= 2);
-  await page.unroute('**/api/app-context/*/commands/*');
-  await confirmed(await tool('set_map_state', { flat: '3D' }));
+  assert.ok(failedResults >= 2);
+  await page.unroute('**/api/screen/results/*');
+  applied(await tool('set_map_state', { flat: '3D' }));
   assert.equal((await state()).flat, false);
 
-  // 사용자가 그사이 화면을 바꿨어도 챗봇의 화면 명령은 적용된다(예전 expectedVersion도 막지 않는다).
-  held = await holdCommands();
-  const before = await state();
-  const first = await tool('set_map_state', { system: '장갑차' });
-  const pinned = await tool('set_map_state', { country: 'CAN', expectedVersion: before.version });
-  held.release(); await confirmed(first); await confirmed(pinned); await held.close();
-  assert.equal((await state()).focus, 'CAN');
-
-  held = await holdCommands();
-  const afterUser = await tool('set_map_state', { country: '폴란드' });
-  await held.ready; await page.evaluate(() => (window as any).__app.focusCountry('AUS')); held.release();
-  await confirmed(afterUser); await held.close();
-  assert.equal((await state()).focus, 'POL');
+  // 사용자가 그사이 화면을 바꿨어도 챗봇의 화면 명령은 적용된다(버전·충돌 개념 없음).
   await page.evaluate(() => (window as any).__app.focusCountry('AUS'));
-  await saveAppContext(repo, await state());
   const korea = await tool('set_map_state', { country: '한국' });
-  assert.equal(korea.status, 'applied', JSON.stringify(korea)); assert.equal((await state()).focus, 'KOR');
+  applied(korea); assert.equal((await state()).focus, 'KOR');
   await page.evaluate(() => (window as any).__app.focusCountry('AUS'));
 
   // 확대·축소, 2D/3D, 국가 숨김·특정 국가만·강조, 빗금·막대·범례 표시
@@ -139,36 +115,34 @@ try {
   assert.equal((await tool('set_map_state', { zoom: '20' })).status, 'failed');
   await page.evaluate(() => (window as any).__app.focusCountry('AUS'));
 
-  // 사용자가 새로 요청한 상황을 재현하고 모바일에서도 같은 도구로 보고서를 연다.
-  requestContext = await state(); await saveAppContext(repo, requestContext);
-  // 탭이 백그라운드면 inactive와 안내를 바로 받고, 탭이 다시 보이면 남은 명령이 적용된다
+  // 탭이 백그라운드여도 명령은 적용되고 hidden과 안내가 붙는다
+  requestContext = await state();
   const setHidden = (hidden: boolean) => page.evaluate(`Object.defineProperty(document, 'hidden', { configurable: true, value: ${hidden} }); document.dispatchEvent(new Event('visibilitychange'))`);
   await setHidden(true);
-  await page.waitForTimeout(300);
+  await page.waitForFunction(async () => (await (await fetch('/api/screen/context')).json()).hidden === true);
   const background = await tool('set_map_state', { country: '일본' });
-  assert.equal(background.status, 'inactive', JSON.stringify(background)); assert.match(background.message, /백그라운드/);
-  assert.equal((await state()).focus, 'AUS');
-  await setHidden(false);
-  await confirmed(background);
+  applied(background); assert.equal(background.hidden, true); assert.match(background.message, /백그라운드/);
   assert.equal((await state()).focus, 'JPN');
+  await setHidden(false);
   await page.setViewportSize({ width: 390, height: 844 });
   const mobile = await tool('write_report', { country: '폴란드', system: '다연장로켓' });
-  assert.equal(mobile.status, 'applied');
+  applied(mobile); assert.equal(mobile.shown, true);
   current = await state(); assert.equal(current.report?.id, mobile.reportId);
   assert.equal(current.focus, 'POL'); assert.equal(current.mode, 'mrl'); assert.equal(current.activeView, 'report');
   assert.equal(await page.locator('#modes button.on').getAttribute('data-sys'), 'mrl');
   await page.waitForFunction(() => !(window as any).__globe.camAnim && document.querySelector('#modes')!.getAnimations({ subtree: true }).every(a => a.playState === 'finished'));
   await page.screenshot({ path: join(folder, 'poland-mrl-report-mobile.png') });
 
-  // 보고서 HTTP 응답이 늦는 동안의 사용자 변경도 적용 직전에 다시 확인한다.
+  // 보고서 HTTP 응답이 늦는 동안 사용자가 화면을 바꿔도 보고서 표시는 그대로 적용된다.
   let releaseReport!: () => void, reportSeen!: () => void;
   const reportGate = new Promise<void>(resolve => { releaseReport = resolve; }), reportReady = new Promise<void>(resolve => { reportSeen = resolve; });
   await page.route(`**/api/conversations/${conversation.id}`, async route => {
     const response = await route.fetch(); reportSeen(); await reportGate; await route.fulfill({ response });
   });
-  const delayed = await tool('write_report', { country: '핀란드', system: '자주포' });
+  const delayedCall = tool('write_report', { country: '핀란드', system: '자주포' });
   await reportReady; await page.evaluate(() => (window as any).__app.focusCountry('CAN')); releaseReport();
-  await confirmed(delayed); assert.equal((await state()).focus, 'FIN');
+  const delayed = await delayedCall;
+  applied(delayed); assert.equal((await state()).focus, 'FIN');
   await page.unroute(`**/api/conversations/${conversation.id}`);
   const savedReport = await repo.one('SELECT * FROM reports WHERE id=?', delayed.reportId);
   const result = { reply: '보고서를 저장했습니다.', actions: [], reports: [savedReport.markdown], tools: ['write_report'], reportRefs: [{ id: savedReport.id, country: 'FIN', system: 'sph', kind: 'country-analysis', basisDate: savedReport.basis_date, dataVersion: savedReport.data_version }] };
@@ -176,12 +150,65 @@ try {
   await repo.run("UPDATE runs SET status='completed',ended_at=?,result=? WHERE id=?", now(), JSON.stringify(result), runId);
   await page.waitForFunction(() => document.querySelector('#chatStatus')!.textContent === '완료');
   assert.equal((await state()).focus, 'FIN'); assert.equal((await state()).activeView, 'report');
-  assert.deepEqual(errors, []);
-  const receipt = { sequentialCommands: 'pass', pendingBatch: 'pass', acknowledgementRetry: 'pass', repeatedToggle: 'pass', hiddenTab: 'pass', directResult: 'pass', alwaysApply: 'pass', mapControls: 'pass', reportDuringRun: 'pass', mobileReport: 'pass', delayedReport: 'pass', completionKeepsView: 'pass', errors };
+
+  // 이후 도구 호출은 화면에 열린 대화와 무관한 별도 실행에서 보낸다(화면 명령은 대화와 무관하게 최근 탭으로 간다)
+  const other = await repo.createConversation('화면 연속 제어 검증(다중 탭)');
+  await startRun(other.id);
+
+  // 탭이 여러 개면 가장 최근에 사용한 탭 하나로 보낸다.
+  const second = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  second.on('pageerror', error => errors.push(String(error)));
+  await second.goto(base); await second.waitForSelector('body.ready');
+  await second.waitForFunction(async () => (await (await fetch('/api/screen/context')).json()).screens === 2);
+  await second.mouse.click(5, 300); // 활동 알림
+  await second.waitForFunction(async () => { const c = await (await fetch('/api/screen/context')).json(); return c.screenId === (window as any).__app.getAppContext().screenId; });
+  applied(await tool('set_map_state', { country: '독일' }));
+  assert.equal(await second.evaluate(() => (window as any).__app.getAppContext().focus), 'DEU'); assert.equal((await state()).focus, 'FIN');
+  await page.bringToFront(); await page.mouse.click(5, 300);
+  await page.waitForFunction(async () => { const c = await (await fetch('/api/screen/context')).json(); return c.screenId === (window as any).__app.getAppContext().screenId; });
+  applied(await tool('set_map_state', { country: '체코' }));
+  assert.equal((await state()).focus, 'CZE');
+  await second.close();
+
+  // 외부 코덱스와 같은 경로: 실행 중인 HTTP MCP(헤더 없음)의 set_map_state가 이 지도를 움직인다.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const mcpPort = Number(process.env.SCREEN_MCP_PORT || 62402);
+  const mcp = spawn(process.execPath, ['node_modules/tsx/dist/cli.mjs', 'mcp/server.ts', '--http', '--port', String(mcpPort)], { env: { ...process.env, RADAR_APP_URL: base }, stdio: ['ignore', 'ignore', 'pipe'] });
+  let mcpResult: any, noBrowser: any, noBrowserMs = 0;
+  try {
+    await new Promise<void>((resolve, reject) => { mcp.stderr!.on('data', d => { if (String(d).includes('Streamable HTTP')) resolve(); }); mcp.on('exit', code => reject(new Error(`HTTP MCP 종료 ${code}`))); });
+    const external = async (args: Record<string, unknown>) => {
+      const client = new Client({ name: 'screen-check', version: '1' });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${mcpPort}/mcp`)));
+      try { return JSON.parse((await client.callTool({ name: 'set_map_state', arguments: args }) as any).content[0].text); } finally { await client.close(); }
+    };
+    mcpResult = await external({ country: '루마니아', system: '자주포', flat: true });
+    applied(mcpResult);
+    assert.equal((await state()).focus, 'ROU'); assert.equal((await state()).mode, 'sph'); assert.equal((await state()).flat, true);
+    await settle();
+    await page.waitForFunction(() => (window as any).__globe.colorAnim >= 1 && (window as any).__globe.spikeT >= 1);
+    await page.screenshot({ path: join(folder, 'mcp-http-romania-2d.png') });
+    assert.deepEqual(errors, []);
+    // 브라우저를 닫으면 바로 inactive
+    await page.close();
+    for (let i = 0; i < 50 && (await (await fetch(`${base}/api/screen/context`)).json()).available; i++) await new Promise(r => setTimeout(r, 100));
+    const started = Date.now();
+    noBrowser = await external({ country: '폴란드' });
+    noBrowserMs = Date.now() - started;
+    assert.equal(noBrowser.status, 'inactive', JSON.stringify(noBrowser)); assert.match(noBrowser.message, /화면이 열려 있지 않음/);
+    assert.ok(noBrowserMs < 1500, `inactive ${noBrowserMs}ms`);
+    const inProcess = await tool('set_map_state', { country: '폴란드' });
+    assert.equal(inProcess.status, 'inactive', JSON.stringify(inProcess));
+  } finally { mcp.kill(); }
+  // 화면 명령은 DB(app_commands)에 남지 않는다
+  assert.equal(await appCommands(), commandsBefore);
+
+  const receipt = { sequentialCommands: 'pass', concurrentCommands: 'pass', resultRetry: 'pass', hiddenTab: 'pass', alwaysApply: 'pass', mapControls: 'pass', reportDuringRun: 'pass', mobileReport: 'pass', delayedReport: 'pass', completionKeepsView: 'pass', latestTab: 'pass', mcpHttp: mcpResult.status, noBrowser: { status: noBrowser.status, ms: noBrowserMs }, appCommandsUnchanged: true, errors };
   writeFileSync(join(folder, 'result.json'), JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify({ ...receipt, folder }));
 } finally {
   await browser.close();
-  await repo.run("UPDATE runs SET status='cancelled',ended_at=? WHERE id=?", now(), runId);
-  await repo.deleteConversation(conversation.id); await repo.close();
+  for (const id of new Set([runId, active.runId])) await repo.run("UPDATE runs SET status='cancelled',ended_at=? WHERE id=? AND status='running'", now(), id);
+  for (const id of new Set([conversation.id, active.conversationId])) await repo.deleteConversation(id);
+  await repo.close();
 }

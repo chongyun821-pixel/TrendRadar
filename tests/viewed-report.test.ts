@@ -42,7 +42,7 @@ describe('지도에서 연 보고서', { timeout: 15000 }, () => {
       return new Response(JSON.stringify({ output: [{ type: 'message', content: [{ type: 'output_text', text: '답' }] }] }), { status: 200 });
     }));
     const report = { id: entry.id, country: 'POL', system: 'mrl', kind: 'country-analysis', basisDate: entry.basisDate, dataVersion: entry.dataVersion };
-    const appContext = { screenId: randomUUID(), version: 3, conversationId: c.id, model: 'gpt', activeView: 'report', mode: 'mrl', flat: true, focus: 'POL', filters: { system: 'mrl' }, report, dataVersion: entry.dataVersion };
+    const appContext = { screenId: randomUUID(), conversationId: c.id, model: 'gpt', activeView: 'report', mode: 'mrl', flat: true, focus: 'POL', filters: { system: 'mrl' }, report, dataVersion: entry.dataVersion };
     const text = '이 보고서 요약해 줘\n\n첨부: 폴란드 다연장로켓 보고서';
     const r = await app.request('/api/chat', json({ conversationId: c.id, model: 'gpt', messages: [{ role: 'user', text }], state: { mode: 'mrl', flat: true, focus: 'POL' }, appContext, reportIds: [entry.id] }), { OPENAI_API_KEY: 'test-key' });
     expect(r.status).toBe(202);

@@ -6,8 +6,8 @@ import { cliChoice } from '../server/cli';
 
 describe('채팅 요청 본문', () => {
   it('선택한 제공자와 CLI 모델·추론 강도를 요청마다 그대로 보낸다', () => {
-    expect(chatBody({ provider: 'grok', model: 'grok-4.6', effort: 'low' }, 'c1', '안녕', { mode: null }, { version: 1 })).toEqual({
-      conversationId: 'c1', model: 'grok', options: { model: 'grok-4.6', effort: 'low' }, messages: [{ role: 'user', text: '안녕' }], state: { mode: null }, appContext: { version: 1 },
+    expect(chatBody({ provider: 'grok', model: 'grok-4.6', effort: 'low' }, 'c1', '안녕', { mode: null }, { focus: 'POL' })).toEqual({
+      conversationId: 'c1', model: 'grok', options: { model: 'grok-4.6', effort: 'low' }, messages: [{ role: 'user', text: '안녕' }], state: { mode: null }, appContext: { focus: 'POL' },
     });
     expect(chatBody({ provider: 'gpt' }, 'c1', 'x', {}, {})).not.toHaveProperty('options');
   });

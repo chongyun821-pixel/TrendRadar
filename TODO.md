@@ -76,6 +76,12 @@
 - [x] 다른 PC에서 만든 빈 대화를 DB에서 불러올 때 CLI 작업 폴더가 없어 `spawn node.exe ENOENT`로 실패하던 문제를 수정했다. `prepareWorkspace`는 원격 복원 파일의 유무와 관계없이 기본 작업 폴더부터 준비한다.
 - [x] 폴더가 없는 대화에서 실제 Node 자식 실행, 격리 앱의 실제 Codex 응답과 MCP 도구 호출 및 응답 저장을 확인했다. 실제 Supabase의 새 로컬 캐시에서도 빈 대화의 CLI 실행이 가능함을 확인했다.
 
+## 화면 제어 DB 제거·HTTP MCP 연결 (2026-10-23)
+
+- [x] 화면 명령을 DB(`app_contexts`·`app_commands`) 대신 앱 서버 메모리와 SSE로 처리한다. MCP·도구가 `POST /api/screen/command`로 보내면 가장 최근에 사용한 탭에 밀어 넣고 `applied`·`failed`를 바로 돌려준다. 탭이 없으면 `inactive`(화면이 열려 있지 않음)를 즉시, 6초 안에 결과가 없으면 `timeout`을 돌려준다. 버전·충돌·`get_app_command`를 없앴다. `/api/screen/*`는 로컬 접속·Host·Origin만 받는다.
+- [x] 앱이 띄우는 코덱스·그록 빌드가 실행 중인 HTTP MCP(62357)에 붙고 대화·실행 ID를 실행별 헤더로 보낸다. 같은 저장소·앱 서버가 아니면 stdio로 띄운다. MCP는 `procurement` 하나만 보이게 하고 `procurement_radar`는 끈다.
+- [ ] `app_contexts`·`app_commands` 테이블은 코드에서 쓰지 않지만 기존 운영 DB 호환을 위해 스키마에 남겨 두었다. 삭제는 별도 비파괴 이전 절차로 결정한다.
+
 ## 화면 제어 수정 (2026-10-22)
 
 - [x] 같은 실행의 무기체계 변경과 국가 선택이 앞선 적용 버전을 이어받도록 수정했다. 연속 접수도 순서대로 처리하며 명시한 버전과 사용자 변경의 충돌 보호를 유지한다.
@@ -224,7 +230,7 @@ flowchart LR
 | 근거와 변경 이력 | `artifacts`, `research`, `changes` | 파일 경로와 해시값, 조사 제출 내용, 변경 전후 값과 근거 |
 | 분석과 보고서 | `forecasts`, `reports` | 기준 데이터 버전과 계산 결과, 보고서 기준일과 보존 내용 |
 | 파일 목록 | `workspace_files` | 이동 가능한 경로와 원격 객체 키, 원본 해시값과 크기 |
-| 화면 맥락과 제어 | `app_contexts`, `app_commands` | 화면별 상태와 버전, 명령 대상과 예상 버전 및 적용 결과 |
+| 화면 맥락과 제어(미사용) | `app_contexts`, `app_commands` | 예전 화면 상태·명령 기록. 2026-10-23부터 코드는 쓰지 않고 앱 서버 메모리로 처리하며 테이블만 호환용으로 남김 |
 
 앱 식별 정보와 초기화 기록, 구조 비교 및 버전별 갱신 절차는 추가 구현 대상이다. 현재의 `CREATE TABLE IF NOT EXISTS`만으로 기존 테이블이 표준과 일치한다고 판단하지 않는다.
 

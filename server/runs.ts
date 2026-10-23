@@ -7,7 +7,7 @@ import { parseModelChoice } from './model-choice';
 import type { ChatIn, ChatOut } from './agent';
 import type { Env } from './env';
 import { runCommand } from '../src/commands';
-import { saveAppContext, reportTarget } from './app-context';
+import { validateAppContext, reportTarget } from './app-context';
 import { attachedReports, reportAttachmentText } from './viewed-reports';
 
 const globals = globalThis as typeof globalThis & {
@@ -89,7 +89,7 @@ export async function startRun(input: ChatIn, env: Env) {
   if (!last || last.role !== 'user' || typeof last.text !== 'string' || !last.text.trim()) throw new Error('사용자 메시지 필요');
   const choice = parseModelChoice(input.model, input.options);
   const runId = randomUUID();
-  const appContext = input.appContext ? await saveAppContext(repo, { ...input.appContext, conversationId }) : undefined;
+  const appContext = input.appContext ? await validateAppContext(repo, { ...input.appContext, conversationId }) : undefined;
   const reportIds = (await attachedReports(repo, conversationId, input.reportIds)).map(r => r.id);
   const request: ChatIn = { conversationId, model: choice?.provider, ...(choice?.model || choice?.effort ? { options: { model: choice.model, effort: choice.effort } } : {}), messages: [{ role: 'user', text: last.text }], state: input.state, appContext, ...(reportIds.length ? { reportIds } : {}) };
   await queueTransaction(async () => {

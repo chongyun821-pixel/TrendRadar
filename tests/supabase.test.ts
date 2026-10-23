@@ -9,7 +9,7 @@ import { databaseClient, postgresQuery } from '../server/supabase';
 import { importSnapshot, localSnapshot, verifySnapshot, exportSnapshot } from '../server/migration';
 import { executions } from '../server/execution';
 import { researchTool, submitResearch } from '../server/research';
-import { saveAppContext, readAppContext, pendingCommands, screenSettings } from '../server/app-context';
+import { validateAppContext } from '../server/app-context';
 import { runTool, newOut } from '../server/agent';
 import type { AppContext } from '../shared/app-context';
 
@@ -85,13 +85,15 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
     const c = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)',runId,c.id,'test','running',now());
     const ctx = { repo, conversationId: c.id, runId, signal: controller.signal, env: {} };
-    const screen: AppContext = { screenId: randomUUID(), version: 1, conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
-    await saveAppContext(repo, screen);
+    const screen: AppContext = { screenId: randomUUID(), conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };
+    await validateAppContext(repo, screen);
+    const commands = (await repo.one('SELECT count(*) AS n FROM app_commands')).n;
     await executions.run({ ...ctx, appContext: screen }, async () => {
-      expect(await runTool('get_app_context', {}, newOut())).toMatchObject({ request: { focus: 'POL' }, current: { state: { focus: 'POL' } } });
-      screenSettings.waitMs = 0;
-      expect(await runTool('set_map_state', { country: 'FIN' }, newOut())).toMatchObject({ status: 'pending' });
+      // 화면 상태·명령은 앱 서버 메모리(화면 허브)에만 있다. 이 시험에는 앱 서버가 없으므로 바로 inactive
+      expect(await runTool('get_app_context', {}, newOut())).toMatchObject({ request: { focus: 'POL' }, current: { available: false } });
+      expect(await runTool('set_map_state', { country: 'FIN' }, newOut())).toMatchObject({ status: 'inactive' });
     });
+    expect((await repo.one('SELECT count(*) AS n FROM app_commands')).n).toBe(commands);
     let path = '';
     await executions.run(ctx,async () => {
       const quote = '격리 검증용 가상 계획: 2031~2033년 10~12문';
@@ -123,15 +125,12 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
         await cold.prepareWorkspace(c.id);
         expect(readFileSync(cold.path(c.id,source.filePath,true),'utf8')).toBe(quote);
         expect((await cold.conversation(c.id)).messages[0].text).toBe(path);
-        expect(await readAppContext(cold, screen.screenId)).toMatchObject({ state: { focus: 'POL' } });
-        expect(await pendingCommands(cold, screen.screenId)).toHaveLength(1);
       }
       finally { await cold.close(); }
       await repo.run("UPDATE runs SET status='stopping' WHERE id=?",runId);
       await expect(submitResearch({...payload,expectedVersion:2})).rejects.toThrow(/중지/);
     });
     await repo.run("UPDATE runs SET status='cancelled' WHERE id=?",runId);
-    expect(await pendingCommands(repo, screen.screenId)).toHaveLength(0);
     await repo.deleteConversation(c.id);
     expect(await repo.all('SELECT * FROM changes')).toHaveLength(1);
     expect(readFileSync(path,'utf8')).toContain('격리 검증');

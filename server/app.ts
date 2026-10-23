@@ -10,7 +10,10 @@ import { repository, hash } from './store';
 import { startRun, stopRun, stopConversation } from './runs';
 import { attach } from './attachments';
 import { bodyLimit } from 'hono/body-limit';
-import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand } from './app-context';
+import { appContextSchema } from './app-context';
+import { hostScreens, connectScreen, updateScreen, completeCommand, dispatchScreenCommand, screenSnapshot, screenSettings, SCREEN_COMMANDS, type ScreenCommandData } from './screen-hub';
+import { localOnly, remoteOf } from './local-only';
+import { streamSSE } from 'hono/streaming';
 import { reportEntry, saveViewedReport } from './viewed-reports';
 import { TOOL_DEFS } from './agent';
 import { executeTool } from './tool-session';
@@ -23,12 +26,60 @@ export function sameOrigin(origin: string | undefined, host: string | undefined)
   try { return !!host && new URL(origin).host === host; } catch { return false; }
 }
 export const app = new Hono<{ Bindings: Env }>().basePath('/api');
+// 이 컴퓨터의 localhost 요청만 받는다(루프백 주소·localhost Host·같은 출처). 접속 주소는 원래 요청 객체에 붙어 있어 본문 제한 미들웨어(요청 객체를 바꿀 수 있음)보다 먼저 확인한다
+app.use('/screen/*', async (c, next) => {
+  const denied = localOnly({ remote: remoteOf(c.req.raw), host: c.req.header('host') || new URL(c.req.url).host, origin: c.req.header('origin') });
+  if (denied) return c.json({ error: denied }, 403);
+  await next();
+  c.header('cache-control', 'no-store');
+});
 app.use('*', bodyLimit({ maxSize: 40 * 1024 * 1024, onError: c => c.json({ error: '첨부는 요청당 40MB까지 가능합니다' }, 413) }));
 // 다른 사이트에서 보낸 쓰기 요청(CSRF)을 막는다. Origin이 없는 도구·CLI 호출과 같은 출처의 앱 요청만 받는다
 app.use('*', async (c, next) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !sameOrigin(c.req.header('origin'), c.req.header('host') || new URL(c.req.url).host)) return c.json({ error: '다른 출처의 요청은 받지 않습니다' }, 403);
   await next();
 });
+
+/* ───────── 화면 허브(로컬 전용, DB 미사용): 열린 지도 탭 ↔ MCP·모델 도구의 실시간 화면 명령 ───────── */
+hostScreens();
+const screenId = z.string().uuid();
+/** 브라우저 탭 연결(SSE). 명령은 event: command { id, data }로 바로 보낸다 */
+app.get('/screen/events', c => {
+  const id = screenId.safeParse(c.req.query('screen'));
+  if (!id.success) return c.json({ error: '화면 ID가 필요합니다' }, 400);
+  return streamSSE(c, async stream => {
+    const closed = new Promise<void>(resolve => stream.onAbort(resolve));
+    const disconnect = connectScreen(id.data, (event, data) => { void stream.writeSSE({ event, data: JSON.stringify(data) }).catch(() => {}); });
+    const ping = setInterval(() => { void stream.write(': ping\n\n').catch(() => {}); }, 15_000);
+    try { await stream.writeSSE({ event: 'ready', data: JSON.stringify({ screenId: id.data }) }); await closed; }
+    finally { clearInterval(ping); disconnect(); }
+  });
+});
+const screenStateSchema = z.object({ screenId, state: appContextSchema.optional(), hidden: z.boolean().optional(), active: z.boolean().optional() }).strict();
+/** 화면 상태·탭 숨김·사용 활동(가장 최근에 사용한 탭이 명령 대상) */
+app.post('/screen/state', async c => {
+  const p = screenStateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!p.success || (p.data.state && p.data.state.screenId !== p.data.screenId)) return c.json({ error: '화면 상태 형식이 올바르지 않습니다' }, 400);
+  return c.json({ ok: true, connected: updateScreen(p.data.screenId, p.data) });
+});
+const screenResultSchema = z.object({ screenId, status: z.enum(['applied', 'failed']), detail: z.string().max(2000).optional(), state: appContextSchema.optional() }).strict();
+/** 브라우저가 명령 적용 결과를 돌려준다. 이미 시간 초과된 명령이면 accepted=false */
+app.post('/screen/results/:id', async c => {
+  const p = screenResultSchema.safeParse(await c.req.json().catch(() => null));
+  if (!p.success) return c.json({ error: '적용 결과 형식이 올바르지 않습니다' }, 400);
+  return c.json({ ok: true, accepted: completeCommand(p.data.screenId, c.req.param('id'), p.data) });
+});
+const screenCommandSchema = z.object({ data: z.object({ type: z.enum(SCREEN_COMMANDS) }).passthrough(), timeoutMs: z.number().int().optional() }).strict();
+/** MCP 서버 등 다른 로컬 프로세스의 화면 명령. 적용 결과(applied·failed·inactive·timeout)를 동기로 돌려준다 */
+app.post('/screen/command', async c => {
+  const p = screenCommandSchema.safeParse(await c.req.json().catch(() => null));
+  if (!p.success) return c.json({ ok: false, status: 'failed', error: '화면 명령 형식이 올바르지 않습니다' }, 400);
+  const timeout = Math.min(30_000, Math.max(500, p.data.timeoutMs ?? screenSettings.timeoutMs));
+  return c.json(await dispatchScreenCommand(p.data.data as ScreenCommandData, timeout, c.req.raw.signal));
+});
+/** 지금 화면 상태(가장 최근에 사용한 탭) */
+app.get('/screen/context', c => c.json(screenSnapshot()));
+
 app.use('*', async (_c, next) => { await repository().data(); await next(); });
 app.onError((e, c) => c.json({ error: e.message }, /찾을 수|파일 없음/.test(e.message) ? 404 : /진행 중|충돌/.test(e.message) ? 409 : 400));
 
@@ -73,10 +124,6 @@ app.post('/conversations/:id/reports', async c => {
   try { return c.json(await saveViewedReport(repository(), c.req.param('id'), body ?? {}), 201); }
   catch (error) { return c.json({ error: error instanceof Error ? error.message : String(error) }, 400); }
 });
-app.post('/app-context', async c => c.json(await saveAppContext(repository(), await c.req.json())));
-app.get('/app-context/:screen', async c => c.json(await readAppContext(repository(), c.req.param('screen')), 200, { 'cache-control': 'no-store' }));
-app.get('/app-context/:screen/commands', async c => c.json(await pendingCommands(repository(), c.req.param('screen')), 200, { 'cache-control': 'no-store' }));
-app.post('/app-context/:screen/commands/:id', async c => c.json(await acknowledgeCommand(repository(), c.req.param('screen'), c.req.param('id'), await c.req.json())));
 const renameSchema = z.object({ title: z.string().trim().min(1, '제목을 입력하세요').max(120, '제목은 120자까지') }).strict();
 app.patch('/conversations/:id', async c => {
   const parsed = renameSchema.safeParse(await c.req.json().catch(() => null));

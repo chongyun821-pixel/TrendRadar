@@ -8,7 +8,7 @@ import { chatOpenRouter, NEMOTRON_SUPER, FREE_MODELS_ROUTER } from '../server/op
 import { repository, now } from '../server/store';
 import { executions } from '../server/execution';
 import { parseActionBlock, TOOL_DEFS, openaiTools, responsesTools } from '../server/agent';
-import { grokArgs, codexArgs, buildPrompt, isNodeRuntime, GROK_ENV } from '../server/cli';
+import { grokArgs, codexArgs, buildPrompt, isNodeRuntime, GROK_ENV, grokConfig } from '../server/cli';
 import { parseGrokStream, parseCodexJsonl, isAuthError } from '../server/cli-output';
 import { removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName } from '../server/grok-sessions';
 import { app } from '../server/app';
@@ -225,7 +225,7 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(GROK_ENV.GROK_CLAUDE_MCPS_ENABLED).toBe('false'); expect(GROK_ENV.GROK_CURSOR_RULES_ENABLED).toBe('false');
   });
   it('코덱스 인자: ephemeral·read-only·기본 gpt-6-luna·high·호출별 MCP 설정', () => {
-    const a = codexArgs({ cwd: 'C:\\w\\.runtime\\codex', node: 'C:\\Program Files\\nodejs\\node.exe', tsx: 'C:\\w\\tsx.mjs', mcp: 'C:\\w\\mcp\\server.ts' });
+    const a = codexArgs({ cwd: 'C:\\w\\.runtime\\codex', mcp: { command: 'C:\\Program Files\\nodejs\\node.exe', args: ['C:\\w\\tsx.mjs', 'C:\\w\\mcp\\server.ts'], env: { RADAR_RUN_ID: 'r' } } });
     expect(a.slice(0, 5)).toEqual(['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write']);
     expect(a).toContain('web_search="live"'); expect(a).toContain('mcp_servers.procurement.default_tools_approval_mode="approve"'); expect(a).not.toContain('--ignore-user-config');
     const off = a.flatMap((x, i) => x === '--disable' ? [a[i + 1]] : []);
@@ -236,7 +236,20 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(a).toContain('model_reasoning_effort="high"');
     expect(a).toContain('mcp_servers.procurement.command="C:\\\\Program Files\\\\nodejs\\\\node.exe"');
     expect(a.find(x => x.startsWith('mcp_servers.procurement.args='))).toBe('mcp_servers.procurement.args=["C:\\\\w\\\\tsx.mjs","C:\\\\w\\\\mcp\\\\server.ts"]');
+    expect(a).toContain('mcp_servers.procurement.env={ "RADAR_RUN_ID" = "r" }');
+    expect(a).toContain('mcp_servers.procurement_radar.enabled=false');
     expect(a.at(-1)).toBe('-');
+  });
+  it('실행 중인 HTTP MCP: 코덱스는 url·http_headers, 그록 빌드는 url·headers로 대화·실행 ID를 넘기고 procurement_radar는 끈다', () => {
+    const http = { url: 'http://127.0.0.1:62357/mcp', headers: { 'X-Radar-Conversation-Id': 'c1', 'X-Radar-Run-Id': 'r1' } };
+    const a = codexArgs({ cwd: '/w', mcp: http });
+    expect(a).toContain('mcp_servers.procurement.url="http://127.0.0.1:62357/mcp"');
+    expect(a).toContain('mcp_servers.procurement.http_headers={ "X-Radar-Conversation-Id" = "c1", "X-Radar-Run-Id" = "r1" }');
+    expect(a.some(x => x.startsWith('mcp_servers.procurement.command='))).toBe(false);
+    const g = grokConfig(http);
+    expect(g).toContain('[mcp_servers.procurement]\nurl = "http://127.0.0.1:62357/mcp"\nheaders = { "X-Radar-Conversation-Id" = "c1", "X-Radar-Run-Id" = "r1" }\nenabled = true');
+    expect(g).toMatch(/\[mcp_servers\.procurement_radar\]\nurl = ".*"\nenabled = false/);
+    expect(grokConfig({ command: 'node', args: ['t', 'm'], env: { A: 'b' } })).toContain('command = "node"\nargs = ["t","m"]\nenv = { "A" = "b" }');
   });
   it('프롬프트: MCP 화면 도구 우선(액션 블록 안내 없음)·이전 대화', () => {
     const p = buildPrompt({ messages: [{ role: 'user', text: '안녕' }, { role: 'model', text: '네' }, { role: 'user', text: '폴란드 자주포' }], state: { mode: 'sph' } });
