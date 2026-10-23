@@ -6,6 +6,7 @@ import type { ToolDef } from './agent';
 import { countryCoverage } from '../shared/completeness';
 import { resolveSystem } from '../shared/data';
 import { saveEquipment } from './equipment';
+import { saveProgram } from './programs';
 
 const country = { type: 'string' as const, description: '국가의 한국어·영문 이름 또는 국가 코드. 예: 독일, Germany, DEU' };
 export const COUNTRY_DEFS: ToolDef[] = [
@@ -19,10 +20,23 @@ export const COUNTRY_DEFS: ToolDef[] = [
     primary: { type: 'boolean', description: '주력 장비임을 확인한 경우 true' }, status: { type: 'string', description: 'in_service(기본), retired, planned' },
     introYearEstimated: { type: 'boolean', description: '초도 도입 연도를 전체 배치의 참고 연도로 적용하는 추정이면 true' }, note: { type: 'string', description: '자료의 범위·배치 구분·불확실성' }, title: { type: 'string', description: '원문 제목' },
   }, required: ['country','system','model','filePath','quote'] },
+  { name: 'save_program', description: '진행 중·선정 전 조달 사업 하나(공급자·단계·수량·금액·계약·인도 연도)를 원문 근거와 함께 저장·갱신한다. 같은 id는 갱신한다. 공급자 선정(selected) 이후 사업은 기존 전력 교체 수요를 채운 것으로 계산해 사업 기회에서 빼고, 다음 교체를 인도 연도 + 설계 수명(추정)으로 예측한다. 서버가 출처 메타데이터·정제·검증·변경 이력·예측을 처리한다. 원문에 없는 연도·수량은 생략한다', properties: {
+    country, system: { type: 'string', description: '무기체계' }, id: { type: 'string', description: '사업 ID. 예: CAN-CPSP. 기존 사업 갱신은 같은 ID' },
+    stage: { type: 'string', description: 'consideration(검토)·plan(계획)·tender(입찰·선정 중)·selected(공급자 선정, 계약 전)·contract(계약 체결)·delivery(인도 중)·completed(완료)·cancelled(취소)' },
+    supplier: { type: 'string', description: '선정·계약 공급자. 선정 전이면 생략' }, model: { type: 'string', description: '선정·계약 장비명' }, text: { type: 'string', description: '원문 기반 사업 요약(한국어)' },
+    qty: { type: 'integer', description: '원문 수량(최대 수량이면 text에 명시)' }, amount: { type: 'integer', description: '원문 금액(통화 단위 그대로, 예: 26억 캐나다달러 → 2600000000)' }, currency: { type: 'string', description: '금액 통화. 예: CAD, USD' },
+    decisionYear: { type: 'integer', description: '공급자 선정(우선협상) 연도' }, contractYear: { type: 'integer', description: '계약 연도. selected면 계약 목표 연도' },
+    deliveryStart: { type: 'integer', description: '인도 시작 연도' }, deliveryEnd: { type: 'integer', description: '인도 완료 연도' },
+    coversPct: { type: 'integer', description: '이 사업이 채우는 기존 전력 교체 수요 비율(%) 0~100. 생략하면 100(전량 교체). 기존 전력과 별개인 전력 증강이면 0' },
+    reserve: { type: 'string', description: '예비 공급자(협상 결렬 시)' }, estimated: { type: 'string', description: '추정한 필드 이름(쉼표 구분). 예: deliveryEnd,qty' },
+    filePath: { type: 'string', description: '현재 대화에 저장한 원문 텍스트 파일 경로' }, quote: { type: 'string', description: '보존 원문의 정확한 인용문' }, title: { type: 'string', description: '원문 제목' },
+    evidence: { type: 'string', description: '추가 원문 근거 JSON 배열 [{"filePath":"…","quote":"…","title":"…"}] (최대 5개)' },
+  }, required: ['country','system','id','stage','text','filePath','quote'] },
 ];
 
 export async function countryTool(name: string, args: Record<string, any>) {
   if (name === 'save_equipment') return saveEquipment(args);
+  if (name === 'save_program') return saveProgram(args);
   const input = z.string().trim().min(1).max(100).parse(args.country);
   const ctx = await execution(), repo = ctx.repo, data = await repo.data();
   const existing = Object.entries(data.countries).find(([id, meta]) => countryKey(id) === countryKey(input) || countryKey(meta.ko) === countryKey(input));

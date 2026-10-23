@@ -27,7 +27,7 @@ export function storeFingerprint() {
   const db = DATABASE_KIND === 'sqlite' ? DB_PATH : (({ url, schema }) => `${url}#${schema}`)(supabaseConfig());
   return hash(JSON.stringify([DATABASE_KIND, db, STORAGE_ROOT])).slice(0, 16);
 }
-export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }, { version: 8, name: '레이저대공무기 모드 삭제', sqlite: '008_remove_laser.sql', postgres: '008_remove_laser.postgres.sql' }] as const;
+export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }, { version: 8, name: '레이저대공무기 모드 삭제', sqlite: '008_remove_laser.sql', postgres: '008_remove_laser.postgres.sql' }, { version: 9, name: '진행 중 사업(캐나다 HIMARS·CPSP)', sqlite: '009_programs.sql', postgres: '009_programs.postgres.sql' }] as const;
 export class Repository {
   db!: DatabaseSync;
   private cached?: Seed;

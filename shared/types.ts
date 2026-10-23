@@ -9,11 +9,35 @@ export interface Awarded { year: number; text: string; qty: number | null; deliv
 export interface Plan { start: number; end: number; qty: [number, number] | null; text: string; est?: string[]; src: string[] }
 export interface Mro { year: number; text: string; lifeExt: number; est?: string[]; src: string[] }
 export interface Signal { year: number; text: string; src: string[] }
+/** 사업 단계: 선정 전(consideration·plan·tender)은 열린 경쟁, selected 이후(선정·계약·인도·완료)는 교체 수요를 채운 진행 사업 */
+export const PROJECT_STAGES = ['consideration', 'plan', 'tender', 'selected', 'contract', 'delivery', 'completed', 'cancelled'] as const;
+export type ProjectStage = typeof PROJECT_STAGES[number];
+/**
+ * 국가×체계의 개별 조달 사업. 연도·수량은 출처가 밝힌 값만 넣고 추정한 필드는 est에 이름을 적는다.
+ * covers: 이 사업이 기존 운용 전력 교체 수요를 채우는 비율(0~1, 생략 시 1). selected는 contractYear가 계약 목표 연도다.
+ */
+export interface Project {
+  id: string; buyer: string; supplier: string; stage: ProjectStage; text: string;
+  model?: string; qty?: number; amount?: number; currency?: string;
+  decisionYear?: number; contractYear?: number; deliveryStart?: number; deliveryEnd?: number;
+  covers?: number; reserve?: string; asOf?: string; est?: string[]; src: string[];
+}
+/** 예측·점수·보고서가 함께 쓰는 사업 현황 요약(shared/forecast.ts programOf) */
+export interface ProgramView {
+  id: string; stage: ProjectStage; stageKo: string; supplier: string | null; model: string | null; reserve: string | null;
+  qty: number | null; amount: number | null; currency: string | null;
+  decisionYear: number | null; contractYear: number | null; deliveryStart: number | null; deliveryEnd: number | null;
+  /** 교체 수요를 채운 비율. open이면 0 */
+  covers: number;
+  /** true = 선정 전 경쟁(사업 기회), false = 공급자 선정 이후(교체 수요 충족) */
+  open: boolean;
+  reason: string; text: string; est: string[]; src: string[];
+}
 export interface ProgramRecord {
   id: string; country: string; system: SystemKey;
   batches: Batch[]; awarded?: Awarded; plan?: Plan; mro?: Mro[]; signals?: Signal[];
   ratio?: [number, number]; ratioEst?: boolean; src: string[];
-  projects?: { id: string; buyer: string; supplier: string; stage: 'consideration' | 'plan' | 'tender' | 'contract' | 'delivery' | 'cancelled'; text: string; qty?: number; amount?: number; currency?: string; src: string[] }[];
+  projects?: Project[];
   analysis?: { facts: string[]; estimates: string[]; conflicts: string[]; unknowns: string[]; opportunity?: string };
 }
 export interface SystemMeta { ko: string; unit: string; designLife: number; unitCost: [number, number]; unitCostEst: boolean; unitCostBasis: string; costSrc: string[]; hanwha: string[];
@@ -38,6 +62,8 @@ export interface Forecast {
   current: BatchCalc | null; batches: BatchCalc[];
   calc: string[]; sources: Source[];
   qtyEst: boolean; krwEst: boolean; lifeEst: boolean;
+  /** 진행 중·선정 전 사업 현황. 없으면 null */
+  program?: ProgramView | null;
 }
 
 /* ───────── 데이터 수집 테이블 행 (db/migrations/004) ───────── */
@@ -72,4 +98,6 @@ export interface ScoreBreakdown {
   domestic: DomesticRow['status'] | null; domesticFactor: number;
   components: ScoreComponent[]; subtotal: number; score: number;
   imminenceYear: number | null; grey: boolean; evidenceIds: string[]; weights: Record<string, number>;
+  /** 진행 중 사업으로 교체 수요가 충족됐는지 판단한 근거(예측과 같은 값) */
+  program?: ProgramView | null;
 }

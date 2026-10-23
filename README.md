@@ -157,4 +157,5 @@ npm run ingest:all
 - ITAR 126.1 목록은 eCFR 대신 Cornell LII 사본에서 읽습니다.
 - 체계별 미국산 부품 여부는 아직 미확인입니다.
 - 보유 현황은 인도 기록 누적으로 만든 추정치입니다.
+- 공급자가 정해진 진행 사업(`save_program`, 예: 캐나다 HIMARS·CPSP)은 사업 기회가 아니라 후속 주기(인도 연도 + 설계 수명, 추정)로 계산합니다. 마이그레이션 009는 Supabase에 자동 적용되지 않으며 `npm run supabase -- schema`로 반영합니다.
 - 이집트·중국은 수기 지정으로 수출 불가입니다(`data/reference/export-controls.json`).

@@ -7,7 +7,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { computeForecast, SOURCE_CONFIDENCE } from '../shared/forecast';
 import { resolveCountry, resolveSystem } from '../shared/data';
 import type { ProgramRecord, Seed } from '../shared/types';
-import { SYSTEM_KEYS, SIGNAL_STAGES } from '../shared/types';
+import { SYSTEM_KEYS, SIGNAL_STAGES, PROJECT_STAGES } from '../shared/types';
 import { baseYearOf, recentLabel } from '../shared/base-year';
 import { execution } from './execution';
 import { PROJECT_ROOT, now, hash } from './store';
@@ -49,7 +49,10 @@ export const recordSchema = z.object({
   plan: z.object({ start: year, end: year, qty: range.nullable(), text: z.string(), est, src: refs }).refine(p => p.start <= p.end).optional(),
   mro: z.array(z.object({ year, text: z.string(), lifeExt: count, est, src: refs })).optional(),
   signals: z.array(z.object({ year, text: z.string(), src: refs })).optional(), ratio: range.refine(r => r[1] <= 1).optional(), ratioEst: z.boolean().optional(),
-  projects: z.array(z.object({ id: z.string().min(1), buyer: z.string(), supplier: z.string(), stage: z.enum(['consideration','plan','tender','contract','delivery','cancelled']), text: z.string(), qty: count.optional(), amount: count.optional(), currency: z.string().optional(), src: refs })).optional(),
+  projects: z.array(z.object({ id: z.string().min(1), buyer: z.string(), supplier: z.string(), stage: z.enum(PROJECT_STAGES), text: z.string(), model: z.string().optional(), qty: count.optional(), amount: count.optional(), currency: z.string().optional(),
+    decisionYear: year.optional(), contractYear: year.optional(), deliveryStart: year.optional(), deliveryEnd: year.optional(), covers: z.number().min(0).max(1).optional(), reserve: z.string().optional(), asOf: z.string().optional(), est, src: refs })
+    .refine(p => p.deliveryStart == null || p.deliveryEnd == null || p.deliveryStart <= p.deliveryEnd, '인도 시작이 인도 완료보다 늦음')
+    .refine(p => !['selected', 'contract', 'delivery', 'completed'].includes(p.stage) || p.supplier.trim().length > 0, '선정·계약 이후 사업은 공급자(supplier)가 필요')).optional(),
   analysis: z.object({ facts: refs, estimates: refs, conflicts: refs, unknowns: refs, opportunity: z.string().optional() }).optional(),
 }).strict();
 const publishedDate = z.union([z.string().date(), z.string().datetime({ offset: true })]);

@@ -390,6 +390,8 @@ function tipHtml(id: string, names: Record<string, string>) {
   rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear ?? '미확인'}${est(be(cur, 'introYear'))} · ${cur.qty == null ? '수량 미확인' : `${cur.qty.toLocaleString()}${esc(f.unit)}`}${est(be(cur, 'qty'))}` : '보유 장비 조사 필요']);
   if (cur) rows.push(['설계 수명', `${cur.life}년${est(f.lifeEst)}${cur.ext ? ` + MRO ${cur.ext}년` : ''}${cur.year == null ? ' · 도입 연도 확인 필요' : ` → ${cur.year}년`}`]);
   rows.push(['교체 예상', f.window ? `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' · 후속 주기' : f.status === 'plan' ? ' · 사업 계획' : ''}` : '도입 연도·사업 일정 조사 필요']);
+  // 진행 중·선정 전 사업: 공급자가 정해지면 교체 수요 충족(사업 기회 아님), 선정 전이면 사업 기회 유지
+  if (f.program && f.program.id !== 'awarded') rows.push(['진행 사업', `${esc(f.program.reason.replace(/^[^:]*:\s*/, ''))} · ${esc(f.program.stageKo)}${f.program.open ? ' · 사업 기회' : ''}`]);
   const mro = rec.mro?.[rec.mro.length - 1];
   if (mro) rows.push(['최근 MRO', `${mro.year}${est(!!mro.est?.includes('year'))} ${esc(mro.text)}`]);
   if (rec.awarded && cur) rows.push(['최근 계약', `${rec.awarded.year} ${esc(rec.awarded.text)}`]);

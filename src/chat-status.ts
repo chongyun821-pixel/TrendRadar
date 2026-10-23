@@ -11,7 +11,7 @@ export function toolActivity(name: string): string {
   if (/research_procurement/.test(tool)) return '조사 준비 중';
   if (/normalize_procurement_data/.test(tool)) return '데이터 정리 중';
   if (/validate_research/.test(tool)) return '조사 결과 검토 중';
-  if (/apply_research|submit_research|update_assumptions|save_equipment/.test(tool)) return '데이터 반영 중';
+  if (/apply_research|submit_research|update_assumptions|save_equipment|save_program/.test(tool)) return '데이터 반영 중';
   if (/calculate_forecast|get_forecast|list_forecasts|get_lifespan/.test(tool)) return '예상 시기와 규모 계산 중';
   if (/write_report|prepare_report|get_report_template/.test(tool)) return '보고서 준비 중';
   if (/publish_artifact/.test(tool)) return '보고서 보관 중';

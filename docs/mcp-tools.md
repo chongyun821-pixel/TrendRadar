@@ -26,6 +26,10 @@
 
 단일 장비 보유 자료는 `save_equipment(country, system, model, filePath, quote, introYear?, qty?, primary?, status?, introYearEstimated?, note?, title?)`로 반영할 수 있다. 서버가 현재 대화의 원문 파일·해시·인용문을 검사하고 실제 출처 메타데이터로 정제·사전 검증·반영·이력 저장·예측 계산을 수행한다. 미확인 연도와 수량은 생략한다. 기존에 확인된 값을 미확인으로 지우지 않으며, 기존 수량과 충돌하면 전체 조사 양식에서 비교·정정한다. 복합 정제 양식 오류 시에는 `repair`에 실제 보존 원문 메타데이터와 수정 예시가 반환된다. 이미 반영을 요청받았으면 같은 요청 안에서 양식을 고쳐 진행한다.
 
+진행 중·선정 전 조달 사업은 `save_program(country, system, id, stage, text, filePath, quote, supplier?, model?, qty?, amount?, currency?, decisionYear?, contractYear?, deliveryStart?, deliveryEnd?, coversPct?, reserve?, estimated?, evidence?, title?)`로 record의 `projects`에 사업 ID별로 저장·갱신한다. `save_equipment`와 같이 현재 대화의 보존 원문·해시·인용문을 검사하고 정제(`replaceFields:["projects"]`)·사전 검증·반영·이력·예측 계산을 거친다. `evidence`는 추가 근거 JSON 배열 문자열이다. 단계는 선정 전(`consideration`·`plan`·`tender`)과 공급자 확정(`selected`·`contract`·`delivery`·`completed`), `cancelled`로 나눈다. 공급자 확정 단계는 공급자가 필수다.
+
+공급자가 정해진 사업이 기존 전력을 대체하면(`covers`, 기본 100%) 교체 수요를 채운 것으로 본다. 이때 예측 상태는 `next`(후속 주기), 교체 창은 인도 시작·완료 연도 + 설계 수명(추정), 판단 점수는 이 사업이 충족한 도입 신호를 0점으로, 노후도는 후속 주기의 임박도로 계산하고 이유(예: `진행 중 사업(계약 체결): … 2029~2034 인도 예정`)를 표시한다. 계획(`plan`)보다 우선한다. `covers`가 1 미만이면 남은 비율만 계획·노후 교체 수요로 남는다. 선정 전 경쟁은 `공급자 미정, 사업 기회 유지`로 표시하고 사업 기회로 남는다. 별개의 전력 증강 사업은 `coversPct:0`으로 기존 교체 예측에 영향을 주지 않는다. `calculate_forecast`·`score_case`·`search_programs`·`write_report`와 지도 툴팁이 같은 사업 현황(`program`)을 보여준다.
+
 ## 화면 맥락과 제어
 
 앱은 화면별 식별자를 만들고 메시지 전송 시 무기체계 필터, 선택 국가, 2D/3D 지도 상태, 활성 자료 화면, 보고서 식별자와 기준일 및 데이터 버전을 보존한다. 현재 앱에 없는 필터를 임의로 생성하지 않는다. 열린 국가 보고서는 서버의 보존 정보와 대조한다. 이 화면 맥락은 모든 모델(그록 빌드·코덱스·지피티·네모트론)의 지시문에 요청마다 JSON으로 들어가고, 보고서가 열려 있으면 원문 위치(작업 폴더 `reports/<보고서 ID>.md`)도 함께 알린다.

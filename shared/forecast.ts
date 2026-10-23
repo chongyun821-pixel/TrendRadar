@@ -1,4 +1,4 @@
-import type { Category, Forecast, ProgramRecord, Seed, SystemMeta, Batch, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
+import type { Category, Forecast, ProgramRecord, Project, ProjectStage, ProgramView, Seed, SystemMeta, Batch, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
 import { seed as defaultSeed } from './data';
 import { isRecent, recentRange } from './base-year';
 
@@ -46,6 +46,69 @@ export const isCurrentBatch = (b: Batch, base = defaultSeed.meta.baseYear) => b.
 /** 설계 수명에 실제 출처(systems.lifeSrc)가 하나라도 있으면 추정이 아니다 */
 export const lifeSourced = (sys: SystemMeta, data: Seed) => !!sys.lifeSrc?.some(id => data.sources[id]);
 
+/* ───────── 진행 중 사업(projects) ───────── */
+
+export const PROJECT_STAGE_KO: Record<ProjectStage, string> = { consideration: '검토', plan: '계획', tender: '입찰·선정 중', selected: '공급자 선정(계약 전)', contract: '계약 체결', delivery: '인도 중', completed: '완료', cancelled: '취소' };
+/** 공급자가 정해진 단계. 이 단계 사업은 기존 전력 교체 수요를 채우며(covers, 기본 1) 사업 기회가 아니다 */
+export const COMMITTED_STAGES: readonly ProjectStage[] = ['selected', 'contract', 'delivery', 'completed'];
+/** 선정 전 경쟁 단계. 사업 기회로 남는다 */
+export const OPEN_STAGES: readonly ProjectStage[] = ['consideration', 'plan', 'tender'];
+const projectYear = (p: Project) => p.contractYear ?? p.decisionYear ?? p.deliveryStart ?? p.deliveryEnd ?? 0;
+const coverOf = (p: Project) => Math.max(0, Math.min(1, p.covers ?? 1));
+
+/**
+ * 기록의 사업 현황. 공급자가 정해진 사업(COMMITTED_STAGES) 중 가장 최근 것을 대표로 하고 그 사업들의 covers 합(최대 1)을 교체 충족 비율로 본다.
+ * 그런 사업이 없으면 선정 전 사업(open: true), 그것도 없으면 기존 awarded(계약 완료)를 같은 모양으로 돌려준다.
+ */
+export function programOf(rec: ProgramRecord, unit = '', base = defaultSeed.meta.baseYear): ProgramView | null {
+  const live = (rec.projects ?? []).filter(p => p.stage !== 'cancelled');
+  const byRecent = (a: Project, b: Project) => projectYear(b) - projectYear(a);
+  const committed = live.filter(p => COMMITTED_STAGES.includes(p.stage)).sort(byRecent);
+  const p = committed[0] ?? live.filter(p => OPEN_STAGES.includes(p.stage)).sort(byRecent)[0];
+  if (p) {
+    const open = !COMMITTED_STAGES.includes(p.stage);
+    const v: ProgramView = {
+      id: p.id, stage: p.stage, stageKo: PROJECT_STAGE_KO[p.stage], supplier: p.supplier || null, model: p.model ?? null, reserve: p.reserve ?? null,
+      qty: p.qty ?? null, amount: p.amount ?? null, currency: p.currency ?? null,
+      decisionYear: p.decisionYear ?? null, contractYear: p.contractYear ?? null, deliveryStart: p.deliveryStart ?? null, deliveryEnd: p.deliveryEnd ?? null,
+      covers: open ? 0 : Math.min(1, committed.reduce((s, x) => s + coverOf(x), 0)), open, reason: '', text: p.text, est: p.est ?? [], src: p.src,
+    };
+    v.reason = programReason(v, unit, base);
+    return v;
+  }
+  if (!rec.awarded) return null;
+  const a = rec.awarded;
+  const v: ProgramView = {
+    id: 'awarded', stage: a.deliveryEnd < base ? 'completed' : 'contract', stageKo: '', supplier: null, model: null, reserve: null,
+    qty: a.qty, amount: null, currency: null, decisionYear: a.year, contractYear: a.year, deliveryStart: null, deliveryEnd: a.deliveryEnd,
+    covers: Math.max(0, Math.min(1, a.covers)), open: false, reason: '', text: a.text, est: (a.est ?? []).map(f => f === 'year' ? 'contractYear' : f), src: a.src,
+  };
+  v.stageKo = PROJECT_STAGE_KO[v.stage];
+  v.reason = programReason(v, unit, base);
+  return v;
+}
+
+/** 근거 문구. 예: "진행 중 사업(계약 체결): Lockheed Martin M142 HIMARS 26대, 2026 계약, 2029~2034 인도 예정" */
+export function programReason(p: ProgramView, unit = '', base = defaultSeed.meta.baseYear) {
+  const e = (f: string) => (p.est.includes(f) ? ' (추정)' : '');
+  const head = [p.supplier, p.model, p.qty != null ? `${p.qty.toLocaleString()}${unit}${e('qty')}` : null].filter(Boolean).join(' ');
+  const parts: string[] = head ? [head] : [];
+  if (p.stage === 'selected') {
+    if (p.decisionYear != null) parts.push(`${p.decisionYear} 공급자 선정${e('decisionYear')}`);
+    if (p.contractYear != null) parts.push(`${p.contractYear}년까지 계약 예정${e('contractYear')}`);
+  } else if (p.contractYear != null) parts.push(`${p.contractYear} ${p.open ? '계약 목표' : '계약'}${e('contractYear')}`);
+  const ds = p.deliveryStart, de = p.deliveryEnd, future = (y: number) => (y >= base ? ' 예정' : '');
+  if (ds != null && de != null) parts.push(`${ds}${e('deliveryStart')}~${de}${e('deliveryEnd')} 인도${future(de)}`);
+  else if (ds != null) parts.push(`${ds}년 인도 시작${future(ds)}${e('deliveryStart')}`);
+  else if (de != null) parts.push(`${de}년 인도 완료${future(de)}${e('deliveryEnd')}`);
+  if (p.reserve) parts.push(`예비 공급자 ${p.reserve}`);
+  if (!parts.length) parts.push(p.text);
+  return `${p.open ? '선정 전 경쟁' : '진행 중 사업'}(${p.stageKo}): ${parts.join(', ')}`;
+}
+
+/** 공급자가 정해진 사업이 기존 전력 교체 수요를 모두 채워 다음 교체 시점이 '후속 주기'인 경우 */
+export const needMet = (f?: Forecast | null): f is Forecast & { program: ProgramView } => !!f && f.status === 'next' && !!f.program && !f.program.open && f.program.covers >= 1;
+
 /** 기준 연도는 data.meta.baseYear(shared/base-year.ts). base 인자는 같은 값을 명시할 때만 쓴다 */
 export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, base = seed.meta.baseYear): Forecast {
   const sys = seed.systems[rec.system];
@@ -63,7 +126,12 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
     estCount += (b.est?.length ?? 0) + (b.qty == null ? 3 : 0) + (b.introYear == null ? 3 : 0);
     return { model: b.model, introYear: b.introYear, qty: b.qty, life, ext, year: b.introYear == null ? null : replacementYear(b.introYear, life, ext), primary: b.primary, status: b.status, est: b.est ?? [] };
   });
-  const covers = rec.awarded?.covers ?? 0;
+  const program = programOf(rec, sys.unit, base);
+  // 공급자가 정해진 사업이라도 계약·선정·인도 연도가 하나도 없으면 후속 주기를 셀 수 없으므로 교체 계산에 쓰지 않는다(설명만 있는 사업)
+  const hasYear = (p: ProgramView) => [p.deliveryStart, p.deliveryEnd, p.contractYear, p.decisionYear].some(y => y != null);
+  const committed = program && !program.open && program.id !== 'awarded' && hasYear(program) ? program : null;
+  if (committed) estCount += committed.est.length;
+  const covers = Math.max(rec.awarded?.covers ?? 0, committed?.covers ?? 0);
   const active = rec.batches.map((b, i) => ({ b, c: batches[i] })).filter(x => isCurrentBatch(x.b, base));
   const openAll = active.filter(x => !x.b.covered);
   const dated = openAll.filter((x): x is typeof x & { c: BatchCalc & { year: number } } => x.c.year != null);
@@ -84,7 +152,26 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
   let qtyEst = ratioEst;
   let agedShare = 0;
 
-  if (rec.plan) {
+  /** 진행 사업 인도 연도 + 설계 수명 = 후속 주기. 인도 연도가 없으면 계약(선정) 연도 + 수명 ±3년 */
+  const nextFromProgram = (p: ProgramView) => {
+    status = 'next';
+    const ds = p.deliveryStart, de = p.deliveryEnd, anchor = p.contractYear ?? p.decisionYear;
+    let range: [number, number] | null = null, basis = '';
+    if (ds != null && de != null) { range = [ds + life, de + life]; basis = `인도 ${ds}~${de} + 수명 ${life}`; }
+    else if (ds != null || de != null) { const y = (ds ?? de)! + life; range = [y - 3, y + 3]; basis = `인도 ${ds != null ? `시작 ${ds}` : `완료 ${de}`} + 수명 ${life} = ${y}년 ±3`; }
+    else if (anchor != null) { const y = anchor + life; range = [y - 3, y + 3]; basis = `인도 연도 미공개, 계약·선정 ${anchor} + 수명 ${life} = ${y}년 ±3`; }
+    calc.push(`${p.reason} → 기존 전력 교체 수요 충족${p.covers < 1 ? ` (${Math.round(p.covers * 100)}%)` : ''}`);
+    if (range) {
+      const start = Math.max(base, range[0]);
+      window = [start, Math.max(start + 1, range[1])];
+      calc.push(`다음 교체 주기(추정) = ${basis} → ${window[0]}~${window[1]}년`);
+    } else calc.push('인도·계약 연도 미확인으로 후속 주기 산출 불가');
+    if (p.qty != null) { qty = [Math.max(1, r10(p.qty * ratio[0])), Math.max(1, r10(p.qty * ratio[1]))]; qtyEst = ratioEst || p.est.includes('qty'); calc.push(`후속 수량 = 사업 ${p.qty}${sys.unit} × 교체 비율 ${ratio[0]}~${ratio[1]}`); }
+    if (rec.plan) calc.push(`공개 계획(${rec.plan.text})은 진행 사업으로 대체되어 교체 창 계산에 쓰지 않음`);
+  };
+
+  if (committed && committed.covers >= 1) nextFromProgram(committed);
+  else if (rec.plan) {
     status = 'plan';
     window = [Math.max(base, rec.plan.start), Math.max(base, rec.plan.end)];
     qty = rec.plan.qty ? [rec.plan.qty[0], rec.plan.qty[1]] : null;
@@ -102,7 +189,8 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
     calc.push(`교체 창: 배치별 교체 시점 −2~+3년 → ${window[0]}~${window[1]}년${lo < base ? ' (일부 이미 경과)' : ''}`);
     if (qty) calc.push(`예상 수량 = 미교체 보유 ${r10(openQty)}${sys.unit}${covers > 0 ? ` (계약분 ${Math.round(covers * 100)}% 제외)` : ''} × 교체 비율 ${ratio[0]}~${ratio[1]}`);
     else calc.push('확인된 도입 연도와 체계 기본 수명으로 시기만 추정. 수량 미확인 배치를 0으로 합산하지 않으며 사업 수량·금액은 산출하지 않음');
-  } else if (rec.awarded && (rec.awarded.qty == null || rec.awarded.qty > 0)) {
+  } else if (committed) nextFromProgram(committed);
+  else if (rec.awarded && (rec.awarded.qty == null || rec.awarded.qty > 0)) {
     status = 'next';
     const y = replacementYear(rec.awarded.deliveryEnd, life);
     window = [Math.max(base, y - 3), Math.max(base + 1, y + 3)];
@@ -110,6 +198,9 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
     calc.push(`현 사업 계약 완료 → 후속 주기: 인도 완료 ${rec.awarded.deliveryEnd} + 수명 ${life} = ${y}년`);
     if (qty) calc.push(`후속 수량 = 계약 ${rec.awarded.qty}${sys.unit} × 교체 비율 ${ratio[0]}~${ratio[1]}`);
   }
+
+  if (program && !program.open && program.id !== 'awarded' && !committed) calc.push(`${program.reason} → 계약·인도 연도 미확인으로 교체 계산에 반영하지 않음`);
+  if (program?.open) calc.push(`${program.reason} → 공급자 미정, 사업 기회 유지`);
 
   const krw: [number, number] | null = qty ? [r10(qty[0] * sys.unitCost[0]), r10(qty[1] * sys.unitCost[1])] : null;
   if (krw) calc.push(`예상 금액 = 수량 × 대당 ${sys.unitCost[0].toLocaleString()}~${sys.unitCost[1].toLocaleString()}억 원 (${sys.unitCostBasis})`);
@@ -150,7 +241,7 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
     id: rec.id, country: rec.country, countryKo: c?.ko ?? rec.country, flag: c?.flag ?? '', system: rec.system, systemKo: sys.ko, unit: sys.unit,
     status, window, remaining, category, score, qty, krw, size: status === 'none' ? 0 : sizeNorm(krw),
     confidence, nSources: sources.length, latestSource: latest, estCount,
-    current, batches, calc, sources, qtyEst, krwEst: qtyEst || sys.unitCostEst, lifeEst,
+    current, batches, calc, sources, qtyEst, krwEst: qtyEst || sys.unitCostEst, lifeEst, program,
   };
 }
 
@@ -240,16 +331,31 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
   const signals = (input.signals || []).filter(s => s.system === input.system);
   const imminence: number[] = [];
 
+  // 진행 중 사업: 공급자가 정해져 교체 수요를 채웠으면 그 사업의 신호·기존 전력 노후화는 열린 수요가 아니다
+  const met = needMet(input.forecast) ? input.forecast : null;
+  const prog = met?.program ?? null;
+  const decided = prog ? (prog.decisionYear ?? prog.contractYear ?? base) : null;
+  /** 같은 모델이거나 공급자 결정 이전(같은 해 포함) 신호는 진행 사업이 채운 것으로 본다. 그 뒤 다른 모델 신호(전력 증강 등)는 따로 센다 */
+  const satisfied = (s: SignalRow) => !!prog && (sameModel(s.model, prog.model) || yearOf(s) <= decided!);
+
   // 도입 의사: 현재 열린 단계 중 가장 높은 단계. '최근 3년'(기준 연도 포함 4개년) 신호이거나 예상 시기가 기준 연도 이후인 신호
-  const open = signals.filter(s => STAGE_POINTS[s.stage] > 0 && (isRecent(yearOf(s), base) || (s.expected_year ?? 0) >= base));
+  const live = signals.filter(s => STAGE_POINTS[s.stage] > 0 && (isRecent(yearOf(s), base) || (s.expected_year ?? 0) >= base));
+  const open = live.filter(s => !satisfied(s)), met0 = live.filter(satisfied);
   const best = open.sort((a, b) => STAGE_POINTS[b.stage] - STAGE_POINTS[a.stage] || (b.confidence ?? 0) - (a.confidence ?? 0))[0];
   if (best) { if (best.expected_year) imminence.push(best.expected_year); add('intent', STAGE_POINTS[best.stage] / 20, best.confidence ?? SOURCE_CONFIDENCE.news, [evidenceId.signal(best)], `${best.stage} 단계 (${best.model || '모델 미상'}${best.expected_year ? `, 예상 ${best.expected_year}년` : ''})`); }
+  else if (prog && met0.length) add('intent', 0, 1, [`records:${met!.id}`, ...met0.map(evidenceId.signal)], `도입 신호 ${met0.length}건은 진행 사업으로 충족: ${prog.reason}`);
   else add('intent', 0, 0, [], `최근 3년(${recentRange(base)}) 도입 의사 신호 없음`, true);
 
   // 노후화: 보유 이력 → 없으면 기존 기록 예측
   const life = input.designLife ?? 30;
   const inv = (input.inventory || []).filter(i => i.system === input.system && (i.quantity ?? 0) > 0);
-  if (inv.length) {
+  if (met) {
+    // 기존 보유 전력은 진행 사업으로 교체되므로 다음 교체 시점은 후속 주기(인도 연도 + 수명, 추정)
+    if (met.window) {
+      imminence.push(met.window[0]);
+      add('aging', clamp01(1 - met.remaining! / 15), FORECAST_CONFIDENCE[met.confidence], [`records:${met.id}`, ...inv.map(evidenceId.inventory)], `${prog!.reason} → 후속 주기 ${met.window[0]}~${met.window[1]}년`, false, true);
+    } else add('aging', 0, FORECAST_CONFIDENCE[met.confidence], [`records:${met.id}`], `${prog!.reason}, 후속 주기 산출 불가`, false, true);
+  } else if (inv.length) {
     const rows = inv.map(i => {
       const conf = i.confidence ?? SOURCE_CONFIDENCE.news;
       if (i.retire_year != null) return { i, retire: i.retire_year, confidence: conf, basis: null };
@@ -309,12 +415,15 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
   const isGroup = (s: SignalRow) => s.supplier === 'KOR' || groupModels.some(l => sameModel(s.model, l.model));
   const won = (input.systemSignals || signals).filter(s => s.system === input.system && ['contract', 'delivery'].includes(s.stage) && yearOf(s) >= base - 5);
   const groupWins = won.filter(isGroup), rivalHere = won.filter(s => s.country === input.country && !isGroup(s));
+  // 경쟁사가 선정·계약한 진행 사업도 이 나라 경쟁사 수주로 센다(같은 모델 신호와 중복 없이)
+  const progRival = !!prog?.supplier && !/한화|hanwha/i.test(prog.supplier) && prog.supplier !== 'KOR' && !groupModels.some(l => sameModel(prog.model, l.model)) && !rivalHere.some(s => sameModel(s.model, prog.model));
+  const rivalCount = rivalHere.length + (progRival ? 1 : 0);
   const capYears = (ms: SystemLinkRow[]) => { const rows = (input.capacity || []).filter(c => c.annual_output && ms.some(l => sameModel(c.model, l.model))); return rows.length ? { v: rows.reduce((s, c) => s + (c.backlog ?? 0) / c.annual_output!, 0) / rows.length, rows } : null; };
   const gCap = capYears(groupModels), rCap = capYears(rivals);
-  if (groupWins.length || rivalHere.length || (gCap && rCap)) {
-    const raw = 0.5 + (groupWins.length ? 0.25 : 0) + (gCap && rCap && gCap.v < rCap.v ? 0.25 : 0) - (rivalHere.length ? 0.5 : 0);
-    const used2 = [...groupWins.slice(0, 5), ...rivalHere, ...(gCap?.rows || []), ...(rCap?.rows || [])];
-    add('competition', raw, confOf(used2), [...groupWins.slice(0, 5).map(evidenceId.signal), ...rivalHere.map(evidenceId.signal), ...(gCap?.rows || []).map(evidenceId.capacity), ...(rCap?.rows || []).map(evidenceId.capacity)], `그룹사 최근 5년 수주 ${groupWins.length}건, 이 나라 경쟁사 수주 ${rivalHere.length}건${gCap && rCap ? `, 납기 ${round1(gCap.v)}년 대 경쟁사 ${round1(rCap.v)}년` : ''}`);
+  if (groupWins.length || rivalCount || (gCap && rCap)) {
+    const raw = 0.5 + (groupWins.length ? 0.25 : 0) + (gCap && rCap && gCap.v < rCap.v ? 0.25 : 0) - (rivalCount ? 0.5 : 0);
+    const used2 = [...groupWins.slice(0, 5), ...rivalHere, ...(progRival ? [{ confidence: FORECAST_CONFIDENCE[met!.confidence] }] : []), ...(gCap?.rows || []), ...(rCap?.rows || [])];
+    add('competition', raw, confOf(used2), [...groupWins.slice(0, 5).map(evidenceId.signal), ...rivalHere.map(evidenceId.signal), ...(progRival ? [`records:${met!.id}`] : []), ...(gCap?.rows || []).map(evidenceId.capacity), ...(rCap?.rows || []).map(evidenceId.capacity)], `그룹사 최근 5년 수주 ${groupWins.length}건, 이 나라 경쟁사 수주 ${rivalCount}건${progRival ? `(진행 사업 ${prog!.supplier} 포함)` : ''}${gCap && rCap ? `, 납기 ${round1(gCap.v)}년 대 경쟁사 ${round1(rCap.v)}년` : ''}`);
   } else add('competition', 0, 0, [], '수주·납기 비교 자료 없음', true);
 
   // 접근성: 한국산 운용 → 1.0, 방산 협정만 → 0.6
@@ -340,5 +449,6 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
     domestic: input.domestic?.status ?? null, domesticFactor, components: comps, subtotal, score,
     imminenceYear: imminence.length ? Math.min(...imminence) : null, grey: !gate.passed, evidenceIds,
     weights: Object.fromEntries(SCORE_FACTORS.map(f => [f.factor, w[f.factor]])),
+    program: input.forecast?.program ?? null,
   };
 }

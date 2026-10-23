@@ -10,9 +10,11 @@
 8. 제출: submit_research의 payload(JSON 문자열)에 record 전체, expectedVersion, sources(id→Source), evidence([{path,sourceId,quote}]), reason, asOf, countryMeta(신규 국가만)를 넣는다. 변경된 최상위 필드별 근거 path를 제공한다. 예: batches.0.qty, awarded, plan, mro, signals, analysis. 기존 src와 추정 표시, 계약 교체비율 covers, covered 배치를 누락하지 않는다. 삭제·정정에도 이유와 원문 근거가 필요하다. sources에는 save_source가 반환한 filePath/hash/collectedAt를 넣는다.
 9. 반영: 버전 충돌이면 재조회 후 비교·제출한다. 도구의 변경 내역과 예측 차이를 확인하고 write_report로 기존 6절 보고서를 갱신한다. 기사 언급량은 계약 수량·일정 변경 근거가 아니다.
 
-10. 완결성: `get_country_data_status`로 현재 주력·교체 시기·수량·원문 근거를 확인한다. `projects`·`analysis`에만 저장한 사업 설명은 현재 보유나 교체 예측을 채우지 않는다. `inventoryHistory`의 과거 인도량도 현재 운용 여부 확인 전 자동 합산하지 않는다. 수량만 미확인이면 확인된 도입 연도로 시기만 추정하고 수량·금액은 미확인으로 남긴다. 누락 체계는 추가 공개 출처로 보완하고, 미공개·접근 실패 등 해결하지 못한 이유를 구체적으로 알린다.
+10. 완결성: `get_country_data_status`로 현재 주력·교체 시기·수량·원문 근거를 확인한다. `projects`·`analysis`에만 저장한 사업 설명은 현재 보유를 채우지 않는다. 단, 공급자가 정해진 `projects`(selected·contract·delivery·completed)는 기존 전력 교체 수요를 채운 것으로 보고 교체 예측을 후속 주기로 바꾼다. `inventoryHistory`의 과거 인도량도 현재 운용 여부 확인 전 자동 합산하지 않는다. 수량만 미확인이면 확인된 도입 연도로 시기만 추정하고 수량·금액은 미확인으로 남긴다. 누락 체계는 추가 공개 출처로 보완하고, 미공개·접근 실패 등 해결하지 못한 이유를 구체적으로 알린다.
 
 단일 장비의 반영에는 `save_equipment`를 우선 사용한다. 원문 `filePath`·정확한 `quote`와 국가·체계·장비명, 확인한 연도·수량만 전달한다. 서버가 실제 출처 메타데이터를 구성하고 동일한 정제·검증·반영 절차를 실행한다. 수량·연도 미확인은 생략하고 초도 도입 연도 기준의 추정은 `introYearEstimated:true`와 `note`로 범위를 밝힌다. 복합 정제 양식의 오류는 `errors`와 `repair` 예시로 수정하고 같은 요청 안에서 재검증한다.
+
+진행 중·선정 전 사업은 `save_program`으로 사업 ID별로 반영한다(같은 ID는 갱신). 단계는 consideration(검토)·plan(계획)·tender(입찰·선정 중)·selected(공급자 선정, 계약 전)·contract(계약)·delivery(인도 중)·completed(완료)·cancelled(취소)다. 원문에 있는 공급자·장비명·수량·금액·통화·선정·계약·인도 시작·완료 연도와 예비 공급자만 넣고, 추정한 값은 `estimated`에 필드명을 적는다. 공급자가 정해진 대체 사업은 교체 수요 충족으로 계산되어 사업 기회에서 빠지고, 다음 교체는 인도 연도 + 설계 수명(추정)이다. 선정 전 경쟁은 사업 기회로 남는다. 기존 전력과 별개인 전력 증강은 `coversPct:0`으로 둔다.
 
 Source 형식: { t: 제목, u: URL, y: 연도(발행일 미확인은 0), publishedAt: ISO 날짜|null, collectedAt: 수집시각, filePath: 작업폴더 상대경로, hash: SHA256, kind: original|attachment, excerpt?: 인용문 }.
 record 형식과 systems 단가·수명·환율 가정은 research_procurement 결과를 따른다. 새로운 무기체계는 현재 6개 분류(sph·ifv·sam·mrl·frigate·ssk) 안에 넣는다. IFV는 기존 장갑차 ID인 ifv를 그대로 쓴다. 단가·환율 변경은 update_assumptions로 별도 근거와 함께 반영한다. 설계 수명의 원문 근거를 찾으면 update_assumptions의 systems.<체계>.lifeSrc에 출처 ID를 넣는다(출처가 없으면 수명은 추정으로 표시된다).

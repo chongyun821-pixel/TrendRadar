@@ -1,5 +1,5 @@
 import { seed, resolveCountry, resolveSystem, recordsBy, isGeneral } from './data';
-import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange, fmtQtyRange, isCurrentBatch, lifeSourced } from './forecast';
+import { computeForecast, allForecasts, CATEGORY_KO, fmtKrwRange, fmtQtyRange, isCurrentBatch, lifeSourced, PROJECT_STAGE_KO, needMet } from './forecast';
 import { baseYearOf } from './base-year';
 import type { Forecast, SystemKey, Batch, Seed } from './types';
 
@@ -21,6 +21,8 @@ export function searchPrograms(a?: { country?: string; system?: string }) {
     inService: r.batches.filter(b => isCurrentBatch(b)).map(b => `${b.model} ${b.qty == null ? '수량 미확인' : `${b.qty}${seed.systems[r.system].unit}`}${est(b, 'qty')}, 도입 ${b.introYear ?? '미확인'}${est(b, 'introYear')}${b.covered ? ', 교체 계약분' : ''}`),
     contract: r.awarded ? { year: r.awarded.year, text: r.awarded.text, estimate: !!r.awarded.est?.length } : null,
     plan: r.plan ? { text: r.plan.text, window: `${r.plan.start}~${r.plan.end}` } : null,
+    programs: (r.projects ?? []).map(p => ({ id: p.id, stage: PROJECT_STAGE_KO[p.stage], supplier: p.supplier || null, model: p.model ?? null, qty: p.qty ?? null, contractYear: p.contractYear ?? null, delivery: p.deliveryStart || p.deliveryEnd ? `${p.deliveryStart ?? '?'}~${p.deliveryEnd ?? '?'}` : null, reserve: p.reserve ?? null, estimate: p.est ?? [], text: p.text })),
+    program: computeForecast(r).program?.reason ?? null,
     signals: (r.signals ?? []).map(s => `${s.year} ${s.text}`),
     sources: srcList(r.src),
   }));
@@ -61,6 +63,7 @@ export function forecastBrief(f: Forecast) {
     country: f.countryKo, system: f.systemKo, status: f.status,
     window: f.window ? `${f.window[0]}~${f.window[1]}` : null, remainingYears: f.remaining, imminence: CATEGORY_KO[f.category], score: f.score,
     qty: fmtQtyRange(f.qty, f.unit), krw: fmtKrwRange(f.krw), confidence: f.confidence, label: '예측',
+    ...(f.program ? { program: f.program.reason, opportunity: f.program.open ? '사업 기회(공급자 미정)' : needMet(f) ? '교체 수요 충족(진행 사업), 후속 주기만 남음' : f.program.covers < 1 ? '진행 사업이 일부만 대체' : '진행 사업이 교체 계산에 반영되지 않음(calc 참고)' } : {}),
   };
 }
 
@@ -97,7 +100,8 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
     const L: string[] = [];
     L.push(`## ${f.flag} ${f.countryKo} · ${f.systemKo} 보고서`);
     L.push(`### 1. 요약`);
-    L.push(`- 구분: ${STATUS_KO[f.status]}`);
+    L.push(`- 구분: ${f.status === 'next' && f.program && !f.program.open ? `진행 중 사업(${f.program.stageKo}) → 후속 주기` : STATUS_KO[f.status]}`);
+    if (f.program) L.push(`- 사업 현황: ${f.program.reason}`);
     if (f.window) L.push(`- 예상 시기(예측): **${f.window[0]}~${f.window[1]}년** · 임박도 ${CATEGORY_KO[f.category]} (점수 ${f.score})`);
     if (f.status !== 'none') L.push(`- 예상 규모(예측): **${fmtQtyRange(f.qty, f.unit)}**, **${fmtKrwRange(f.krw)}**${f.krwEst ? ' (추정 포함)' : ''}`);
     L.push(`- 신뢰도: ${f.confidence} (근거 ${f.nSources}건, 추정 항목 ${f.estCount}개)`);
@@ -123,9 +127,11 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
     if (r.awarded) L.push(`- 기존 계약: ${r.awarded.text}`);
     if (r.plan) L.push(`- 경쟁 현황: ${r.plan.text}`);
     L.push(`- 해당 한화 제품: ${sys.hanwha.join(', ')}`);
-    for (const p of r.projects ?? []) L.push(`- ${p.id}: 구매국 ${p.buyer} · 공급자 ${p.supplier} · 단계 ${p.stage} · ${p.text}`);
+    for (const p of r.projects ?? []) L.push(`- ${p.id}: 구매국 ${p.buyer} · 공급자 ${p.supplier || '미정'}${p.reserve ? ` (예비 ${p.reserve})` : ''} · 단계 ${PROJECT_STAGE_KO[p.stage] ?? p.stage} · ${p.text}`);
     if (r.analysis?.opportunity) L.push(`- 조사 분석: ${r.analysis.opportunity}`);
-    L.push(f.status === 'next' ? `- 현 사업은 계약 완료. 후속·추가 물량, MRO·현지화 협력이 기회` : f.status === 'none' ? `- 데이터 보강 필요` : `- 교체 창 전 1~3년이 제안 시점`);
+    L.push(needMet(f) ? `- 공급자 ${f.program!.stage === 'selected' ? '선정' : '계약'} 완료로 기존 전력 교체 수요 충족 → 신규 교체 사업 기회 아님. 후속 주기 ${f.window ? `${f.window[0]}~${f.window[1]}년(추정)` : '미확인'}, MRO·현지화·후속 물량만 기회${f.program!.reserve ? ` (예비 공급자 ${f.program!.reserve}: 협상 결렬 시에만 기회)` : ''}`
+      : f.program?.open ? `- 공급자 미정(${f.program.stageKo}) → 사업 기회 유지, 교체 창 전 1~3년이 제안 시점`
+      : f.status === 'next' ? `- 현 사업은 계약 완료. 후속·추가 물량, MRO·현지화 협력이 기회` : f.status === 'none' ? `- 데이터 보강 필요` : `- 교체 창 전 1~3년이 제안 시점`);
     L.push(`### 6. 출처`);
     for (const so of f.sources) L.push(`- [${so.t}](${so.u})`);
     for (const id of sys.costSrc) { const so = data.sources[id]; if (so && !f.sources.includes(so)) L.push(`- [${so.t}](${so.u}) (단가)`); }

@@ -12,7 +12,7 @@ export const NORMALIZATION_DEFS: ToolDef[] = [
   { name: 'validate_research', description: '조사 결과의 형식, 원문 인용, 중복 및 버전을 사전 검사한다. 반영하지 않으며 의미 검토는 별도로 필요하다', properties: { payload: S('정제한 조사 제출 JSON') }, required: ['payload'] },
   { name: 'apply_research', description: '원문 근거와 최신 버전 및 실행 상태를 다시 검사하고 기존 자료와 새 자료를 통합한다. 변경 이력과 예측을 함께 저장한다', properties: { payload: S('검토한 조사 제출 JSON') }, required: ['payload'] },
 ];
-const STAGES: Record<string, string> = { 검토: 'consideration', 계획: 'plan', 입찰: 'tender', 계약: 'contract', 인도: 'delivery', 취소: 'cancelled' };
+const STAGES: Record<string, string> = { 검토: 'consideration', 계획: 'plan', 입찰: 'tender', 선정: 'selected', 우선협상: 'selected', 계약: 'contract', 인도: 'delivery', '인도 중': 'delivery', 완료: 'completed', 취소: 'cancelled' };
 const ARRAY_FIELDS = ['batches', 'projects', 'signals', 'mro'];
 export async function normalizationTool(name: string, a: Record<string, any>): Promise<unknown> {
   const input = JSON.parse(z.string().parse(a.payload));
@@ -46,7 +46,7 @@ export async function normalizationTool(name: string, a: Record<string, any>): P
       let next: any = normalize(rawValue, `${path}.${key}`);
       if (typeof next === 'string') {
         next = next.trim();
-        if (['qty', 'amount', 'introYear', 'year', 'start', 'end', 'deliveryEnd', 'lifeExt', 'covers'].includes(key)) {
+        if (['qty', 'amount', 'introYear', 'year', 'start', 'end', 'deliveryStart', 'deliveryEnd', 'decisionYear', 'contractYear', 'lifeExt', 'covers'].includes(key)) {
           const number = next.replaceAll(',', '').match(/^([0-9]+(?:\.[0-9]+)?)\s*(대|문|척|기|발|개|년|천|백만|억)?$/);
           if (number) next = Number(number[1]) * ({ 천: 1e3, 백만: 1e6, 억: 1e8 }[number[2] as string] || 1);
         }
