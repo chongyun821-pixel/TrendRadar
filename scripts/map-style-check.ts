@@ -40,6 +40,7 @@ try {
   const partial = record('AUT', 0); partial.batches[0].qty = null; partial.plan!.qty = null;
   const unknown = record('CZE', 0); unknown.batches[0].introYear = null; delete unknown.plan;
   fixture.records = [record('DEU', 0), record('FRA', 4), record('ITA', 8), record('GBR', 16), partial, unknown, record('FRA', 0, 'mrl'), record('DEU', 0, 'mrl')];
+  fixture.records.push({ ...record('GBR', 0), id: 'GBR_sam', system: 'sam' });
   browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.addInitScript(() => { (window as any).__name = (fn: unknown) => fn; }); // tsx의 함수 이름 도우미
@@ -55,6 +56,14 @@ try {
     return route.fulfill({ json: { scores: fixture.records.filter(r => r.system === system).map(r => ({ country: r.country, system: r.system, score: r.country === 'DEU' ? r.system === 'mrl' ? 90 : 70 : r.system === 'sph' ? 80 : 60, grey: r.country === 'GBR', gate: r.country === 'GBR' ? '검증용 제외 사유' : null })) } });
   });
   await page.goto(base); await page.waitForSelector('body.ready');
+  assert.equal(await page.locator('#hatchRanking').isVisible(), false);
+  async function rankingSnapshot() {
+    return page.locator('#hatchRanking').evaluate(el => ({
+      title: el.querySelector('.hatch-ranking-heading p')?.textContent,
+      box: el.getBoundingClientRect().toJSON(),
+      rows: [...el.querySelectorAll<HTMLButtonElement>('button[data-hatch-country]')].map(button => ({ country: button.dataset.hatchCountry!, name: button.querySelector('.hatch-ranking-country')!.textContent!, score: Number.parseFloat(button.querySelector('strong')!.textContent!) })),
+    }));
+  }
   async function settled() { await page.waitForFunction(() => { const g = (window as any).__globe; return g.colorAnim === 1 && g.morphT === 1 && g.spikeT === 1 && !g.camAnim; }); }
   async function hover(country: string) {
     const c = fixture.countries[country];
@@ -107,8 +116,20 @@ try {
   const globeMotion = await surfaceMotion();
   const bars = await page.evaluate(() => (window as any).__globe.spikes.map((s: any) => ({ id: s.id, height: s.h1, size: s.size })));
   assert.ok(Math.max(...bars.map((b: any) => b.height)) > Math.min(...bars.map((b: any) => b.height)) * 3, JSON.stringify(bars));
+  const rankingGlobe = await rankingSnapshot();
+  assert.equal(rankingGlobe.rows.length, 5);
+  assert.match(rankingGlobe.title!, /자주포/);
+  assert.ok(Math.abs(rankingGlobe.box.y + rankingGlobe.box.height / 2 - 450) < 1);
+  assert.ok(rankingGlobe.box.left > 1440 / 2 && rankingGlobe.box.right <= 1440);
+  assert.ok(rankingGlobe.rows.every((row, i, rows) => !fixture.records.some(r => r.system === 'sph' && r.country === row.country) && row.score >= 0 && row.score <= 100 && (!i || rows[i - 1].score >= row.score)));
+  await page.locator('#hatchRanking button').first().click(); await settled();
+  assert.equal(await page.evaluate(() => (window as any).__app.state.focus), rankingGlobe.rows[0].country);
+  const rankingCard = await hover(rankingGlobe.rows[0].country);
+  assert.ok(rankingCard.includes(`${rankingGlobe.rows[0].score.toFixed(1)}/100 · 후보 1위`), rankingCard);
+  await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   await page.screenshot({ path: resolve(folder, 'desktop-globe.png') });
   await page.click('#mapBtn'); await settled();
+  assert.deepEqual((await rankingSnapshot()).rows, rankingGlobe.rows);
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   const card = await hover('CHE');
   assert.match(card, /인접국 참고 점수/); assert.match(card, /독일/); assert.match(card, /프랑스/); assert.match(card, /확인되지 않았습니다/);
@@ -198,11 +219,25 @@ try {
   assert.ok(layout.width <= layout.viewport); assert.ok(layout.legend.right <= layout.viewport);
   assert.ok(layout.legend.bottom <= layout.composer.top, JSON.stringify(layout));
   assert.ok(layout.tip.bottom <= layout.legend.top || layout.tip.top >= layout.legend.bottom, JSON.stringify(layout));
+  const rankingMobile = await rankingSnapshot();
+  assert.ok(rankingMobile.box.left > layout.viewport / 2 && rankingMobile.box.right <= layout.viewport);
+  assert.ok(rankingMobile.box.top > 110 && rankingMobile.box.bottom < layout.legend.top);
   await page.screenshot({ path: resolve(folder, 'mobile-flat.png') });
   await page.click('#mapBtn'); await settled();
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   await page.screenshot({ path: resolve(folder, 'mobile-globe.png') });
+  await page.evaluate(() => (window as any).__app.setMode('sam')); await settled();
+  const rankingFew = await rankingSnapshot();
+  assert.match(rankingFew.title!, /대공미사일/);
+  assert.ok(rankingFew.rows.length > 0 && rankingFew.rows.length < 5);
+  for (const system of ['ifv', 'frigate', 'ssk']) {
+    await page.evaluate(system => (window as any).__app.setMode(system), system); await settled();
+    assert.equal(await page.locator('#hatchRanking').isVisible(), true);
+    assert.equal(await page.locator('#hatchRanking button').count(), 0);
+    assert.match(await page.locator('.hatch-ranking-empty').innerText(), /빗금 국가가 없습니다/);
+  }
   await page.evaluate(() => (window as any).__app.setMode(null)); await settled();
+  assert.equal(await page.locator('#hatchRanking').isVisible(), false);
   await page.waitForFunction(() => {
     const g = (window as any).__globe, idx = g.byId.get('DEU').idx * 4;
     return g.colorAnim === 1 && g.next[idx] === 236;
@@ -219,7 +254,7 @@ try {
   assert.match(await hover('DEU'), /다연장로켓 · 판단 90\/100/);
   await page.screenshot({ path: resolve(folder, 'desktop-general.png') });
   assert.equal(providerCalls, 0); assert.deepEqual(errors, []);
-  writeFileSync(resolve(folder, 'receipt.json'), JSON.stringify({ passed: true, pixels, globeMotion, flatMotion, bars, circles, wrapped, polarLimit, general, layout, providerCalls, errors, hues: SYSTEM_COLOR }, null, 2));
+  writeFileSync(resolve(folder, 'receipt.json'), JSON.stringify({ passed: true, pixels, globeMotion, flatMotion, bars, circles, wrapped, polarLimit, general, layout, rankingGlobe, rankingMobile, rankingFew, providerCalls, errors, hues: SYSTEM_COLOR }, null, 2));
   console.log(JSON.stringify({ passed: true, folder, hatchContrast: pixels.hatchContrast, solidContrast: pixels.solidContrast, providerCalls, errors }));
 } finally {
   writeFileSync(resolve(folder, 'server.log'), log);
