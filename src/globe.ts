@@ -67,6 +67,8 @@ function pip(pt: number[], ring: number[][]) {
 export class Globe {
   renderer: THREE.WebGLRenderer; scene = new THREE.Scene(); camera: THREE.PerspectiveCamera; controls: OrbitControls;
   countries: CountryGeo[] = []; byId = new Map<string, CountryGeo>();
+  private world = new THREE.Group();
+  private worldCopies: THREE.Group[] = [];
   private uniforms: Record<string, THREE.IUniform>;
   private prev: Uint8Array<ArrayBuffer>; private next: Uint8Array<ArrayBuffer>; private texPrev: THREE.DataTexture; private texNext: THREE.DataTexture;
   private colorAnim = 1;
@@ -95,10 +97,15 @@ export class Globe {
     this.texPrev = new THREE.DataTexture(this.prev, N, 1, THREE.RGBAFormat); this.texNext = new THREE.DataTexture(this.next, N, 1, THREE.RGBAFormat);
     this.uniforms = {
       uMorph: { value: 0 }, uR: { value: R }, uPrev: { value: this.texPrev }, uNext: { value: this.texNext }, uMix: { value: 1 },
-      uN: { value: N }, uHover: { value: -1 }, uSel: { value: -1 }, uLight: { value: new THREE.Vector3(0, 0, 1) }, uPixelRatio: { value: this.renderer.getPixelRatio() },
+      uN: { value: N }, uHover: { value: -1 }, uSel: { value: -1 }, uLight: { value: new THREE.Vector3(0, 0, 1) }, uViewport: { value: new THREE.Vector2(1, 1) },
     };
     this.buildCountries(features);
     this.buildOcean();
+    this.scene.add(this.world);
+    for (const offset of [-2, -1, 1, 2]) {
+      const copy = this.world.clone(true); copy.position.x = offset * 2 * Math.PI * R; copy.visible = false;
+      this.worldCopies.push(copy); this.scene.add(copy);
+    }
     this.atmo = this.buildAtmosphere();
     this.stars = this.buildStars();
     this.spikeMesh = this.buildSpikes();
@@ -123,7 +130,7 @@ export class Globe {
 
   // ---------- 생성 ----------
   private buildCountries(features: CountryFeature[]) {
-    const ll: number[] = [], ci: number[] = [], bl: number[] = [], bci: number[] = [];
+    const ll: number[] = [], ci: number[] = [], bl: number[] = [];
     features.forEach((f, idx) => {
       const g: CountryGeo = { id: f.id, ko: f.ko, idx, polys: [] };
       for (const poly of f.p) {
@@ -146,7 +153,6 @@ export class Globe {
             for (let s = 0; s < n; s++) {
               const t0 = s / n, t1 = (s + 1) / n;
               bl.push(a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0, a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1);
-              bci.push(idx, idx);
             }
           }
         }
@@ -163,8 +169,9 @@ export class Globe {
       vertexShader: MORPH_GLSL + /* glsl */ `
         attribute vec2 lonlat; attribute float cidx;
         uniform sampler2D uPrev; uniform sampler2D uNext; uniform float uMix; uniform float uN; uniform float uHover; uniform float uSel; uniform vec3 uLight;
-        varying vec3 vCol; varying float vShade; varying float vHatch;
+        varying vec3 vCol; varying float vShade; varying float vHatch; varying vec2 vLonLat;
         void main(){
+          vLonLat = lonlat;
           vec2 uv = vec2((cidx + 0.5) / uN, 0.5);
           vec4 style = mix(texture2D(uPrev, uv), texture2D(uNext, uv), uMix);
           vec3 c = style.rgb;
@@ -177,27 +184,53 @@ export class Globe {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, 0.25), 1.0);
         }`,
       fragmentShader: /* glsl */ `
-        uniform float uPixelRatio;
-        varying vec3 vCol; varying float vShade; varying float vHatch;
+        varying vec3 vCol; varying float vShade; varying float vHatch; varying vec2 vLonLat;
         void main(){
-          float d = mod((gl_FragCoord.x + gl_FragCoord.y) / uPixelRatio, 10.0);
-          float stripe = smoothstep(0.5, 1.2, d) * (1.0 - smoothstep(3.0, 3.7, d));
+          // 경위도에 고정해 지구 회전·이동·확대 및 평면 전환에도 표면과 함께 움직인다.
+          float phase = (vLonLat.x + vLonLat.y) / 2.0;
+          float footprint = fwidth(phase);
+          float aa = clamp(footprint, 0.01, 0.25);
+          float stripe = 1.0 - smoothstep(0.16 - aa, 0.16 + aa, abs(fract(phase) - 0.5));
+          // 멀리서 해상도보다 촘촘해진 선은 평균색으로 섞어 깜빡임을 줄인다.
+          stripe = mix(stripe, 0.32, smoothstep(0.3, 0.7, footprint));
           vec3 hatched = mix(vec3(0.22, 0.26, 0.31), vCol, 0.12 + 0.78 * stripe);
           gl_FragColor = vec4(mix(vCol, hatched, vHatch) * vShade, 1.0);
         }`,
       side: THREE.DoubleSide,
     });
-    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 1; this.scene.add(mesh);
+    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.renderOrder = 1; this.world.add(mesh);
 
     const bgeo = new THREE.BufferGeometry();
-    bgeo.setAttribute('lonlat', new THREE.Float32BufferAttribute(bl, 2));
-    bgeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array((bl.length / 2) * 3), 3));
+    const starts: number[] = [], ends: number[] = [], along: number[] = [], sides: number[] = [], indices: number[] = [];
+    for (let i = 0; i < bl.length; i += 4) {
+      const vertex = along.length;
+      for (let j = 0; j < 4; j++) {
+        starts.push(bl[i], bl[i + 1]); ends.push(bl[i + 2], bl[i + 3]); along.push(j < 2 ? 0 : 1); sides.push(j % 2 ? 1 : -1);
+      }
+      indices.push(vertex, vertex + 1, vertex + 2, vertex + 2, vertex + 1, vertex + 3);
+    }
+    bgeo.setAttribute('startLL', new THREE.Float32BufferAttribute(starts, 2));
+    bgeo.setAttribute('endLL', new THREE.Float32BufferAttribute(ends, 2));
+    bgeo.setAttribute('along', new THREE.Float32BufferAttribute(along, 1));
+    bgeo.setAttribute('edge', new THREE.Float32BufferAttribute(sides, 1));
+    bgeo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(along.length * 3), 3));
+    bgeo.setIndex(indices);
     const bmat = new THREE.ShaderMaterial({
-      uniforms: this.uniforms, transparent: true, depthWrite: false,
-      vertexShader: MORPH_GLSL + `attribute vec2 lonlat; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, 0.45), 1.0); }`,
-      fragmentShader: `void main(){ gl_FragColor = vec4(0.55, 0.68, 0.82, 0.38); }`,
+      uniforms: this.uniforms, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+      vertexShader: MORPH_GLSL + `attribute vec2 startLL; attribute vec2 endLL; attribute float along; attribute float edge;
+        uniform vec2 uViewport; varying float vEdge;
+        void main(){
+          vec4 a = projectionMatrix * modelViewMatrix * vec4(morphPos(startLL, 0.45), 1.0);
+          vec4 b = projectionMatrix * modelViewMatrix * vec4(morphPos(endLL, 0.45), 1.0);
+          vec2 delta = (b.xy / b.w - a.xy / a.w) * uViewport;
+          vec2 direction = delta / max(length(delta), 0.001);
+          gl_Position = mix(a, b, along);
+          gl_Position.xy += vec2(-direction.y, direction.x) * edge * 1.8 / uViewport * gl_Position.w;
+          vEdge = edge;
+        }`,
+      fragmentShader: `varying float vEdge; void main(){ gl_FragColor = vec4(0.65, 0.75, 0.88, 0.72 * (1.0 - smoothstep(0.65, 1.0, abs(vEdge)))); }`,
     });
-    const lines = new THREE.LineSegments(bgeo, bmat); lines.frustumCulled = false; lines.renderOrder = 2; this.scene.add(lines);
+    const lines = new THREE.Mesh(bgeo, bmat); lines.frustumCulled = false; lines.renderOrder = 2; this.world.add(lines);
   }
 
   private buildOcean() {
@@ -223,7 +256,7 @@ export class Globe {
           gl_FragColor = vec4(c * vS, 1.0);
         }`,
     });
-    const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; this.scene.add(m);
+    const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; this.world.add(m);
   }
 
   private buildAtmosphere() {
@@ -240,18 +273,18 @@ export class Globe {
     const n = 1800, p = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) { const v = new THREE.Vector3().randomDirection().multiplyScalar(2000 + Math.random() * 1500); p.set([v.x, v.y, v.z], i * 3); }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3));
-    const s = new THREE.Points(g, new THREE.PointsMaterial({ color: 0x8fa6c8, size: 1.6, sizeAttenuation: false, transparent: true, opacity: 0.55, depthWrite: false }));
+    const s = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xc6dcff, size: 2.1, sizeAttenuation: false, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
     this.scene.add(s); return s;
   }
 
   private buildSpikes() {
     const g = new THREE.CylinderGeometry(1, 1, 1, 14, 1, false); g.translate(0, 0.5, 0);
-    const m = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: true }), 64);
+    const m = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: true }), 2048);
     m.count = 0; m.frustumCulled = false; m.renderOrder = 3; this.scene.add(m); return m;
   }
 
   // ---------- 색·막대 ----------
-  /** RGB는 채움색, 텍스처 alpha는 빗금 여부다. null이면 기본 지도. */
+  /** RGB는 채움색, alpha는 단색(0)·한 방향 빗금(255)이다. null이면 기본 지도. */
   setBaseColors(colors: Map<string, [number, number, number]> | null, dimOthers = false, hatched: ReadonlySet<string> = new Set()) {
     const N = this.countries.length;
     // 현재 보이는 색을 prev로
@@ -269,30 +302,34 @@ export class Globe {
 
   setSpikes(list: Spike[]) {
     const old = new Map(this.spikes.map(s => [s.id, s.h]));
-    const next = list.map(s => ({ ...s, h0: old.get(s.id) ?? 0, h1: 3 + 26 * s.size, h: old.get(s.id) ?? 0, r: 0.7 + 1.1 * s.size }));
+    const next = list.map(s => ({ ...s, h0: old.get(s.id) ?? 0, h1: 3 + 64 * s.size, h: old.get(s.id) ?? 0, r: 0.65 }));
     // 사라지는 막대는 줄어들며 퇴장
     for (const s of this.spikes) if (!list.find(x => x.id === s.id)) next.push({ ...s, h0: s.h, h1: 0 });
-    this.spikes = next.slice(0, 64); this.spikeT = 0;
-    const col = new THREE.Color();
-    this.spikes.forEach((s, i) => this.spikeMesh.setColorAt(i, col.set(s.color)));
-    if (this.spikeMesh.instanceColor) this.spikeMesh.instanceColor.needsUpdate = true;
-    this.spikeMesh.count = this.spikes.length;
+    this.spikes = next.slice(0, 256); this.spikeT = 0;
   }
 
   private updateSpikes(dt: number) {
     if (this.spikeT < 1) this.spikeT = Math.min(1, this.spikeT + dt / 0.6);
     const e = ease(this.spikeT);
     const pos = new THREE.Vector3(), nrm = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), mtx = new THREE.Matrix4(), up = new THREE.Vector3(0, 1, 0);
-    this.spikes.forEach((s, i) => {
+    const col = new THREE.Color(); let instance = 0;
+    const offsets = this.morph > 0.998 ? [-2, -1, 0, 1, 2] : [0];
+    this.spikes.forEach(s => {
       s.h = s.h0 + (s.h1 - s.h0) * e;
       morphPosJS(s.lon, s.lat, 0.3, this.morph, pos); morphNormalJS(s.lon, s.lat, this.morph, nrm);
       q.setFromUnitVectors(up, nrm);
-      const flatBoost = 1 + this.morph * 0.9;
-      sc.set(s.r * flatBoost, Math.max(0.001, s.h * (1 - 0.92 * this.morph)), s.r * flatBoost);
-      mtx.compose(pos, q, sc); this.spikeMesh.setMatrixAt(i, mtx);
+      const presence = s.h1 > 0 ? Math.min(1, s.h / s.h1) : s.h / Math.max(0.001, s.h0);
+      const radius = ((1 - this.morph) * s.r + this.morph * (1 + 6 * s.size)) * presence;
+      sc.set(radius, Math.max(0.001, s.h * (1 - this.morph) + 0.12 * this.morph * presence), radius);
+      for (const offset of offsets) {
+        const wrapped = pos.clone(); wrapped.x += offset * 2 * Math.PI * R;
+        mtx.compose(wrapped, q, sc); this.spikeMesh.setMatrixAt(instance, mtx); this.spikeMesh.setColorAt(instance, col.set(s.color)); instance++;
+      }
     });
-    if (this.spikeT >= 1) { this.spikes = this.spikes.filter(s => s.h1 > 0); this.spikeMesh.count = this.spikes.length; }
+    if (this.spikeT >= 1) this.spikes = this.spikes.filter(s => s.h1 > 0);
+    this.spikeMesh.count = instance;
     this.spikeMesh.instanceMatrix.needsUpdate = true;
+    if (this.spikeMesh.instanceColor) this.spikeMesh.instanceColor.needsUpdate = true;
   }
 
   // ---------- 상호작용 ----------
@@ -310,7 +347,7 @@ export class Globe {
     const hit = ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -(R + 0.25)), new THREE.Vector3());
     if (!hit) return null;
     const lon = hit.x / R / D2R, lat = hit.y / R / D2R;
-    return Math.abs(lon) <= 180 && Math.abs(lat) <= 90 ? [lon, lat] : null;
+    return Math.abs(lat) <= 90 ? [((lon + 180) % 360 + 360) % 360 - 180, lat] : null;
   }
   countryAt(lon: number, lat: number): string | null {
     for (const c of this.countries) for (const p of c.polys) {
@@ -326,7 +363,9 @@ export class Globe {
 
   /** 경위도 → 화면 좌표(px) */
   project(lon: number, lat: number) {
-    const v = morphPosJS(lon, lat, 0.3, this.morph).project(this.camera);
+    const v = morphPosJS(lon, lat, 0.3, this.morph);
+    if (this.morph > 0.998) v.x += Math.round((this.controls.target.x - v.x) / (2 * Math.PI * R)) * 2 * Math.PI * R;
+    v.project(this.camera);
     const r = this.renderer.domElement.getBoundingClientRect();
     return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
   }
@@ -347,6 +386,7 @@ export class Globe {
       this.startCam(to, new THREE.Vector3(), animate, true);
     } else {
       const p = morphPosJS(lon, lat, 0, 1);
+      p.x += Math.round((this.controls.target.x - p.x) / (2 * Math.PI * R)) * 2 * Math.PI * R;
       this.startCam(new THREE.Vector3(p.x, p.y, R + dist), new THREE.Vector3(p.x, p.y, R), animate, false);
     }
   }
@@ -374,14 +414,24 @@ export class Globe {
       c.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
       c.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_ROTATE };
     } else {
-      c.enableRotate = false; c.enablePan = true; c.screenSpacePanning = true; c.minDistance = 30; c.maxDistance = 900;
+      c.enableRotate = false; c.enablePan = true; c.screenSpacePanning = true; c.minDistance = 20; c.maxDistance = this.flatMaxDistance();
       c.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
       c.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
     }
   }
-  private flatFitDist() {
-    const t = Math.tan((this.camera.fov / 2) * D2R);
-    return Math.min(Math.PI * R / t * 0.5 / 0.92, (2 * Math.PI * R) / (2 * t * this.camera.aspect) * 0.98) ;
+  private flatMaxDistance() { return Math.PI * R / (2 * Math.tan(this.camera.fov * D2R / 2)); }
+  private flatFitDist() { return this.flatMaxDistance(); }
+
+  private constrainFlatCamera() {
+    const t = this.controls.target, width = 2 * Math.PI * R;
+    const distance = THREE.MathUtils.clamp(this.camera.position.z - R, this.controls.minDistance, this.flatMaxDistance());
+    this.camera.position.z = R + distance;
+    const wrap = Math.floor((t.x + width / 2) / width) * width;
+    t.x -= wrap; this.camera.position.x -= wrap;
+    const halfView = distance * Math.tan(this.camera.fov * D2R / 2), limit = Math.max(0, Math.PI * R / 2 - halfView);
+    const y = THREE.MathUtils.clamp(t.y, -limit, limit);
+    this.camera.position.y += y - t.y; t.y = y;
+    this.camera.lookAt(t);
   }
   setFlat(flat: boolean) {
     if (flat === this.flat && this.morphT >= 1) return;
@@ -396,6 +446,8 @@ export class Globe {
   private resize() {
     const w = this.el.clientWidth, h = this.el.clientHeight;
     this.renderer.setSize(w, h, false); this.camera.aspect = w / Math.max(1, h); this.camera.updateProjectionMatrix();
+    (this.uniforms.uViewport.value as THREE.Vector2).set(w, h);
+    if (this.flat && this.morphT >= 1) this.controls.maxDistance = this.flatMaxDistance();
   }
   private frame() {
     const now = performance.now(); const dt = Math.min(0.05, (now - this.lastT) / 1000); this.lastT = now;
@@ -429,17 +481,14 @@ export class Globe {
       const p = this.camera.position; const ang = dt * 0.035; const x = p.x, z = p.z;
       p.x = x * Math.cos(ang) + z * Math.sin(ang); p.z = -x * Math.sin(ang) + z * Math.cos(ang);
     }
-    if (this.flat && this.morphT >= 1) {
-      const t = this.controls.target, lim = Math.PI * R;
-      const cx = THREE.MathUtils.clamp(t.x, -lim, lim), cy = THREE.MathUtils.clamp(t.y, -lim / 2, lim / 2);
-      if (cx !== t.x || cy !== t.y) { this.camera.position.x += cx - t.x; this.camera.position.y += cy - t.y; t.set(cx, cy, t.z); }
-    }
     this.controls.update();
+    if (this.flat && this.morphT >= 1 && !this.camAnim) this.constrainFlatCamera();
+    for (const copy of this.worldCopies) copy.visible = this.morph > 0.998;
     // 빛은 카메라 쪽에서 살짝 위
     (this.uniforms.uLight.value as THREE.Vector3).copy(this.camera.position).normalize().add(new THREE.Vector3(0, 0.25, 0)).normalize();
     (this.atmo.material as THREE.ShaderMaterial).uniforms.uFade.value = Math.max(0, 1 - this.morph * 2.5);
     this.atmo.visible = this.morph < 0.4;
-    (this.stars.material as THREE.PointsMaterial).opacity = 0.55 * (1 - this.morph * 0.7);
+    (this.stars.material as THREE.PointsMaterial).opacity = 0.9 * (1 - this.morph * 0.85);
     this.updateSpikes(dt);
     const camKey = this.camera.position.x.toFixed(2) + ',' + this.camera.position.y.toFixed(2) + ',' + this.camera.position.z.toFixed(2) + ',' + this.morph.toFixed(3);
     const camMoved = camKey !== this.lastCamKey; this.lastCamKey = camKey;
