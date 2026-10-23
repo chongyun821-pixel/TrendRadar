@@ -79,7 +79,7 @@ DATABASE_URL=
 SUPABASE_STORAGE_BUCKET=trendradar-private
 ```
 
-Supabase 대시보드에서 프로젝트 URL과 서버용 Secret API key를 가져옵니다. `DATABASE_URL`에는 Connect의 Session pooler 연결 주소를 입력하고, 비밀번호 자리를 프로젝트 DB 비밀번호로 바꿉니다. 비밀번호에 특수문자가 있으면 URL 인코딩해야 합니다.
+Supabase 대시보드에서 프로젝트 URL과 서버용 Secret API key를 가져옵니다. `DATABASE_URL`에는 Connect의 Transaction pooler 연결 주소(포트 6543)를 입력하고, 비밀번호 자리를 프로젝트 DB 비밀번호로 바꿉니다. 비밀번호에 특수문자가 있으면 URL 인코딩해야 합니다.
 
 ### 3. 채팅 모델 준비
 
