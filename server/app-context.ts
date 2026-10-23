@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { commandVersionMatches, type AppContext } from '../shared/app-context';
+import type { AppContext } from '../shared/app-context';
 import { resolveCountry, resolveSystem, isGeneral } from '../shared/data';
 import { SYSTEM_KEYS, type SystemKey } from '../shared/types';
 import { execution, executions } from './execution';
@@ -72,13 +72,7 @@ export async function requestAppCommand(data: Record<string, unknown>, screenId?
   const current = await readAppContext(ctx.repo, screenId || ctx.appContext?.screenId);
   if (!current.available || current.stale) throw new Error('활성 앱 화면이 없습니다. 앱에서 다시 요청하세요');
   if (current.state.conversationId !== ctx.conversationId) throw new Error('화면의 대화가 변경되었습니다');
-  const baseline = expectedVersion ?? ctx.appContext?.version ?? current.state.version;
-  const applied = await ctx.repo.all("SELECT expected_version,result FROM app_commands WHERE screen_id=? AND run_id=? AND status='applied'", current.state.screenId, ctx.runId);
-  const versions = applied.flatMap(row => {
-    const result = JSON.parse(row.result || '{}');
-    return Number.isInteger(result.version) ? [{ expectedVersion: row.expected_version, version: result.version }] : [];
-  });
-  if (expectedVersion !== undefined ? baseline !== current.state.version : !commandVersionMatches(baseline, current.state.version, versions)) throw new Error('화면 버전 충돌: 최신 상태를 확인하세요');
+  // 챗봇의 화면 명령은 사용자가 그사이 화면을 바꿨더라도 항상 적용한다(같은 대화의 화면에 한한다)
   const expected = current.state.version;
   const commandId = randomUUID();
   const latest = await ctx.repo.one('SELECT created_at FROM app_commands WHERE screen_id=? ORDER BY created_at DESC LIMIT 1', current.state.screenId);
@@ -165,7 +159,7 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
 /** 적용 대기 시간. 테스트는 줄일 수 있다 */
 export const screenSettings = { waitMs: 3000 };
 const MESSAGES = {
-  conflict: '요청 이후 사용자가 화면을 바꿔 적용하지 않았다. 사용자 화면을 유지하고, 반영하지 못한 내용을 답에 한 줄로 알린다',
+  conflict: '화면이 다른 대화로 바뀌어 적용하지 않았다. 반영하지 못한 내용을 답에 한 줄로 알린다',
   hidden: '앱 탭이 백그라운드에 있어 아직 적용되지 않았다. 탭을 다시 열면 자동으로 적용된다고 사용자에게 알린다',
   closed: '앱 화면이 닫혀 있거나 응답하지 않아 화면을 바꾸지 못했다. 앱 화면을 열고 다시 요청해 달라고 사용자에게 알린다',
   otherConversation: '사용자가 화면에서 다른 대화를 보고 있어 바꾸지 않았다. 반영하지 못한 내용을 사용자에게 알린다',
@@ -180,9 +174,7 @@ export async function screenCommand(data: Record<string, unknown>, screenId?: st
   const current = await readAppContext(ctx.repo, screenId || ctx.appContext?.screenId);
   if (!current.available || current.stale) return fail('inactive', MESSAGES.closed);
   if (current.state.conversationId !== ctx.conversationId) return fail('conflict', MESSAGES.otherConversation);
-  let queued: { commandId: string };
-  try { queued = await requestAppCommand(data, screenId, expectedVersion); }
-  catch (error) { if (/버전 충돌/.test(String(error))) return fail('conflict', MESSAGES.conflict); throw error; }
+  const queued = await requestAppCommand(data, screenId, expectedVersion);
   return waitCommand(queued.commandId);
 }
 export async function waitCommand(commandId: string, ms = screenSettings.waitMs): Promise<ScreenResult> {

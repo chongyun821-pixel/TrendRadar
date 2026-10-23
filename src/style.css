@@ -18,7 +18,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .brand { display: flex; align-items: center; gap: 8px; justify-self: start; color: #f4f6f9; white-space: nowrap; }
 .brand img { display: block; width: auto; height: 32px; filter: drop-shadow(0 1px 6px #0008); }
 /* 한화 R 서체에서 H·O·R·U·S 5글자만 담은 워드마크 전용 글꼴(public/fonts) */
-.brand .wordmark { font-family: 'HORUS Wordmark', sans-serif; font-weight: 400; font-size: 27px; line-height: 1; letter-spacing: .02em; transform: translateY(2px); text-shadow: 0 1px 8px #000; }
+.brand .wordmark { font-family: 'HORUS Wordmark', sans-serif; font-weight: 400; font-size: 24px; line-height: 1; letter-spacing: .02em; transform: translateY(.024em); /* 글자(H·O·R·U·S) 높이의 중심을 심볼 중심에 맞춘다 */ text-shadow: 0 1px 8px #000; }
 .modes { justify-self: center; margin: 0; display: flex; gap: 2px; padding: 3px; background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); overflow-x: auto; scrollbar-width: none; max-width: 100%; }
 .modes::-webkit-scrollbar { display: none; }
 .modes button { border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--mut); white-space: nowrap; transition: background .2s, color .2s; display: inline-flex; align-items: center; gap: 5px; }
@@ -235,7 +235,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .top-left { grid-column: 1; grid-row: 1; } .map-btn { grid-column: 2; grid-row: 1; } .modes { grid-column: 1 / -1; grid-row: 2; max-width: 100%; }
 }
 @media (max-width: 760px) {
-  .brand img { height: 28px; } .brand .wordmark { font-size: 23px; }
+  .brand img { height: 28px; } .brand .wordmark { font-size: 21px; }
   .modes { width: 100%; }
   #legend { bottom: 76px; left: 10px; display: grid; grid-template-columns: repeat(2, max-content); gap: 4px 14px; max-width: calc(100vw - 20px); }
   #legend .legend-title, #legend small, #legend .sz { grid-column: 1 / -1; }

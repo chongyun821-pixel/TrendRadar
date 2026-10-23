@@ -28,7 +28,9 @@ export const GROK_ENV: Record<string, string> = {
   ...Object.fromEntries(['CLAUDE', 'CURSOR'].flatMap(v => ['AGENTS', 'HOOKS', 'MCPS', 'RULES', 'SKILLS'].map(k => [`GROK_${v}_${k}_ENABLED`, 'false']))),
 };
 /** 사용자 설정·기본 도구를 유지하고 호출별 웹 검색·권한을 설정한다. */
-export const CODEX_CONFIG = ['web_search="live"', 'approval_policy="never"'];
+// 사용자 config.toml의 외부용 procurement_radar(HTTP)는 실행 중인 화면·대화를 모른다. 앱 안 코덱스는 화면 정보가 있는 procurement(stdio)만 쓰게 끈다
+export const EXTERNAL_MCP_SERVERS = ['procurement_radar'];
+export const CODEX_CONFIG = ['web_search="live"', 'approval_policy="never"', ...EXTERNAL_MCP_SERVERS.map(name => `mcp_servers.${name}.enabled=false`)];
 export const CODEX_DISABLE = ['multi_agent'];
 
 type Mods = { cp: typeof import('node:child_process'); fs: typeof import('node:fs'); path: typeof import('node:path'); os: typeof import('node:os'); crypto: typeof import('node:crypto') };

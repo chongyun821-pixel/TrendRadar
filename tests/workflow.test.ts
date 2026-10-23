@@ -163,7 +163,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       await expect(saveAppContext(f.repo, { ...state, report: { ...state.report, dataVersion: 999 } })).rejects.toThrow(/기준/);
     } finally { await f.repo.close(); }
   });
-  it('화면 명령은 접수와 적용을 구분하고 탭과 상태 버전 및 대화가 다른 경우를 거절한다', async () => {
+  it('화면 명령은 접수와 적용을 구분하고, 사용자가 화면을 바꿔도 접수하며 다른 대화 화면은 거절한다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const result: any = await runTool('set_map_state', { payload: JSON.stringify({ country: '핀란드', flat: true }) }, newOut());
@@ -173,7 +173,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       await acknowledgeCommand(f.repo, f.state.screenId, result.commandId, { status: 'applied' });
       expect(await runTool('get_app_command', { commandId: result.commandId }, newOut())).toMatchObject({ status: 'applied' });
       await saveAppContext(f.repo, { ...f.state, version: 2, focus: 'CAN' });
-      expect(await runTool('set_map_state', { payload: '{"country":"FIN"}' }, newOut())).toHaveProperty('error');
+      expect(await runTool('set_map_state', { payload: '{"country":"FIN"}' }, newOut())).toMatchObject({ status: 'pending' }); // 사용자가 화면을 바꿨어도 챗봇 명령은 적용한다
       const other = await f.repo.createConversation();
       await saveAppContext(f.repo, { ...f.state, version: 3, conversationId: other.id });
       expect(await runTool('switch_conversation', { conversationId: f.ctx.conversationId }, newOut())).toHaveProperty('error');
@@ -182,7 +182,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(await readAppContext(f.repo, f.state.screenId)).toMatchObject({ stale: true });
     }); } finally { await f.repo.close(); }
   });
-  it('같은 실행의 모드 변경→국가 선택→보고서는 적용 버전을 이어받고 사용자 변경은 거절한다', async () => {
+  it('같은 실행의 모드 변경→국가 선택→보고서는 적용 버전을 이어받고 사용자 변경 뒤에도 명령을 접수한다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const mode: any = await runTool('set_mode', { system: '다연장로켓' }, newOut());
@@ -201,8 +201,8 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(command.data).toMatchObject({ type: 'show_report', country: 'POL', system: 'mrl', reportId: report.reportId });
       expect(await f.repo.one('SELECT id FROM reports WHERE id=?', report.reportId)).toBeTruthy();
       await saveAppContext(f.repo, { ...changed, version: 3, focus: 'FIN' });
-      expect(await runTool('focus_country', { country: '폴란드' }, newOut())).toHaveProperty('error');
-      expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 1 }, newOut())).toHaveProperty('error');
+      expect(await runTool('focus_country', { country: '폴란드' }, newOut())).toMatchObject({ status: 'pending' });
+      expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 1 }, newOut())).toMatchObject({ status: 'pending' });
       expect(await runTool('set_map_state', { payload: '{"country":"POL"}', expectedVersion: 3 }, newOut())).toMatchObject({ status: 'pending' });
     }); } finally { await f.repo.close(); }
   });
