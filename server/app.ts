@@ -14,8 +14,8 @@ import { saveAppContext, readAppContext, pendingCommands, acknowledgeCommand } f
 import { reportEntry, saveViewedReport } from './viewed-reports';
 import { TOOL_DEFS } from './agent';
 import { executeTool } from './tool-session';
-import { scoreSystem, scoreSummary } from './scoring';
-import { resolveSystem } from '../shared/data';
+import { scoreCase, scoreSystem, scoreSummary } from './scoring';
+import { resolveCountry, resolveSystem } from '../shared/data';
 
 /** Origin 헤더가 없으면(도구·CLI) 허용, 있으면 요청 Host와 같아야 한다 */
 export function sameOrigin(origin: string | undefined, host: string | undefined) {
@@ -44,6 +44,15 @@ app.get('/scores', async c => {
   if (!system) return c.json({ error: '체계를 지정하세요' }, 400);
   const repo = repository(), snapshot = await repo.versionedData();
   return c.json({ revision: snapshot.revision, system, scores: (await scoreSystem(repo, snapshot.data, system)).map(scoreSummary) }, 200, { 'cache-control': 'no-store' });
+});
+// 한 국가·체계의 항목별 점수(get_score_breakdown과 같은 scoreCase 계산). 지도 정보 카드의 판단 점수 내역용
+app.get('/scores/:country', async c => {
+  const system = resolveSystem(c.req.query('system'));
+  if (!system) return c.json({ error: '체계를 지정하세요' }, 400);
+  const country = resolveCountry(c.req.param('country'));
+  if (!country) return c.json({ error: '국가를 찾을 수 없습니다' }, 404);
+  const repo = repository(), snapshot = await repo.versionedData();
+  return c.json({ revision: snapshot.revision, ...(await scoreCase(repo, snapshot.data, country, system)) }, 200, { 'cache-control': 'no-store' });
 });
 app.get('/report', c => { const r = writeReport({ country: c.req.query('country'), system: c.req.query('system') }); return 'error' in r ? c.json(r, 404) : c.text(r.markdown, 200, { 'content-type': 'text/markdown; charset=utf-8' }); });
 app.get('/data', async c => {

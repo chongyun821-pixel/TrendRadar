@@ -64,7 +64,7 @@
 
 ## 판단 점수
 
-`get_score_breakdown(country, system)`은 통과 조건(수출 불가·독자 양산), 항목별 점수(비중 × 원점수 × 출처 신뢰도), 고객 등급 계수와 근거 ID(`표:키`), 보고서용 근거 표 마크다운을 반환한다. 지도는 `GET /api/scores?system=`으로 같은 점수를 받아 제외 국가를 회색으로 표시한다. `prepare_report`의 `evidenceTables`는 케이스별 근거 표 자료다. 수집 방법은 [데이터 수집 실행 안내](data-collection.md)를 따른다.
+`get_score_breakdown(country, system)`은 통과 조건(수출 불가·독자 양산), 항목별 점수(비중 × 원점수 × 출처 신뢰도), 고객 등급 계수와 근거 ID(`표:키`), 보고서용 근거 표 마크다운을 반환한다. 지도는 `GET /api/scores?system=`으로 같은 점수를 받아 제외 국가를 회색으로 표시한다. 정보 카드의 판단 점수 행은 `GET /api/scores/{국가}?system=`(읽기 전용, `get_score_breakdown`과 같은 계산)으로 한 국가·체계의 항목별 점수를 받아 펼친다. `prepare_report`의 `evidenceTables`는 케이스별 근거 표 자료다. 수집 방법은 [데이터 수집 실행 안내](data-collection.md)를 따른다.
 
 ## 공개 자료 수집
 

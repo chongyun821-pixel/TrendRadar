@@ -64,6 +64,29 @@ describe('get_score_breakdown·/api/scores', () => {
     expect(r.evidenceMarkdown).toContain('| 항목 | 비중 | 원점수 | 출처 신뢰도 | 점수 | 판단 내용 | 근거 ID |');
     expect(r.evidenceMarkdown).toContain('- 고객등급: 수출 가능 (계수 1)');
   });
+  it('GET /api/scores/:country는 get_score_breakdown과 같은 항목별 점수를 돌려준다', async () => {
+    const repo = repository();
+    await upsertRows(repo, 'export_tiers', [tierRow('POL', 1), tierRow('EGY', 3)]);
+    const tool: any = await runTool('get_score_breakdown', { country: 'POL', system: 'sph' }, newOut());
+    const res = await app.request('/api/scores/POL?system=sph');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const body = await res.json();
+    expect(body).toMatchObject({ country: 'POL', system: 'sph', countryKo: '폴란드', score: tool.score, subtotal: tool.subtotal, tierFactor: tool.tierFactor, domesticFactor: tool.domesticFactor, gate: tool.gate });
+    expect(body.revision).toEqual(expect.any(Number));
+    expect(body.components.map((c: any) => c.factor)).toEqual(['intent', 'aging', 'fiscal', 'neighbor', 'consumption', 'competition', 'access']);
+    expect(body.components).toEqual(tool.components);
+    const summary = (await (await app.request('/api/scores?system=sph')).json()).scores.find((s: any) => s.country === 'POL');
+    expect(summary.score).toBe(body.score);
+    // 한국어 국가명·체계 별칭, 제외 국가, 잘못된 입력
+    expect(await (await app.request(`/api/scores/${encodeURIComponent('폴란드')}?system=${encodeURIComponent('자주포')}`)).json()).toMatchObject({ country: 'POL', system: 'sph', score: body.score });
+    expect(await (await app.request('/api/scores/EGY?system=sph')).json()).toMatchObject({ grey: true, score: 0, gate: { passed: false, reason: expect.stringContaining('수출 불가') } });
+    expect((await app.request('/api/scores/POL')).status).toBe(400);
+    expect((await app.request(`/api/scores/${encodeURIComponent('없는나라')}?system=sph`)).status).toBe(404);
+    // 읽기 전용 GET은 다른 출처에서 와도 기존 규칙대로 허용, 쓰기 메서드는 없다
+    expect((await app.request('/api/scores/POL?system=sph', { headers: { origin: 'https://evil.example', host: 'localhost' } })).status).toBe(200);
+    expect((await app.request('/api/scores/POL?system=sph', { method: 'POST', headers: { origin: 'https://evil.example', host: 'localhost' } })).status).toBe(403);
+  });
   it('prepare_report 작성 자료에 케이스별 근거 표가 들어간다', async () => {
     const repo = repository(), conversation = await repo.createConversation(), runId = randomUUID();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, conversation.id, 'test', 'running', now());

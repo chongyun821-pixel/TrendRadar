@@ -8,12 +8,16 @@ import { initChat } from './chat';
 import { esc } from './md';
 import { landNeighbors } from '../shared/tension';
 import { SYSTEM_COLOR, UNKNOWN_COLOR, MISSING_RGB, mapCountryStyles, rgbCss, systemTint, type CountryMapStyle } from './map-style';
+import { est, scorePanelHtml, scoreRowHtml, type ScoreDetail } from './score-panel';
 
 const state = { mode: null as SystemKey | null, flat: false, focus: null as string | null, pinned: false };
 let mapStyles = new Map<string, CountryMapStyle>();
 /** 판단 점수와 수출 제외 사유는 정보 카드에 표시한다. 지도 색은 시기·자료 충실도로 결정한다. */
 interface ScoreSummary { country: string; score: number; grey: boolean; gate: string | null }
 const scores = new Map<string, ScoreSummary>();
+/** 판단 점수 항목별 내역: 펼친 행(hover 미리보기 또는 클릭 고정)과 국가·체계별 캐시. 점수를 다시 불러오면 비운다 */
+const scoreDetail = { open: null as { country: string; system: SystemKey; sticky: boolean } | null, cache: new Map<string, ScoreDetail>(), generation: 0, suppressHover: false, onUpdate: null as (() => void) | null };
+const detailKey = (country: string, system: SystemKey) => `${system}:${country}`;
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 
 async function boot() {
@@ -52,15 +56,25 @@ async function boot() {
   });
   (window as any).__globe = globe;
 
+  let tipAt = { left: 0, top: 0 };
   function placeTip(x: number, y: number) {
     tip.classList.add('show');
     const w = tip.offsetWidth, h = tip.offsetHeight, W = innerWidth, H = innerHeight;
     let left = x + 18, top = y + 14;
     if (left + w > W - 8) left = x - w - 18;
     if (top + h > H - 90) top = Math.max(60, y - h - 14);
-    tip.style.transform = `translate(${Math.max(8, left)}px, ${Math.max(56, top)}px)`;
+    tipAt = { left: Math.max(8, left), top: Math.max(56, top) };
+    tip.style.transform = `translate(${tipAt.left}px, ${tipAt.top}px)`;
   }
-  function unpin() { state.pinned = false; tip.classList.remove('pinned', 'show'); lastHover = null; }
+  /** 카드 내용이 늘어난 뒤 화면 밖으로 나가는 만큼만 옮긴다(커서 아래 행이 튀지 않게 제자리 유지가 우선) */
+  function keepTipOnScreen() {
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    const left = Math.max(8, Math.min(tipAt.left, innerWidth - w - 8)), top = Math.max(56, Math.min(tipAt.top, innerHeight - h - 90)); // placeTip과 같은 하단 여백(입력창)
+    if (left === tipAt.left && top === tipAt.top) return;
+    tipAt = { left, top };
+    tip.style.transform = `translate(${left}px, ${top}px)`;
+  }
+  function unpin() { state.pinned = false; tip.classList.remove('pinned', 'show'); lastHover = null; scoreDetail.open = null; }
 
   function applyMode() {
     document.querySelectorAll<HTMLButtonElement>('.modes button').forEach(b => b.classList.toggle('on', (b.dataset.sys || null) === state.mode));
@@ -80,7 +94,7 @@ async function boot() {
   let scoreRequest = 0;
   async function loadScores() {
     const mode = state.mode, request = ++scoreRequest;
-    scores.clear();
+    scores.clear(); scoreDetail.cache.clear(); scoreDetail.generation++;
     if (!mode) return;
     try {
       const response = await fetch(`/api/scores?system=${mode}`, { cache: 'no-store' });
@@ -131,7 +145,53 @@ async function boot() {
       if (state.focus) { tip.innerHTML = tipHtml(state.focus, names); chat.suggest(state.focus); }
     },
   });
+  // 판단 점수 행: 커서를 올리면 미리 보고, 누르면(터치 포함) 고정/닫기. 다른 카드 클릭 동작으로 넘기지 않는다
+  const scoreRowOf = (el: EventTarget | null) => (el instanceof Element ? el.closest<HTMLElement>('tr.score-row') : null);
+  const inScoreArea = (el: EventTarget | null) => el instanceof Element && !!el.closest('tr.score-row, tr.score-detail');
+  function openScore(row: HTMLElement, sticky: boolean) {
+    const country = row.dataset.scoreCountry!, system = row.dataset.scoreSystem as SystemKey;
+    if (!SYSTEM_KEYS.includes(system)) return;
+    const open = scoreDetail.open;
+    if (open && open.country === country && open.system === system) { open.sticky ||= sticky; return; } // 커서로 연 패널을 누르면 그대로 고정
+    const key = detailKey(country, system);
+    if (scoreDetail.cache.get(key)?.status === 'error') scoreDetail.cache.delete(key); // 실패한 내역은 다시 열 때 재시도
+    scoreDetail.open = { country, system, sticky };
+    showScoreDetail();
+  }
+  function closeScore() { scoreDetail.open = null; showScoreDetail(); }
+  function showScoreDetail() {
+    const row = tip.querySelector<HTMLElement>('tr.score-row');
+    tip.querySelector('tr.score-detail')?.remove();
+    if (!row) return;
+    const html = scoreSlotHtml(row.dataset.scoreCountry!, row.dataset.scoreSystem as SystemKey);
+    row.classList.toggle('open', !!html); row.setAttribute('aria-expanded', String(!!html));
+    if (html) row.insertAdjacentHTML('afterend', html);
+    if (html && tip.classList.contains('show')) keepTipOnScreen(); // 내용이 늘어도 화면 안에 둔다
+  }
+  scoreDetail.onUpdate = showScoreDetail;
+  tip.addEventListener('mouseover', event => {
+    const row = scoreRowOf(event.target);
+    if (row && !scoreDetail.open && !scoreDetail.suppressHover) openScore(row, false);
+  });
+  tip.addEventListener('mouseout', event => {
+    if (!inScoreArea(event.target) || inScoreArea(event.relatedTarget)) return;
+    scoreDetail.suppressHover = false;
+    if (scoreDetail.open && !scoreDetail.open.sticky) closeScore();
+  });
+  tip.addEventListener('keydown', event => {
+    const row = scoreRowOf(event.target);
+    if (!row || (event.key !== 'Enter' && event.key !== ' ')) return;
+    event.preventDefault(); event.stopPropagation();
+    if (scoreDetail.open?.sticky) closeScore(); else openScore(row, true);
+  });
   tip.addEventListener('click', event => {
+    const scoreRow = scoreRowOf(event.target);
+    if (scoreRow || inScoreArea(event.target)) {
+      event.stopPropagation();
+      if (!scoreRow) return; // 패널 안 클릭은 아무 동작도 하지 않는다
+      if (scoreDetail.open?.sticky) { closeScore(); scoreDetail.suppressHover = true; } else openScore(scoreRow, true);
+      return;
+    }
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-report-system][data-report-country]');
     if (!button) return;
     const country = button.dataset.reportCountry!, system = button.dataset.reportSystem as SystemKey;
@@ -156,8 +216,30 @@ async function boot() {
   addEventListener('focus', checkData);
 }
 
+/** 펼친 판단 점수 행 아래에 넣을 패널. 캐시에 없으면 그때 불러온다(국가·체계별 1회, 점수 재로딩 시 무효화) */
+function scoreSlotHtml(country: string, system: SystemKey) {
+  const open = scoreDetail.open;
+  if (!open || open.country !== country || open.system !== system || state.mode !== system) return '';
+  const key = detailKey(country, system);
+  let detail = scoreDetail.cache.get(key);
+  if (!detail) { detail = { status: 'loading' }; scoreDetail.cache.set(key, detail); void fetchScoreDetail(country, system, key); }
+  return scorePanelHtml(detail, SYSTEM_COLOR[system]);
+}
+async function fetchScoreDetail(country: string, system: SystemKey, key: string) {
+  const generation = scoreDetail.generation;
+  let detail: ScoreDetail;
+  try {
+    const response = await fetch(`/api/scores/${encodeURIComponent(country)}?system=${encodeURIComponent(system)}`, { cache: 'no-store' });
+    const body = await response.json().catch(() => ({}));
+    detail = response.ok && Array.isArray(body.components) ? { status: 'ok', data: body } : { status: 'error', message: `항목별 점수를 불러오지 못했습니다${body?.error ? ` · ${String(body.error)}` : ''}` };
+  } catch { detail = { status: 'error', message: '항목별 점수를 불러오지 못했습니다 · 연결을 확인하세요' }; }
+  if (generation !== scoreDetail.generation) return; // 그 사이 점수·모드·자료 버전이 바뀌었다
+  scoreDetail.cache.set(key, detail);
+  const open = scoreDetail.open;
+  if (open && detailKey(open.country, open.system) === key) scoreDetail.onUpdate?.();
+}
+
 function fmtWin(f: Forecast) { return f.window ? `${f.window[0]}~${f.window[1]}년` : '—'; }
-const est = (on: boolean) => (on ? ' <em>추정</em>' : '');
 function host(u: string) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
 function safeHref(u: string) { try { const url = new URL(u); return ['http:', 'https:'].includes(url.protocol) ? esc(url.href) : '#'; } catch { return '#'; } }
 
@@ -174,8 +256,9 @@ function tipHtml(id: string, names: Record<string, string>) {
   const sysKo = esc(seed.systems[mode].ko);
   const sc = scores.get(id);
   const style = mapStyles.get(id);
-  const scoreRow: [string, string] | null = sc ? ['판단 점수', sc.grey ? `제외 · ${esc((sc.gate || '').slice(0, 60))}` : `${sc.score}/100`] : null;
-  if (!rec || style?.coverage === 'missing') return `<div class="th">${esc(meta?.flag ?? '')} ${name} · ${sysKo}<span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : UNKNOWN_COLOR}">${style?.hatched ? '인접국 참고' : '데이터 없음'}</span></div>${style?.hatched ? `<p class="map-note">${style.neighbors.map(n => esc(names[n] ?? n)).join(' · ')}의 자료가 충분해 빗금으로 표시합니다. 이 국가의 보유 장비나 교체 일정은 확인되지 않았습니다.</p>` : '<p class="map-note">이 무기체계의 자료가 아직 없습니다.</p>'}${scoreRow ? `<table><tr><th>${scoreRow[0]}</th><td>${scoreRow[1]}</td></tr></table>` : ''}`;
+  if (scoreDetail.open && (scoreDetail.open.country !== id || scoreDetail.open.system !== mode)) scoreDetail.open = null;
+  const scoreRow = sc ? scoreRowHtml(id, mode, sc.grey ? `제외 · ${esc((sc.gate || '').slice(0, 60))}` : `${sc.score}/100`, !!scoreDetail.open) + scoreSlotHtml(id, mode) : '';
+  if (!rec || style?.coverage === 'missing') return `<div class="th">${esc(meta?.flag ?? '')} ${name} · ${sysKo}<span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : UNKNOWN_COLOR}">${style?.hatched ? '인접국 참고' : '데이터 없음'}</span></div>${style?.hatched ? `<p class="map-note">${style.neighbors.map(n => esc(names[n] ?? n)).join(' · ')}의 자료가 충분해 빗금으로 표시합니다. 이 국가의 보유 장비나 교체 일정은 확인되지 않았습니다.</p>` : '<p class="map-note">이 무기체계의 자료가 아직 없습니다.</p>'}${scoreRow ? `<table>${scoreRow}</table>` : ''}`;
   const f = computeForecast(rec);
   const cur = f.current;
   const be = (b: { est: string[] }, k: string) => b.est.includes(k);
@@ -190,10 +273,9 @@ function tipHtml(id: string, names: Record<string, string>) {
   if (f.status !== 'none') rows.push(['예상 사업', `${fmtQtyRange(f.qty, esc(f.unit))} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
   if (style?.coverage === 'partial') rows.push(['지도 표시', f.remaining == null ? '연한 회색 · 시기 미확인' : '연한 색 · 자료 일부']);
-  if (scoreRow) rows.push(scoreRow);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
   return `<div class="th">${esc(meta.flag)} ${name} · ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : CATEGORY_KO[f.category]}</span></div>
-    <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}</table>
+    <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
     <div class="src">${links}${f.sources.length > 4 ? `<span>+${f.sources.length - 4}</span>` : ''}</div>`;
 }
 

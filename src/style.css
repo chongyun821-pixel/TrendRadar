@@ -167,3 +167,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .picker-hint { font-size: 11px; color: var(--mut, #8a96ad); }
 .picker-delete { background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; font-size: 11px; color: #efaaaa; }
 .picker-empty { padding: 6px 8px; color: var(--mut, #8a96ad); }
+
+/* 정보 카드 판단 점수 항목별 내역 */
+.tip .score-row { cursor: pointer; }
+.tip .score-row td { text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; }
+.tip .score-row:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.tip .score-more { display: inline-block; margin-left: 5px; font-size: 10px; color: var(--mut); transition: transform .12s; }
+.tip .score-row.open .score-more { transform: rotate(90deg); }
+.tip .score-detail td { padding: 2px 0 0; }
+.score-panel { max-height: min(44vh, 380px); overflow-y: auto; overscroll-behavior: contain; margin-top: 3px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 11px; line-height: 1.35; }
+.score-panel .sf-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.score-panel .sf { display: grid; grid-template-columns: 1fr auto; column-gap: 8px; row-gap: 2px; }
+.score-panel .sf-p { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.score-panel .sf-bar { grid-column: 1 / -1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; }
+.score-panel .sf-bar i { display: block; height: 100%; background: var(--c); }
+.score-panel .sf-d { grid-column: 1 / -1; color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.score-panel .sf.missing .sf-l, .score-panel .sf-miss { color: var(--mut); }
+.score-panel .score-gate { margin: 0 0 5px; color: #ffb3a8; }
+.score-panel .score-sum { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--line); color: var(--mut); }
+.score-panel .score-sum b { color: inherit; font-weight: 600; color: #fff; }
+.score-panel .score-status { margin: 0; color: var(--mut); }
+.score-panel .score-status.error { color: #ffb3a8; }
