@@ -8,6 +8,8 @@ import { initChat } from './chat';
 import { esc } from './md';
 import { landNeighbors } from '../shared/tension';
 import { SYSTEM_COLOR, UNKNOWN_COLOR, MISSING_RGB, mapCountryStyles, rgbCss, systemTint, type CountryMapStyle } from './map-style';
+import { renderRankingReport } from './ranking-report';
+import { mountTimeline, purgeTimeline } from './plotly-timeline';
 
 const state = { mode: null as SystemKey | null, flat: false, focus: null as string | null, pinned: false };
 let mapStyles = new Map<string, CountryMapStyle>();
@@ -18,10 +20,17 @@ const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 
 async function boot() {
   let dataVersion = '';
+  let selectedTimeline: [number, number] | null = null;
   async function refreshData() {
     const response = await fetch('/api/data', { cache: 'no-store' });
     if (!response.ok) throw new Error('조달 데이터 로드 실패');
     setData(await response.json());
+    const rankingReport = document.querySelector<HTMLElement>('#rankingReport');
+    if (rankingReport) {
+      purgeTimeline(rankingReport.querySelector('#rankTimelinePlot'));
+      rankingReport.innerHTML = renderRankingReport(seed);
+      if (!rankingReport.hidden) void showPlotlyTimeline();
+    }
     dataVersion = response.headers.get('x-data-version') || '';
     const status = document.querySelector('#dataUpdated');
     if (status) status.textContent = `자료 갱신 ${seed.meta.collected ? new Date(seed.meta.collected).toLocaleString('ko-KR') : '미확인'}`;
@@ -113,6 +122,23 @@ async function boot() {
   modes.innerHTML = items.map(([k, ko]) => `<button data-sys="${esc(k)}"${k ? ` style="--system-color:${SYSTEM_COLOR[k as SystemKey]}"` : ''}>${esc(ko)}</button>`).join('');
   modes.addEventListener('click', e => { const b = (e.target as HTMLElement).closest('button'); if (b) setMode((b.dataset.sys || null) as SystemKey | null); });
   $('#mapBtn').addEventListener('click', () => toggleMap());
+  function setView(report: boolean) {
+    document.body.classList.toggle('report-view', report);
+    $('#rankingReport').hidden = !report;
+    $('#mapViewBtn').classList.toggle('on', !report);
+    $('#reportViewBtn').classList.toggle('on', report);
+    if (report) {
+      $('#reportViewBtn').setAttribute('aria-current', 'page');
+      $('#mapViewBtn').removeAttribute('aria-current');
+      unpin();
+      void showPlotlyTimeline();
+    } else {
+      $('#mapViewBtn').setAttribute('aria-current', 'page');
+      $('#reportViewBtn').removeAttribute('aria-current');
+    }
+  }
+  $('#mapViewBtn').addEventListener('click', () => setView(false));
+  $('#reportViewBtn').addEventListener('click', () => setView(true));
 
   const chat = initChat({
     names,
@@ -131,15 +157,47 @@ async function boot() {
       if (state.focus) { tip.innerHTML = tipHtml(state.focus, names); chat.suggest(state.focus); }
     },
   });
-  tip.addEventListener('click', event => {
+  function openDetail(event: Event) {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-report-system][data-report-country]');
     if (!button) return;
     const country = button.dataset.reportCountry!, system = button.dataset.reportSystem as SystemKey;
     if (!SYSTEM_KEYS.includes(system) || !findRecord(country, system)) return;
     // 보고서는 채팅 요청 없이 바로 보여주고 다음 메시지에 첨부한다
-    setMode(system); focusCountry(country); chat.open();
+    setView(false); setMode(system); focusCountry(country); chat.open();
     void chat.viewReport(country, system);
-  });
+  }
+  tip.addEventListener('click', openDetail);
+  $('#rankingReport').addEventListener('click', openDetail);
+  const rankingReport = $('#rankingReport');
+  const showChartSlice = (event: Event) => {
+    const slice = (event.target as Element).closest('path[data-chart-name]');
+    if (!slice) return;
+    const name = rankingReport.querySelector('#chartFocusName');
+    const value = rankingReport.querySelector('#chartFocusValue');
+    if (name) name.textContent = slice.getAttribute('data-chart-name');
+    if (value) value.textContent = slice.getAttribute('data-chart-amount');
+  };
+  const resetChartSlice = (event: Event) => {
+    if (!(event.target as Element).closest('path[data-chart-name]')) return;
+    const name = rankingReport.querySelector('#chartFocusName');
+    const value = rankingReport.querySelector('#chartFocusValue');
+    if (name) name.textContent = 'TOP 5 합계';
+    if (value) value.textContent = rankingReport.querySelector('.rank-revenue-center')?.getAttribute('data-total') ?? '';
+  };
+  rankingReport.addEventListener('pointerover', showChartSlice);
+  rankingReport.addEventListener('focusin', showChartSlice);
+  rankingReport.addEventListener('pointerout', resetChartSlice);
+  rankingReport.addEventListener('focusout', resetChartSlice);
+  async function showPlotlyTimeline() {
+    const node = rankingReport.querySelector<HTMLElement>('#rankTimelinePlot');
+    if (!node || rankingReport.hidden) return;
+    try {
+      await mountTimeline(node, seed, selectedTimeline, range => { selectedTimeline = range; });
+    } catch (error) {
+      console.error(error);
+      if (node.isConnected) node.textContent = '그래프를 불러오지 못했습니다.';
+    }
+  }
   addEventListener('keydown', e => { if (e.key === 'Escape') { unpin(); chat.collapse(); } });
   applyMode();
   (window as any).__app = { setMode, toggleMap, focusCountry, state, getAppContext: chat.getAppContext };
