@@ -101,6 +101,8 @@ try {
   }
   assert.equal(await page.title(), 'HORUS');
   assert.equal(await page.locator('#brandLogo').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), true);
+  // 워드마크는 PC에 한화 서체가 없어도 앱에 포함한 5글자 전용 글꼴로 표시돼야 한다
+  assert.equal(await page.evaluate(async () => { await document.fonts.ready; return document.fonts.check("27px 'HORUS Wordmark'", 'HORUS'); }), true);
   assert.ok(await page.locator('#modes').evaluate(el => Math.abs(el.getBoundingClientRect().x + el.getBoundingClientRect().width / 2 - innerWidth / 2) < 1));
   await page.click('.modes button[data-sys="sph"]');
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
