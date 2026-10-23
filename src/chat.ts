@@ -3,6 +3,7 @@ import { HELP, type Action } from './commands';
 import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import type { SystemKey } from '../shared/types';
 import type { AppContext, ReportRef } from '../shared/app-context';
+import type { MapDisplay, MapDisplayPatch, MapZoom } from '../shared/map-display';
 import { createChatStatus, toolActivity } from './chat-status';
 import { createPicker } from './picker';
 import { slashSuggestions, modelStep, parseSlash, readChoice, type PickItem } from './slash';
@@ -18,9 +19,9 @@ export { pickModel, type ModelInfo };
 
 interface ChatOpts {
   names: Record<string, string>;
-  getState(): { mode: SystemKey | null; flat: boolean; focus: string | null };
+  getState(): { mode: SystemKey | null; flat: boolean; focus: string | null; display: MapDisplay };
   dataVersion(): number;
-  actions: { set_mode(s: SystemKey | null): void; toggle_map_mode(flat?: boolean): void; focus_country(id: string | null): void };
+  actions: { set_mode(s: SystemKey | null): void; toggle_map_mode(flat?: boolean): void; focus_country(id: string | null): void; set_display(patch: MapDisplayPatch): void; zoom(z: MapZoom): void };
   modeKo(): string | null;
   refreshData(): Promise<void>;
 }
@@ -138,6 +139,8 @@ export function initChat(o: ChatOpts) {
       if (a.type === 'set_mode') o.actions.set_mode(a.system && !isGeneral(a.system) ? resolveSystem(a.system) : null);
       else if (a.type === 'toggle_map_mode') o.actions.toggle_map_mode(a.flat);
       else if (a.type === 'focus_country') { const country = resolveCountry(a.country, o.names); if (country) o.actions.focus_country(country); }
+      else if (a.type === 'set_display') o.actions.set_display(a.display);
+      else if (a.type === 'zoom') o.actions.zoom(a.zoom);
     }
   }
   function busy(on: boolean) {
@@ -421,14 +424,14 @@ export function initChat(o: ChatOpts) {
           if (event.name === 'model.fallback') activity('모델 재연결 중');
         }
         if (!isActiveStatus(run.status)) {
+          // 접힌 창도 응답이 끝나면(답변·보고서만 있는 답·오류) 펼쳐 보여준다. 대화를 다시 불러오다 실패해도 펼친다(사용자 중지·취소는 그대로 둔다)
+          if (run.status === 'failed' || run.status === 'completed') open();
           const c = await loadConversation(conversationId!, true);
           if (!current()) return;
           const mayChangeView = screen.mayChangeView(runId, requestVersion);
           if (mayChangeView) exec(run.result?.actions);
           renderConversation(c, mayChangeView);
           progress.set(runStatusText(run));
-          // 접힌 창도 최종 답변이나 오류는 펼쳐 보여준다(사용자 중지·취소는 그대로 둔다)
-          if (run.status === 'failed' || (run.status === 'completed' && run.result?.reply)) open();
           followConversation(c, token);
           await o.refreshData(); await refreshHistory(); return;
         }
@@ -437,6 +440,7 @@ export function initChat(o: ChatOpts) {
       }
     } catch (e) {
       if (token === view) {
+        open();
         progress.set(`${e instanceof Error ? e.message : e}\n대화 목록에서 다시 선택해 진행 상황을 복원하세요.`);
         if (activeRun === runId) activeRun = null;
         busy(deliveryTarget.pending > 0);
@@ -554,7 +558,9 @@ export function initChat(o: ChatOpts) {
     } else if (data.type === 'set_map_state') {
       if ('system' in data) o.actions.set_mode(data.system);
       if ('flat' in data) o.actions.toggle_map_mode(data.flat);
+      if (data.display) o.actions.set_display(data.display);
       if ('country' in data) o.actions.focus_country(data.country);
+      if (data.zoom != null) o.actions.zoom(data.zoom);
     } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId, false);
     else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
     else throw new Error('지원하지 않는 화면 명령');

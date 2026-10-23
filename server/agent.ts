@@ -77,7 +77,7 @@ export function ingestFallbackGuide(model?: ModelId, firecrawl = !!executions.ge
 /** 모든 모델 프롬프트의 앞부분에 두는 화면 맞추기 규칙 */
 export const SCREEN_RULE = [
   '화면 맞추기: 사용자가 국가나 무기체계를 언급하거나 물으면 답하기 전에 set_map_state를 한 번 호출해 지도를 그 국가·체계로 맞춘다. 이미 같은 화면이면 생략하고, 국가와 체계는 한 호출에 함께 넣는다.',
-  '예: "폴란드 자주포 교체 시기는?" → set_map_state(country="폴란드", system="자주포") 호출 후 답한다. "인도 보여줘" → set_map_state(country="인도"). "2D로 봐줘" → set_map_state(flat=true).',
+  '예: "폴란드 자주포 교체 시기는?" → set_map_state(country="폴란드", system="자주포") 호출 후 답한다. "인도 보여줘" → set_map_state(country="인도"). "2D로 봐줘" → set_map_state(flat=true). "확대해줘" → set_map_state(zoom="in"). "중국 빼고 보여줘" → set_map_state(hide="중국"). "폴란드·루마니아만" → set_map_state(only="폴란드, 루마니아"). "인도 강조" → set_map_state(highlight="인도"). "빗금 없애줘" → set_map_state(hatch=false). "원래대로" → set_map_state(resetDisplay=true, zoom="reset").',
 ].join('\n');
 
 export function systemPrompt(st: ChatIn['state'], model?: ModelId) {

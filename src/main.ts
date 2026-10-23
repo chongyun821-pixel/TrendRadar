@@ -7,12 +7,13 @@ import { SYSTEM_KEYS } from '../shared/types';
 import { initChat } from './chat';
 import { esc } from './md';
 import { landNeighbors } from '../shared/tension';
-import { SYSTEM_COLOR, MISSING_RGB, rgbCss, systemTint, timingLabel, leadingWeapons, mapSizes, mapCountryStyles, type CountryMapStyle, type WeaponScore } from './map-style';
+import { SYSTEM_COLOR, MISSING_RGB, rgbCss, hexRgb, systemTint, timingLabel, leadingWeapons, mapSizes, mapCountryStyles, type CountryMapStyle, type WeaponScore } from './map-style';
 import { est, scorePanelHtml, scoreRowHtml, type ScoreDetail } from './score-panel';
+import { DEFAULT_DISPLAY, applyDisplayPatch, dimRgb, displayStyle, displaySummary, type MapDisplay, type MapDisplayPatch, type MapZoom } from '../shared/map-display';
 import { renderRankingReport } from './ranking-report';
 import { mountTimeline, purgeTimeline } from './plotly-timeline';
 
-const state = { mode: null as SystemKey | null, flat: false, focus: null as string | null, pinned: false };
+const state = { mode: null as SystemKey | null, flat: false, focus: null as string | null, pinned: false, display: DEFAULT_DISPLAY as MapDisplay };
 let mapStyles = new Map<string, CountryMapStyle>();
 /** 판단 점수와 수출 제외 사유는 정보 카드에 표시한다. 인접국 참고 점수와는 별도다. */
 interface ScoreSummary extends WeaponScore { gate: string | null }
@@ -22,6 +23,8 @@ const scoreDetail = { open: null as { country: string; system: SystemKey; sticky
 const detailKey = (country: string, system: SystemKey) => `${system}:${country}`;
 let bestWeapons = new Map<string, WeaponScore>();
 const scoreKey = (system: SystemKey, country: string) => `${system}:${country}`;
+/** 표시 조정으로 어둡게 할 때 다가가는 바탕색(지구본의 자료 없는 국가 색) */
+const DIM_BASE_RGB: [number, number, number] = [0.075, 0.105, 0.14];
 const $ = <T extends HTMLElement>(s: string) => document.querySelector(s) as T;
 
 async function boot() {
@@ -102,13 +105,14 @@ async function boot() {
       for (const [country, best] of bestWeapons) mapStyles.set(country, styles.get(best.system)!.get(country)!);
       fs = allForecasts().filter(f => bestWeapons.get(f.country)?.system === f.system);
     }
-    globe.setBaseColors(
-      new Map([...mapStyles].map(([id, style]) => [id, style.rgb])), true,
-      new Set([...mapStyles].filter(([, style]) => style.hatched).map(([id]) => id)),
-    );
-    const visible = fs.filter(f => f.status !== 'none' && f.krw != null && seed.countries[f.country]);
+    // 챗봇 표시 조정(숨김·특정 국가만·강조·빗금·막대)을 색과 막대에 반영한다
+    const shown = displayStyle(state.display,
+      new Map([...mapStyles].map(([id, style]) => [id, style.rgb])),
+      new Set([...mapStyles].filter(([, style]) => style.hatched).map(([id]) => id)), DIM_BASE_RGB);
+    globe.setBaseColors(shown.colors, true, shown.hatched);
+    const visible = state.display.bars ? fs.filter(f => f.status !== 'none' && f.krw != null && seed.countries[f.country] && shown.shows(f.country)) : [];
     const sizes = mapSizes(visible);
-    globe.setSpikes(visible.filter(f => (sizes.get(f.country) ?? 0) > 0).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: SYSTEM_COLOR[f.system], size: sizes.get(f.country)! })));
+    globe.setSpikes(visible.filter(f => (sizes.get(f.country) ?? 0) > 0).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: shown.dimmed(f.country) ? rgbCss(dimRgb(hexRgb(SYSTEM_COLOR[f.system]), DIM_BASE_RGB)) : SYSTEM_COLOR[f.system], size: sizes.get(f.country)! })));
     const scaleLegend = `<span class="sz"><b></b>${state.flat ? '원 지름' : '막대 높이'} · 예상 사업 금액 (로그)</span>`;
     if (state.mode) {
       const mode = state.mode, hue = SYSTEM_COLOR[mode];
@@ -121,8 +125,12 @@ async function boot() {
         + SYSTEM_KEYS.map(system => `<span><i style="background:${SYSTEM_COLOR[system]}"></i>${esc(seed.systems[system].ko)}</span>`).join('')
         + `<small>밝기 · 3년 이내 100% / 10년 이내 50% / 이후 20%<br>판단 점수 미확인·수출 제외 국가는 바탕색</small>${scaleLegend}`;
     }
+    const adjusted = displaySummary(state.display, id => names[id] ?? id);
+    if (adjusted) $('#legend').insertAdjacentHTML('beforeend', `<small class="display-note">${esc(adjusted)}</small>`);
+    $('#legend').classList.toggle('show', state.display.legend);
     if (state.pinned && state.focus) tip.innerHTML = tipHtml(state.focus, names);
   }
+  function setDisplay(patch: MapDisplayPatch) { state.display = applyDisplayPatch(state.display, patch); applyMode(); mapChanged(); }
   let scoreRequest = 0;
   async function loadScores() {
     const mode = state.mode, request = ++scoreRequest, version = dataVersion;
@@ -180,12 +188,14 @@ async function boot() {
 
   const chat = initChat({
     names,
-    getState: () => ({ mode: state.mode, flat: state.flat, focus: state.focus }),
+    getState: () => ({ mode: state.mode, flat: state.flat, focus: state.focus, display: state.display }),
     dataVersion: () => Number(dataVersion || 0),
     actions: {
       set_mode: (s: SystemKey | null) => setMode(s),
       toggle_map_mode: (flat?: boolean) => toggleMap(flat),
       focus_country: (id: string | null) => { if (id) focusCountry(id); else { state.focus = null; globe.setSelected(null); unpin(); mapChanged(); } },
+      set_display: (patch: MapDisplayPatch) => setDisplay(patch),
+      zoom: (z: MapZoom) => globe.zoom(z),
     },
     modeKo: () => (state.mode ? seed.systems[state.mode].ko : null),
     refreshData: async () => {

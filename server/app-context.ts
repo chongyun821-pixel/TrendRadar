@@ -1,3 +1,4 @@
+import type { MapDisplayPatch, MapZoom } from '../shared/map-display';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { AppContext } from '../shared/app-context';
@@ -9,11 +10,13 @@ import type { ToolDef, ChatOut } from './agent';
 import { modelChoiceSchema, modelOptionsSchema } from './model-choice';
 
 const system = z.enum(SYSTEM_KEYS);
+const iso = z.string().regex(/^[A-Z]{3}$/);
 export const appContextSchema = z.object({
   screenId: z.string().uuid(), version: z.number().int().nonnegative(), conversationId: z.string().uuid().nullable(),
   model: z.enum(['grok', 'codex', 'gpt', 'nemotron']), modelOptions: modelOptionsSchema.optional(), activeView: z.enum(['map', 'report']),
   mode: system.nullable(), flat: z.boolean(), focus: z.string().regex(/^[A-Z]{3}$/).nullable(),
   filters: z.object({ system: system.nullable() }).strict(),
+  display: z.object({ hidden: z.array(iso), only: z.array(iso).nullable(), highlight: z.array(iso), hatch: z.boolean(), bars: z.boolean(), legend: z.boolean() }).strict().optional(),
   report: z.object({ id: z.string().uuid(), country: z.string().nullable(), system: system.nullable(), kind: z.literal('country-analysis'), basisDate: z.string(), dataVersion: z.number().int() }).nullable(),
   dataVersion: z.number().int().nonnegative(),
   /** 탭이 백그라운드면 true(브라우저가 숨김 전환 때 알린다). 버전에는 넣지 않는다 */
@@ -23,7 +26,16 @@ const S = (description: string) => ({ type: 'string' as const, description });
 const target = { screenId: S('대상 화면 ID. 생략하면 실행을 시작한 화면') };
 /** 화면 도구(모델에게 먼저 보인다). set_map_state 하나로 국가·체계·2D/3D를 맞춘다 */
 export const SCREEN_DEFS: ToolDef[] = [
-  { name: 'set_map_state', description: '지도 화면을 국가·무기체계·2D/3D로 맞춘다(한 번에). 브라우저 적용 결과(applied·conflict·inactive·failed)를 바로 돌려준다', properties: { country: S('국가 이름·ISO 코드·별칭(예: 폴란드, POL). 선택 해제는 "해제"'), system: S('자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함 또는 일반'), flat: { type: 'boolean', description: 'true=2D 지도, false=3D 지구본' }, ...target, expectedVersion: { type: 'integer', description: '생략 권장' } } },
+  { name: 'set_map_state', description: '지도 화면을 국가·무기체계·2D/3D·확대 단계와 국가 숨김·특정 국가만 표시·강조·빗금·막대·범례 표시로 맞춘다(한 번에, 사용자가 보던 화면과 무관하게 적용). 브라우저 적용 결과(applied·conflict·inactive·failed)를 바로 돌려준다', properties: { country: S('국가 이름·ISO 코드·별칭(예: 폴란드, POL). 선택 해제는 "해제"'), system: S('자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함 또는 일반'), flat: { type: 'boolean', description: 'true=2D 지도, false=3D 지구본' },
+    zoom: S('확대·축소: in(확대)·out(축소)·reset(기본 거리) 또는 1(가장 멀리)~10(가장 가까이) 단계. country와 함께 주면 그 국가로 이동한 뒤 적용'),
+    hide: S('색·빗금·막대를 숨길 국가 목록(쉼표 구분, 예: "중국, 러시아"). 지정한 목록으로 바꾸며 "해제"는 숨김 없음'),
+    only: S('이 국가들만 표시하고 나머지는 숨긴다(쉼표 구분). "해제"는 전체 표시'),
+    highlight: S('강조할 국가(쉼표 구분). 나머지 국가는 어둡게 한다. "해제"는 강조 없음'),
+    hatch: { type: 'boolean', description: 'false=인접국 참고 빗금 숨김, true=다시 표시' },
+    bars: { type: 'boolean', description: 'false=예상 금액 막대(2D는 원) 숨김, true=다시 표시' },
+    legend: { type: 'boolean', description: 'false=범례 숨김, true=다시 표시' },
+    resetDisplay: { type: 'boolean', description: 'true=숨김·특정 국가만·강조·빗금·막대·범례 조정을 모두 기본으로 되돌린다(다른 항목은 그 뒤에 적용)' },
+    ...target, expectedVersion: { type: 'integer', description: '생략 권장' } } },
   { name: 'get_app_context', description: '요청 당시와 지금의 화면 상태(모드·선택 국가·열린 보고서·탭 표시 여부)', properties: target },
 ];
 /** 예전 이름. 모델에게는 보이지 않고 액션 블록·기존 호출만 받는다 */
@@ -207,11 +219,11 @@ async function mapCountry(raw: string): Promise<string | null> {
   const { countryId } = await import('./ingest/common');
   return countryId(raw);
 }
-/** set_map_state 입력(일반 필드, 예전 payload JSON, 예전 도구 이름)을 { country?, system?, flat? }로 정리한다 */
+/** set_map_state 입력(일반 필드, 예전 payload JSON, 예전 도구 이름)을 { country?, system?, flat?, zoom?, display? }로 정리한다 */
 export async function mapTarget(name: string, a: Record<string, any>, currentFlat?: () => Promise<boolean | undefined>) {
-  let raw: Record<string, unknown> = name === 'set_mode' ? { system: a.system ?? null } : name === 'focus_country' ? { country: a.country } : name === 'toggle_map_mode' ? { flat: a.flat } : { country: a.country, system: a.system, flat: a.flat };
+  let raw: Record<string, unknown> = name === 'set_mode' ? { system: a.system ?? null } : name === 'focus_country' ? { country: a.country } : name === 'toggle_map_mode' ? { flat: a.flat } : { country: a.country, system: a.system, flat: a.flat, zoom: a.zoom, hide: a.hide, only: a.only, highlight: a.highlight, hatch: a.hatch, bars: a.bars, legend: a.legend, resetDisplay: a.resetDisplay };
   if (name === 'set_map_state' && typeof a.payload === 'string' && a.payload.trim()) raw = { ...raw, ...z.record(z.unknown()).parse(JSON.parse(a.payload)) };
-  const target: { country?: string | null; system?: SystemKey | null; flat?: boolean } = {};
+  const target: { country?: string | null; system?: SystemKey | null; flat?: boolean; zoom?: MapZoom; display?: MapDisplayPatch } = {};
   if (raw.country === null || (typeof raw.country === 'string' && CLEAR.test(raw.country.trim()))) target.country = null;
   else if (raw.country != null && String(raw.country).trim()) {
     const c = await mapCountry(String(raw.country));
@@ -226,8 +238,41 @@ export async function mapTarget(name: string, a: Record<string, any>, currentFla
   }
   const flat = typeof raw.flat === 'string' ? (/^(2d|true|flat|평면)$/i.test(raw.flat) ? true : /^(3d|false|globe|지구본)$/i.test(raw.flat) ? false : undefined) : raw.flat;
   if (typeof flat === 'boolean') target.flat = flat;
+  if (name === 'set_map_state') {
+    const zoom = parseZoom(raw.zoom);
+    if (zoom !== undefined) target.zoom = zoom;
+    const display: MapDisplayPatch = {};
+    if (flag(raw.resetDisplay) === true) display.reset = true;
+    const hidden = await countryList(raw.hide), only = await countryList(raw.only), highlight = await countryList(raw.highlight);
+    if (hidden !== undefined) display.hidden = hidden ?? [];
+    if (only !== undefined) display.only = only;
+    if (highlight !== undefined) display.highlight = highlight ?? [];
+    for (const key of ['hatch', 'bars', 'legend'] as const) { const v = flag(raw[key]); if (v !== undefined) display[key] = v; }
+    if (Object.keys(display).length) target.display = display;
+  }
   else if (name === 'toggle_map_mode') { const now = await currentFlat?.(); if (now !== undefined) target.flat = !now; }
   return target;
+}
+const flag = (v: unknown) => typeof v === 'boolean' ? v : typeof v === 'string' ? (/^(true|on|켜기|표시|보이기|1)$/i.test(v.trim()) ? true : /^(false|off|끄기|숨김|숨기기|0)$/i.test(v.trim()) ? false : undefined) : undefined;
+function parseZoom(v: unknown): MapZoom | undefined {
+  if (v == null || v === '') return undefined;
+  const t = String(v).trim();
+  if (/^(in|\+|확대|가까이)$/i.test(t)) return 'in';
+  if (/^(out|-|축소|멀리)$/i.test(t)) return 'out';
+  if (/^(reset|기본|초기화|원래대로)$/i.test(t)) return 'reset';
+  const n = Number(t);
+  if (Number.isFinite(n) && n >= 1 && n <= 10) return n;
+  throw new Error(`확대 값 확인 필요: ${t} (in·out·reset 또는 1~10)`);
+}
+/** 쉼표로 구분한 국가 목록. 생략이면 undefined, "해제"면 null */
+async function countryList(v: unknown): Promise<string[] | null | undefined> {
+  if (v == null) return undefined;
+  const items = Array.isArray(v) ? v.map(String) : String(v).split(/[,，、·;\n]+/);
+  const names = items.map(x => x.trim()).filter(Boolean);
+  if (!names.length || (names.length === 1 && CLEAR.test(names[0]))) return null;
+  const ids: string[] = [];
+  for (const n of names) { const c = await mapCountry(n); if (!c) throw new Error(`국가 확인 필요: ${n}`); if (!ids.includes(c)) ids.push(c); }
+  return ids;
 }
 /** 지도 도구: 앱 화면이 있으면 브라우저 명령으로 보내고 결과를 기다린다. 화면 없이 호출되면 답과 함께 적용할 동작으로 남긴다 */
 export async function mapTool(name: string, a: Record<string, any>, out: ChatOut) {
@@ -242,10 +287,12 @@ export async function mapTool(name: string, a: Record<string, any>, out: ChatOut
     });
   } catch (error) { return fail('failed', error instanceof Error ? error.message : String(error)); }
   if (name === 'toggle_map_mode' && !('flat' in target) && !ctx?.appContext) { out.actions.push({ type: 'toggle_map_mode' }); return { ok: true, status: 'queued', message: '답과 함께 화면에 적용된다' }; }
-  if (!Object.keys(target).length) return fail('failed', '바꿀 항목이 없습니다. country·system·flat 중 하나 이상을 지정한다');
+  if (!Object.keys(target).length) return fail('failed', '바꿀 항목이 없습니다. country·system·flat·zoom·hide·only·highlight·hatch·bars·legend·resetDisplay 중 하나 이상을 지정한다');
   if (ctx?.appContext) return screenCommand({ type: 'set_map_state', ...target }, a.screenId, a.expectedVersion);
   if ('system' in target) out.actions.push({ type: 'set_mode', system: target.system });
   if ('flat' in target) out.actions.push({ type: 'toggle_map_mode', flat: target.flat });
+  if (target.display) out.actions.push({ type: 'set_display', display: target.display });
   if (target.country) out.actions.push({ type: 'focus_country', country: target.country });
+  if (target.zoom != null) out.actions.push({ type: 'zoom', zoom: target.zoom });
   return { ok: true, status: 'queued', message: '답과 함께 화면에 적용된다', ...target };
 }

@@ -88,22 +88,56 @@ try {
   await confirmed(await tool('set_map_state', { flat: '3D' }));
   assert.equal((await state()).flat, false);
 
-  // 명시한 expectedVersion은 챗봇 자신의 앞선 변경에도 정확히 일치해야 한다.
+  // 사용자가 그사이 화면을 바꿨어도 챗봇의 화면 명령은 적용된다(예전 expectedVersion도 막지 않는다).
   held = await holdCommands();
   const before = await state();
   const first = await tool('set_map_state', { system: '장갑차' });
-  const strict = await tool('set_map_state', { country: 'CAN', expectedVersion: before.version });
-  held.release(); await confirmed(first); await confirmed(strict, 'conflict'); await held.close();
-  assert.equal((await state()).focus, 'FIN');
+  const pinned = await tool('set_map_state', { country: 'CAN', expectedVersion: before.version });
+  held.release(); await confirmed(first); await confirmed(pinned); await held.close();
+  assert.equal((await state()).focus, 'CAN');
 
   held = await holdCommands();
-  const stale = await tool('set_map_state', { country: '폴란드' });
+  const afterUser = await tool('set_map_state', { country: '폴란드' });
   await held.ready; await page.evaluate(() => (window as any).__app.focusCountry('AUS')); held.release();
-  await confirmed(stale, 'conflict'); await held.close();
-  assert.equal((await state()).focus, 'AUS');
+  await confirmed(afterUser); await held.close();
+  assert.equal((await state()).focus, 'POL');
+  await page.evaluate(() => (window as any).__app.focusCountry('AUS'));
   await saveAppContext(repo, await state());
-  const rejected = await tool('set_map_state', { country: '폴란드' });
-  assert.equal(rejected.status, 'conflict'); assert.ok(rejected.error);
+  const korea = await tool('set_map_state', { country: '한국' });
+  assert.equal(korea.status, 'applied', JSON.stringify(korea)); assert.equal((await state()).focus, 'KOR');
+  await page.evaluate(() => (window as any).__app.focusCountry('AUS'));
+
+  // 확대·축소, 2D/3D, 국가 숨김·특정 국가만·강조, 빗금·막대·범례 표시
+  const camDist = () => page.evaluate(() => { const g = (window as any).__globe; return g.flat ? g.camera.position.z - 100 : g.camera.position.length() - 100; });
+  const settle = () => page.waitForFunction(() => { const g = (window as any).__globe; return !g.camAnim && g.morphT >= 1; });
+  await settle();
+  const far = await camDist();
+  assert.equal((await tool('set_map_state', { zoom: 'in' })).status, 'applied'); await settle();
+  assert.ok(await camDist() < far * 0.7, `확대 ${far} → ${await camDist()}`);
+  assert.equal((await tool('set_map_state', { zoom: 1 })).status, 'applied'); await settle();
+  assert.ok(await camDist() > 600);
+  assert.equal((await tool('set_map_state', { country: '폴란드', system: '자주포', zoom: 8 })).status, 'applied'); await settle();
+  assert.equal((await state()).focus, 'POL'); assert.ok(await camDist() < 80);
+  const shown = await tool('set_map_state', { highlight: '폴란드, 루마니아', hide: '러시아', hatch: false });
+  assert.equal(shown.status, 'applied', JSON.stringify(shown));
+  let display = (await state()).display!;
+  assert.deepEqual(display.highlight, ['POL', 'ROU']); assert.deepEqual(display.hidden, ['RUS']); assert.equal(display.hatch, false);
+  assert.match(await page.locator('#legend .display-note').innerText(), /숨김 .*강조 .*빗금 끔/);
+  await page.waitForFunction(() => (window as any).__globe.colorAnim >= 1 && (window as any).__globe.spikeT >= 1); await page.screenshot({ path: join(folder, 'highlight-hide-nohatch.png') });
+  assert.equal((await tool('set_map_state', { flat: true, only: '폴란드, 독일, 체코', zoom: 'reset' })).status, 'applied'); await settle();
+  display = (await state()).display!;
+  assert.deepEqual(display.only, ['POL', 'DEU', 'CZE']); assert.equal((await state()).flat, true);
+  const spikes = await page.evaluate(() => (window as any).__globe.spikes.filter((s: any) => s.h1 > 0).map((s: any) => s.id));
+  assert.ok(spikes.length && spikes.every((id: string) => ['POL', 'DEU', 'CZE'].includes(id)), JSON.stringify(spikes));
+  await page.waitForFunction(() => (window as any).__globe.colorAnim >= 1 && (window as any).__globe.spikeT >= 1); await page.screenshot({ path: join(folder, 'only-2d.png') });
+  assert.equal((await tool('set_map_state', { legend: false, bars: false })).status, 'applied');
+  assert.equal(await page.locator('#legend.show').count(), 0);
+  assert.equal(await page.evaluate(() => (window as any).__globe.spikes.filter((s: any) => s.h1 > 0).length), 0);
+  assert.equal((await tool('set_map_state', { resetDisplay: true, flat: false, zoom: 'reset' })).status, 'applied'); await settle();
+  assert.deepEqual((await state()).display, { hidden: [], only: null, highlight: [], hatch: true, bars: true, legend: true });
+  assert.equal(await page.locator('#legend.show').count(), 1);
+  assert.equal((await tool('set_map_state', { zoom: '20' })).status, 'failed');
+  await page.evaluate(() => (window as any).__app.focusCountry('AUS'));
 
   // 사용자가 새로 요청한 상황을 재현하고 모바일에서도 같은 도구로 보고서를 연다.
   requestContext = await state(); await saveAppContext(repo, requestContext);
@@ -134,16 +168,16 @@ try {
   });
   const delayed = await tool('write_report', { country: '핀란드', system: '자주포' });
   await reportReady; await page.evaluate(() => (window as any).__app.focusCountry('CAN')); releaseReport();
-  await confirmed(delayed, 'conflict'); assert.equal((await state()).focus, 'CAN');
+  await confirmed(delayed); assert.equal((await state()).focus, 'FIN');
   await page.unroute(`**/api/conversations/${conversation.id}`);
   const savedReport = await repo.one('SELECT * FROM reports WHERE id=?', delayed.reportId);
   const result = { reply: '보고서를 저장했습니다.', actions: [], reports: [savedReport.markdown], tools: ['write_report'], reportRefs: [{ id: savedReport.id, country: 'FIN', system: 'sph', kind: 'country-analysis', basisDate: savedReport.basis_date, dataVersion: savedReport.data_version }] };
   await repo.message(conversation.id, 'model', result.reply, result);
   await repo.run("UPDATE runs SET status='completed',ended_at=?,result=? WHERE id=?", now(), JSON.stringify(result), runId);
   await page.waitForFunction(() => document.querySelector('#chatStatus')!.textContent === '완료');
-  assert.equal((await state()).focus, 'CAN'); assert.equal((await state()).activeView, 'map');
+  assert.equal((await state()).focus, 'FIN'); assert.equal((await state()).activeView, 'report');
   assert.deepEqual(errors, []);
-  const receipt = { sequentialCommands: 'pass', pendingBatch: 'pass', acknowledgementRetry: 'pass', repeatedToggle: 'pass', hiddenTab: 'pass', directResult: 'pass', strictVersion: 'pass', userConflict: 'pass', reportDuringRun: 'pass', mobileReport: 'pass', delayedReportConflict: 'pass', completionConflict: 'pass', errors };
+  const receipt = { sequentialCommands: 'pass', pendingBatch: 'pass', acknowledgementRetry: 'pass', repeatedToggle: 'pass', hiddenTab: 'pass', directResult: 'pass', alwaysApply: 'pass', mapControls: 'pass', reportDuringRun: 'pass', mobileReport: 'pass', delayedReport: 'pass', completionKeepsView: 'pass', errors };
   writeFileSync(join(folder, 'result.json'), JSON.stringify(receipt, null, 2));
   console.log(JSON.stringify({ ...receipt, folder }));
 } finally {

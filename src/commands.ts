@@ -1,7 +1,9 @@
+import type { MapDisplayPatch, MapZoom } from '../shared/map-display';
 import { resolveCountry, resolveSystem, isGeneral, seed } from '../shared/data';
 import { listForecasts, writeReport, forecast } from '../shared/tools';
 
-export type Action = { type: 'set_mode'; system: string | null } | { type: 'toggle_map_mode'; flat?: boolean } | { type: 'focus_country'; country: string };
+export type Action = { type: 'set_mode'; system: string | null } | { type: 'toggle_map_mode'; flat?: boolean } | { type: 'focus_country'; country: string }
+  | { type: 'set_display'; display: MapDisplayPatch } | { type: 'zoom'; zoom: MapZoom };
 export interface LocalResult { text?: string; report?: string; actions: Action[] }
 
 export const HELP = [

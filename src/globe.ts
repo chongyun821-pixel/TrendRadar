@@ -80,6 +80,7 @@ export class Globe {
   private raycaster = new THREE.Raycaster(); private atmo: THREE.Mesh; private stars: THREE.Points;
   private idle = true; private lastT = performance.now(); private lastCamKey = '';
   flat = false;
+  private pendingZoom: 'in' | 'out' | 'reset' | number | null = null;
 
   constructor(private el: HTMLElement, features: CountryFeature[], private ev: GlobeEvents) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
@@ -407,6 +408,23 @@ export class Globe {
     this.flyToLL(la, lo, Math.min(Math.max(cur.dist, 110), this.flat ? 170 : 230));
     this.setSelected(id);
   }
+  /** 확대·축소. 숫자는 1(가장 멀리)~10(가장 가까이) 단계, reset은 기본 거리. 2D/3D 전환 중이면 전환이 끝난 뒤 적용한다 */
+  zoom(z: 'in' | 'out' | 'reset' | number) {
+    if (this.morphT < 1) { this.pendingZoom = z; return; }
+    this.idle = false;
+    const end = this.viewEnd();
+    const min = this.flat ? 20 : 25, max = this.flat ? this.flatMaxDistance() : 650;
+    const dist = typeof z === 'number' ? max * Math.pow(min / max, (THREE.MathUtils.clamp(z, 1, 10) - 1) / 9)
+      : z === 'in' ? end.dist * 0.55 : z === 'out' ? end.dist / 0.55 : this.flat ? this.flatFitDist() : 300;
+    this.flyToLL(end.lat, end.lon, THREE.MathUtils.clamp(dist, min, max));
+  }
+  /** 카메라 이동 중이면 도착할 위치, 아니면 현재 위치 */
+  private viewEnd(): { lon: number; lat: number; dist: number } {
+    const a = this.camAnim;
+    if (!a) return this.centerLL();
+    if (a.globe) { const d = a.to.length(); return { lon: Math.atan2(a.to.x, a.to.z) / D2R, lat: Math.asin(a.to.y / d) / D2R, dist: d - R }; }
+    return { lon: a.tTo.x / R / D2R, lat: THREE.MathUtils.clamp(a.tTo.y / R / D2R, -85, 85), dist: a.to.z - R };
+  }
   private applyControlMode() {
     const c = this.controls;
     if (!this.flat) {
@@ -466,7 +484,10 @@ export class Globe {
       this.controls.target.copy(P).addScaledVector(Nn, -R * (1 - this.morph));
       this.camera.up.set(0, 1, 0);
       this.camera.lookAt(this.controls.target);
-      if (this.morphT >= 1) { this.applyControlMode(); this.controls.enabled = true; }
+      if (this.morphT >= 1) {
+        this.applyControlMode(); this.controls.enabled = true;
+        if (this.pendingZoom != null) { const z = this.pendingZoom; this.pendingZoom = null; this.zoom(z); }
+      }
     } else if (this.camAnim) {
       const a = this.camAnim; a.t = Math.min(1, a.t + dt / a.dur); const e = ease(a.t);
       if (a.globe) {

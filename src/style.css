@@ -290,3 +290,4 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .score-panel .score-sum b { color: inherit; font-weight: 600; color: #fff; }
 .score-panel .score-status { margin: 0; color: var(--mut); }
 .score-panel .score-status.error { color: #ffb3a8; }
+#legend .display-note { color: #ffcf6e; }
