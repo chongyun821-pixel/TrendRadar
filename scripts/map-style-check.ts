@@ -59,7 +59,7 @@ try {
   assert.equal(await page.locator('#hatchRanking').isVisible(), false);
   async function rankingSnapshot() {
     return page.locator('#hatchRanking').evaluate(el => ({
-      title: el.querySelector('.hatch-ranking-heading p')?.textContent,
+      title: el.querySelector('.hatch-ranking-heading h2')?.textContent,
       box: el.getBoundingClientRect().toJSON(),
       rows: [...el.querySelectorAll<HTMLButtonElement>('button[data-hatch-country]')].map(button => ({ country: button.dataset.hatchCountry!, name: button.querySelector('.hatch-ranking-country')!.textContent!, score: Number.parseFloat(button.querySelector('strong')!.textContent!) })),
     }));
@@ -120,7 +120,7 @@ try {
   assert.ok(Math.max(...bars.map((b: any) => b.height)) > Math.min(...bars.map((b: any) => b.height)) * 3, JSON.stringify(bars));
   const rankingGlobe = await rankingSnapshot();
   assert.equal(rankingGlobe.rows.length, 5);
-  assert.match(rankingGlobe.title!, /자주포/);
+  assert.match(rankingGlobe.title!, /^인접국 영향 점수$/);
   assert.ok(Math.abs(rankingGlobe.box.y + rankingGlobe.box.height / 2 - 450) < 1);
   assert.ok(rankingGlobe.box.left > 1440 / 2 && rankingGlobe.box.right <= 1440);
   assert.ok(rankingGlobe.rows.every((row, i, rows) => !fixture.records.some(r => r.system === 'sph' && r.country === row.country) && row.score >= 0 && row.score <= 100 && (!i || rows[i - 1].score >= row.score)));
@@ -131,20 +131,20 @@ try {
   await page.locator('#hatchRanking button').first().click(); await settled();
   assert.equal(await page.evaluate(() => (window as any).__app.state.focus), rankingGlobe.rows[0].country);
   const rankingCard = await hover(rankingGlobe.rows[0].country);
-  assert.ok(rankingCard.includes(`${rankingGlobe.rows[0].score.toFixed(1)}/100 · 후보 1위`), rankingCard);
+  assert.ok(rankingCard.includes(`${rankingGlobe.rows[0].score.toFixed(1)}점, 1위`), rankingCard);
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   await page.screenshot({ path: resolve(folder, 'desktop-globe.png') });
   await page.click('#mapBtn'); await settled();
   assert.deepEqual((await rankingSnapshot()).rows, rankingGlobe.rows);
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   const card = await hover('CHE');
-  assert.match(card, /인접국 참고 점수/); assert.match(card, /독일/); assert.match(card, /프랑스/); assert.match(card, /확인되지 않았습니다/);
-  assert.match(card, /인접국 참고/); assert.match(card, /예상 사업 합계/);
+  assert.match(card, /인접국 영향 점수/); assert.match(card, /독일/); assert.match(card, /프랑스/); assert.match(card, /확인되지 않았습니다/);
+  assert.match(card, /인접국 영향/); assert.match(card, /예상 사업 합계/);
   assert.doesNotMatch(await page.locator('#legend').innerText(), /교차|상위 5개국/);
-  assert.match(await page.locator('#legend').innerText(), /3년 이내 · 100%/);
-  assert.match(await page.locator('#legend').innerText(), /10년 이내 · 50%/);
-  assert.match(await page.locator('#legend').innerText(), /10년 이후 · 20%/);
-  assert.match(await page.locator('#legend').innerText(), /원 지름/);
+  assert.match(await page.locator('#legend').innerText(), /3년 이내/);
+  assert.match(await page.locator('#legend').innerText(), /10년 이내/);
+  assert.match(await page.locator('#legend').innerText(), /10년 이후/);
+  assert.doesNotMatch(await page.locator('#legend').innerText(), /원 지름|막대 높이|·/);
   await page.screenshot({ path: resolve(folder, 'desktop-flat-hatch.png') });
   const pixels = await page.evaluate(() => {
     const g = (window as any).__globe;
@@ -187,7 +187,7 @@ try {
   assert.ok(Math.max(...circles.map((c: any) => c.radius)) > Math.min(...circles.map((c: any) => c.radius)) * 3, JSON.stringify(circles));
   assert.ok(circles.every((c: any) => Math.abs(c.thickness - 0.12) < 0.01), JSON.stringify(circles));
   assert.match(await hover('AUT'), /자료 일부/);
-  assert.match(await hover('CZE'), /자료 일부 · 시기 미확인/);
+  assert.match(await hover('CZE'), /자료 일부만 있음, 시기 미확인/);
   await page.evaluate(() => {
     const g = (window as any).__globe;
     const x = Math.PI * 100 + 15;
@@ -234,7 +234,7 @@ try {
   await page.screenshot({ path: resolve(folder, 'mobile-globe.png') });
   await page.evaluate(() => (window as any).__app.setMode('sam')); await settled();
   const rankingFew = await rankingSnapshot();
-  assert.match(rankingFew.title!, /대공미사일/);
+  assert.match(rankingFew.title!, /^인접국 영향 점수$/);
   assert.ok(rankingFew.rows.length > 0 && rankingFew.rows.length < 5);
   for (const system of ['ifv', 'frigate', 'ssk']) {
     await page.evaluate(system => (window as any).__app.setMode(system), system); await settled();
@@ -248,7 +248,7 @@ try {
     const g = (window as any).__globe, idx = g.byId.get('DEU').idx * 4;
     return g.colorAnim === 1 && g.next[idx] === 236;
   });
-  assert.match(await page.locator('#legend').innerText(), /수주 판단 점수 최고 무기/);
+  assert.match(await page.locator('#legend').innerText(), /나라별 수주 가능성이 가장 높은 무기/);
   assert.equal(await page.locator('#legend .sz').count(), 0);
   assert.equal(await page.evaluate(() => (window as any).__globe.spikes.length), 0);
   const general = await page.evaluate(() => {
@@ -259,7 +259,7 @@ try {
   assert.equal(await page.evaluate(() => { const a = (window as any).__globe.next; return [...a].filter((_, i) => i % 4 === 3).some(v => v !== 0); }), false);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => (window as any).__app.focusCountry('DEU')); await settled();
-  assert.match(await hover('DEU'), /다연장로켓 · 판단 90\/100/);
+  assert.match(await hover('DEU'), /다연장로켓 \(90점\)/);
   await page.screenshot({ path: resolve(folder, 'desktop-general.png') });
   assert.equal(providerCalls, 0); assert.deepEqual(errors, []);
   writeFileSync(resolve(folder, 'receipt.json'), JSON.stringify({ passed: true, pixels, globeMotion, flatMotion, bars, circles, wrapped, polarLimit, general, layout, rankingGlobe, rankingMobile, rankingFew, providerCalls, errors, hues: SYSTEM_COLOR }, null, 2));

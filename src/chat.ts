@@ -169,7 +169,7 @@ export function initChat(o: ChatOpts) {
     if (!visible.length) box.textContent = '추가한 자료가 없습니다.';
     for (const f of visible) {
       const a = document.createElement('a'); a.href = `/api/conversations/${c.id}/files/${f.id}`;
-      a.textContent = `${uploadedName(f.name)}${f.error ? ' · 추출 오류' : ''}`;
+      a.textContent = `${uploadedName(f.name)}${f.error ? ' (추출 오류)' : ''}`;
       a.title = f.error || f.name; a.download = ''; box.appendChild(a);
     }
   }
@@ -268,7 +268,7 @@ export function initChat(o: ChatOpts) {
   /** /sessions: 새 대화·대화 전환·삭제(낙관적). 목록은 저장본을 바로 보이고 최신 목록으로 갱신한다 */
   function openSessions(refresh = true) {
     const items: PickItem[] = [{ id: '', label: '＋ 새 대화' }, ...historyRows.map(r => ({ id: r.id, label: r.title, current: r.id === conversationId, deletable: true }))];
-    picker.open('sessions', { title: '대화 · ↑↓ 이동 · Enter 열기 · Delete 삭제', items, start: 0 }, {
+    picker.open('sessions', { title: '↑↓로 이동, Enter로 열기, Delete로 삭제', items, start: 0 }, {
       pick: item => { picker.close(); if (!item.id) newConversation(); else void selectConversation(item.id).catch(showError); },
       remove: item => { if (item.id) deleteConversation(item.id); },
       hover: item => { if (item.id && !conversations.has(item.id)) void loadConversation(item.id).catch(() => {}); },
@@ -279,7 +279,7 @@ export function initChat(o: ChatOpts) {
   function openSlashHints() {
     const items: PickItem[] = slashSuggestions(input.value).map(s => ({ id: s.name, label: s.command, hint: s.desc }));
     const run = (item: PickItem) => { input.value = `/${item.id}`; void send(input.value).catch(showError); };
-    picker.open('slash', { title: '명령 · Tab 완성', items, start: 0, reset: true }, {
+    picker.open('slash', { title: '명령 (Tab으로 완성)', items, start: 0, reset: true }, {
       pick: run,
       tab: item => { input.value = `/${item.id}`; resizeInput(); updateSendButton(); openSlashHints(); },
     });
@@ -312,7 +312,7 @@ export function initChat(o: ChatOpts) {
   function openModels(path: string[] = []) {
     const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));
     if ('done' in step) { picker.close(); if (!setChoice(step.done)) progress.set('사용할 수 없는 모델'); return; }
-    picker.open('models', { ...step, title: `${step.title} · ↑↓ · Enter${path.length ? ' · ← 이전' : ''}` }, {
+    picker.open('models', { ...step, title: `${step.title} (↑↓로 이동, Enter로 선택${path.length ? ', ←로 이전' : ''})` }, {
       pick: item => { if (!item.disabled) openModels([...path, item.id]); },
       back: path.length ? () => openModels(path.slice(0, -1)) : undefined,
     });

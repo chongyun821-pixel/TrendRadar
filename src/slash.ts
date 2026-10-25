@@ -44,7 +44,7 @@ export function modelStep(path: string[], current: ModelChoice, available: Reado
   if (!model) return { title: PROVIDERS.find(p => p.id === provider)!.name, items: opts.models.map(m => ({ id: m.id, label: m.id, current: same && (current.model || opts.defaultModel) === m.id, hint: m.id === opts.defaultModel ? '기본' : undefined })) };
   if (!effort) {
     const efforts = effortsFor(provider, model);
-    return { title: `${PROVIDERS.find(p => p.id === provider)!.name} · ${model}`, items: efforts.map(e => ({ id: e, label: e, current: same && (current.model || opts.defaultModel) === model && (current.effort || opts.defaultEffort) === e, hint: e === opts.defaultEffort ? '기본' : undefined })) };
+    return { title: `${PROVIDERS.find(p => p.id === provider)!.name} ${model}`, items: efforts.map(e => ({ id: e, label: e, current: same && (current.model || opts.defaultModel) === model && (current.effort || opts.defaultEffort) === e, hint: e === opts.defaultEffort ? '기본' : undefined })) };
   }
   const r = checkChoice({ provider, model, effort });
   return r.ok ? { done: r.choice } : { title: r.error, items: [] };

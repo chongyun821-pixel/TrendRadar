@@ -29,7 +29,7 @@ export function classifyTier(facts: TierFacts, component?: ComponentControl | nu
   const reasons: TierReason[] = [], approvals: string[] = [];
   const active = facts.controls.filter(c => c.country === facts.country && (c.status === 'active' || c.status === 'partial'));
   for (const c of active) {
-    if ((BLOCKING_REGIMES as readonly string[]).includes(c.regime) && c.status === 'partial') { reasons.push({ code: `partial:${c.regime}`, text: `${REGIME_KO[c.regime] || c.regime}(일부 대상·비구속): ${c.name}`, tier: 2, evidence: [controlEvidence(c)] }); approvals.push(`${c.name} 적용 범위(정부군 대상 여부) 확인`); }
+    if ((BLOCKING_REGIMES as readonly string[]).includes(c.regime) && c.status === 'partial') { reasons.push({ code: `partial:${c.regime}`, text: `${REGIME_KO[c.regime] || c.regime}(일부 대상, 비구속): ${c.name}`, tier: 2, evidence: [controlEvidence(c)] }); approvals.push(`${c.name} 적용 범위(정부군 대상 여부) 확인`); }
     else if ((BLOCKING_REGIMES as readonly string[]).includes(c.regime)) reasons.push({ code: `embargo:${c.regime}`, text: `${REGIME_KO[c.regime] || c.regime}: ${c.name}`, tier: 3, evidence: [controlEvidence(c)] });
     else if ((PARTIAL_REGIMES as readonly string[]).includes(c.regime)) {
       if (component?.usItar) reasons.push({ code: 'itar-component', text: `${REGIME_KO[c.regime]}이며 체계에 미국산 부품 사용`, tier: 3, evidence: [controlEvidence(c), ...(component.evidence || [])] });
@@ -37,13 +37,13 @@ export function classifyTier(facts: TierFacts, component?: ComponentControl | nu
     } else { reasons.push({ code: `embargo:${c.regime}`, text: `${REGIME_KO[c.regime] || REGIME_KO.OTHER}: ${c.name}`, tier: 2, evidence: [controlEvidence(c)] }); approvals.push(`${c.name} 적용 범위 확인`); }
   }
   if (!reasons.some(r => r.tier === 3)) {
-    if (!facts.koreanDeliveries && !facts.defenseAgreement) { reasons.push({ code: 'no-history', text: '한국과 방산 협정·한국산 무기 수입 이력 없음', tier: 2, evidence: [] }); approvals.push('정부 간 협력 경로(방산 협정·G2G) 확인'); }
-    if (facts.conflictParty) { reasons.push({ code: 'conflict-party', text: `최근 3년${facts.conflictWindow ? `(${facts.conflictWindow})` : ''} 분쟁 당사국`, tier: 2, evidence: facts.conflictEvidence || [] }); approvals.push('분쟁 당사국 수출 허가 심사(대외무역법·방위사업법)'); }
+    if (!facts.koreanDeliveries && !facts.defenseAgreement) { reasons.push({ code: 'no-history', text: '한국과 방산 협정이나 한국산 무기 수입 이력 없음', tier: 2, evidence: [] }); approvals.push('정부 간 협력 경로(방산 협정, G2G) 확인'); }
+    if (facts.conflictParty) { reasons.push({ code: 'conflict-party', text: `최근 3년${facts.conflictWindow ? `(${facts.conflictWindow})` : ''} 분쟁 당사국`, tier: 2, evidence: facts.conflictEvidence || [] }); approvals.push('분쟁 당사국 수출 허가 심사(대외무역법, 방위사업법)'); }
     if (component?.usItar) { reasons.push({ code: 'us-components', text: '미국산 부품 사용으로 재수출 승인 필요', tier: 2, evidence: component.evidence || [] }); approvals.push('미국 ITAR 재수출 승인(DSP-5/제3국 이전 동의)'); }
   }
   if (component && component.usItar == null) approvals.push(`${component.system} 체계의 미국산 부품 사용 여부 미확인`);
   const tier: Tier = reasons.some(r => r.tier === 3) ? 3 : reasons.some(r => r.tier === 2) ? 2 : 1;
-  if (tier === 1) reasons.push({ code: 'clear', text: `제재·금수 없음, ${facts.koreanDeliveries ? `한국산 인도 ${facts.koreanDeliveries}건` : '한국과 방산 협정'}`, tier: 1, evidence: [...(facts.koreanEvidence || []).slice(0, 5), ...(facts.agreementEvidence || [])] });
+  if (tier === 1) reasons.push({ code: 'clear', text: `제재나 금수 없음, ${facts.koreanDeliveries ? `한국산 인도 ${facts.koreanDeliveries}건` : '한국과 방산 협정'}`, tier: 1, evidence: [...(facts.koreanEvidence || []).slice(0, 5), ...(facts.agreementEvidence || [])] });
   return { tier, record: { reasons, approvals: [...new Set(approvals)], facts: { koreanDeliveries: facts.koreanDeliveries, koreanEvidence: (facts.koreanEvidence || []).slice(0, 20), defenseAgreement: !!facts.defenseAgreement, conflictParty: facts.conflictParty, controls: active.map(c => c.id), usItar: component?.usItar ?? null } } };
 }
 

@@ -30,7 +30,7 @@ export async function attach(repo: Repository, conversationId: string, file: Fil
     }
     else if (/^text\//.test(file.type) || ['.md','.txt','.csv','.tsv','.json','.xml','.html','.log'].includes(ext)) text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     else if (/^image\/(png|jpeg|webp|gif)$/.test(file.type)) return { ...original, extraction: 'image', message: '이미지 원본 첨부' };
-    else return { ...original, extraction: 'unsupported', message: '원본 저장됨 · 자동 텍스트 추출 미지원' };
+    else return { ...original, extraction: 'unsupported', message: '원본은 저장했지만 텍스트 자동 추출은 지원하지 않습니다' };
     if (!text.trim()) throw new Error('추출 가능한 텍스트 없음 (스캔 문서 확인 필요)');
     const extracted = await repo.artifact(conversationId, `${original.name}.txt`, text, { kind: 'extracted', mime: 'text/plain' });
     return { ...original, extraction: 'ok', textPath: extracted.name };

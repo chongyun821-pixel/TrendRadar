@@ -38,7 +38,7 @@ export function checkChoice(raw: { provider?: unknown; model?: unknown; effort?:
   if (!isProvider(raw.provider)) return { ok: false, error: `모르는 모델: ${String(raw.provider ?? '')}` };
   const provider = raw.provider;
   if (!hasSubOptions(provider)) {
-    if (raw.model || raw.effort) return { ok: false, error: `${PROVIDERS.find(p => p.id === provider)!.name}는 세부 모델·추론 강도를 고르지 않습니다` };
+    if (raw.model || raw.effort) return { ok: false, error: `${PROVIDERS.find(p => p.id === provider)!.name}는 세부 모델과 추론 강도를 고르지 않습니다` };
     return { ok: true, choice: { provider } };
   }
   const model = raw.model == null || raw.model === '' ? undefined : String(raw.model);

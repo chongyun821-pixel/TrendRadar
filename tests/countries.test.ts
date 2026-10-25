@@ -29,7 +29,7 @@ describe('챗봇의 국가 등록', () => {
       const record = { id: 'KOR-sph', country: 'KOR', system: 'sph' as const, batches: [], src: [], projects: [{ id: 'K9-project', buyer: 'KOR', supplier: 'KOR', stage: 'delivery' as const, text: '전력화 사업 설명', src: [] }] };
       const coverage = procurementCoverage(record, data, 'sph');
       expect(coverage.status).toBe('partial'); expect(coverage.current).toBeNull(); expect(coverage.window).toBeNull();
-      expect(coverage.missing).toContain('현재 운용 장비(model·운용 상태)');
+      expect(coverage.missing).toContain('현재 운용 장비(model, 운용 상태)');
       const partial = procurementCoverage({ ...record, batches: [{ model: '구형 장비', introYear: 1980, qty: 100, src: [] }, { model: '신형 장비', introYear: 2020, qty: null, primary: true, src: [] }] }, data, 'sph');
       expect(partial.window).not.toBeNull(); expect(partial.status).toBe('partial'); expect(partial.missing).toContain('일부 현역 장비의 보유 수량');
       expect(await tool('get_country_data_status', { country: '대한민국' })).toMatchObject({ complete: false });
@@ -128,7 +128,7 @@ describe('챗봇의 국가 등록', () => {
       expect(normalized.ok).toBe(true); expect(normalized.payload.record.batches[0].qty).toBeNull();
       expect(await tool('validate_research', { payload: JSON.stringify(normalized.payload) })).toMatchObject({ valid: true, coverage: { status: 'partial', current: { model: '장비 X' }, window: [2033, 2038], quantity: null } });
       expect(await tool('apply_research', { payload: JSON.stringify(normalized.payload) })).toMatchObject({ ok: true, forecast: { current: { model: '장비 X' }, window: [2033, 2038], qty: null, krw: null } });
-      expect(await tool('get_country_data_status', { country: '브라질', system: '자주포' })).toMatchObject({ complete: false, coverage: [{ status: 'partial', missing: ['보유·사업 수량'] }] });
+      expect(await tool('get_country_data_status', { country: '브라질', system: '자주포' })).toMatchObject({ complete: false, coverage: [{ status: 'partial', missing: ['보유 수량과 사업 수량'] }] });
       expect(await tool('add_country', { country: '브라질' })).toMatchObject({ created: false, researchRequired: true });
       const report = await tool('get_country_analysis', { country: '브라질', system: '자주포' });
       expect(report.analysis.markdown).toContain('수량 미확인'); expect(report.analysis.markdown).not.toContain('0~0');

@@ -68,6 +68,8 @@ Run UI checks with a running server and Chrome or Edge selected by `CHROME_PATH`
 
 Follow existing TypeScript ES modules: two-space indentation, single quotes, and semicolons. Use camelCase for functions/variables, PascalCase for types/classes, and UPPER_SNAKE_CASE for constants. Keep filenames consistent with nearby modules, such as `forecast.ts` and `models.test.ts`. Preserve Korean UI terminology. No dedicated formatter or linter is configured; avoid unrelated formatting changes.
 
+- 사용자에게 보이는 한국어 문구(화면 문구, 답변, 보고서, 오류 메시지)에서 단어나 구절을 가운뎃점(·)으로 잇지 말고 자연스러운 문장이나 쉼표로 쓴다. ‘라벨 · 값’처럼 줄임말로 잇는 말투도 쓰지 않는다.
+
 ## Testing Guidelines
 
 Tests use Vitest `describe`/`it` in `tests/*.test.ts`. No numeric coverage threshold is configured. Add meaningful tests for forecast boundaries, source integrity, model fallbacks, persistence/cancellation, API/MCP behavior, and artifact downloads. Mock network/model calls for deterministic tests. Verify visible UI changes in desktop and mobile layouts. Distinguish mocked tests from actual provider/CLI checks and record failed or unavailable verification accurately.

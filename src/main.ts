@@ -15,7 +15,7 @@ import { mountTimeline, purgeTimeline } from './plotly-timeline';
 
 const state = { mode: null as SystemKey | null, flat: false, focus: null as string | null, pinned: false, display: DEFAULT_DISPLAY as MapDisplay };
 let mapStyles = new Map<string, CountryMapStyle>();
-/** 판단 점수와 수출 제외 사유는 정보 카드에 표시한다. 인접국 참고 점수와는 별도다. */
+/** 판단 점수와 수출 제외 사유는 정보 카드에 표시한다. 인접국 영향 점수와는 별도다. */
 interface ScoreSummary extends WeaponScore { gate: string | null }
 const scores = new Map<string, ScoreSummary>();
 /** 판단 점수 항목별 내역: 펼친 행(hover 미리보기 또는 클릭 고정)과 국가·체계별 캐시. 점수를 다시 불러오면 비운다 */
@@ -111,10 +111,9 @@ async function boot() {
       const top = [...mapStyles].filter(([, style]) => style.hatched && style.referenceRank != null)
         .sort(([, a], [, b]) => a.referenceRank! - b.referenceRank!).slice(0, 5);
       ranking.style.setProperty('--ranking-color', SYSTEM_COLOR[state.mode]);
-      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">빗금 국가 TOP 5</h2><p>${esc(seed.systems[state.mode].ko)} · 인접국 참고 점수</p></div></div>`
+      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">인접국 영향 점수</h2></div></div>`
         + (top.length ? `<ol>${top.map(([country, style]) => `<li><button type="button" data-hatch-country="${esc(country)}" title="${esc(names[country] ?? country)} 지도에서 보기"><span class="hatch-ranking-number">${style.referenceRank}</span><span class="hatch-ranking-country">${esc(names[country] ?? country)}</span><strong>${style.referenceScore.toFixed(1)}<small>점</small></strong></button></li>`).join('')}</ol>`
-          : '<p class="hatch-ranking-empty">조건에 맞는 빗금 국가가 없습니다.</p>')
-        + '<p class="hatch-ranking-note">인접국 수 50% + 예상 금액 50%</p>';
+          : '<p class="hatch-ranking-empty">조건에 맞는 빗금 국가가 없습니다.</p>');
     } else ranking.innerHTML = '';
     // 챗봇 표시 조정(숨김·특정 국가만·강조·빗금·막대)을 색과 막대에 반영한다
     const shown = displayStyle(state.display,
@@ -124,17 +123,14 @@ async function boot() {
     const visible = state.display.bars ? fs.filter(f => f.status !== 'none' && f.krw != null && seed.countries[f.country] && shown.shows(f.country)) : [];
     const sizes = mapSizes(visible);
     globe.setSpikes(visible.filter(f => (sizes.get(f.country) ?? 0) > 0).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: shown.dimmed(f.country) ? rgbCss(dimRgb(hexRgb(SYSTEM_COLOR[f.system]), DIM_BASE_RGB)) : SYSTEM_COLOR[f.system], size: sizes.get(f.country)! })));
-    const scaleLegend = `<span class="sz"><b></b>${state.flat ? '원 지름' : '막대 높이'} · 예상 사업 금액 (로그)</span>`;
     if (state.mode) {
       const mode = state.mode, hue = SYSTEM_COLOR[mode];
       $('#legend').innerHTML = `<strong class="legend-title"><i style="background:${hue}"></i>${esc(seed.systems[mode].ko)}</strong>`
-        + ([3, 10, 11] as const).map(years => `<span><i style="background:${rgbCss(systemTint(mode, years))}"></i>${timingLabel(years)} · ${years === 3 ? 100 : years === 10 ? 50 : 20}%</span>`).join('')
-        + `<span><i class="hatch" style="--hue:${hue}"></i>빗금 · 인접국 참고</span><span><i style="background:${rgbCss(MISSING_RGB)}"></i>바탕색 · 참고 자료 없음</span>`
-        + `<small>빗금 · 같은 체계의 자료 있는 육상 인접국 1개 이상<br>참고 점수 · 인접국 수 50% + 예상 금액 50%</small>${scaleLegend}`;
+        + ([3, 10, 11] as const).map(years => `<span><i style="background:${rgbCss(systemTint(mode, years))}"></i>${timingLabel(years)}</span>`).join('')
+        + `<span><i class="hatch" style="--hue:${hue}"></i>이웃 나라 자료로 짐작한 나라</span><span><i style="background:${rgbCss(MISSING_RGB)}"></i>자료가 없는 나라</span>`;
     } else {
-      $('#legend').innerHTML = `<strong class="legend-title">일반 · 수주 판단 점수 최고 무기</strong>`
-        + SYSTEM_KEYS.map(system => `<span><i style="background:${SYSTEM_COLOR[system]}"></i>${esc(seed.systems[system].ko)}</span>`).join('')
-        + `<small>밝기 · 3년 이내 100% / 10년 이내 50% / 이후 20%<br>판단 점수 미확인·수출 제외 국가는 바탕색</small>`;
+      $('#legend').innerHTML = `<strong class="legend-title">나라별 수주 가능성이 가장 높은 무기</strong>`
+        + SYSTEM_KEYS.map(system => `<span><i style="background:${SYSTEM_COLOR[system]}"></i>${esc(seed.systems[system].ko)}</span>`).join('');
     }
     const adjusted = displaySummary(state.display, id => names[id] ?? id);
     if (adjusted) $('#legend').insertAdjacentHTML('beforeend', `<small class="display-note">${esc(adjusted)}</small>`);
@@ -342,8 +338,8 @@ async function fetchScoreDetail(country: string, system: SystemKey, key: string)
   try {
     const response = await fetch(`/api/scores/${encodeURIComponent(country)}?system=${encodeURIComponent(system)}`, { cache: 'no-store' });
     const body = await response.json().catch(() => ({}));
-    detail = response.ok && Array.isArray(body.components) ? { status: 'ok', data: body } : { status: 'error', message: `항목별 점수를 불러오지 못했습니다${body?.error ? ` · ${String(body.error)}` : ''}` };
-  } catch { detail = { status: 'error', message: '항목별 점수를 불러오지 못했습니다 · 연결을 확인하세요' }; }
+    detail = response.ok && Array.isArray(body.components) ? { status: 'ok', data: body } : { status: 'error', message: `항목별 점수를 불러오지 못했습니다${body?.error ? ` (${String(body.error)})` : ''}` };
+  } catch { detail = { status: 'error', message: '항목별 점수를 불러오지 못했습니다. 연결을 확인하세요' }; }
   if (generation !== scoreDetail.generation) return; // 그 사이 점수·모드·자료 버전이 바뀌었다
   scoreDetail.cache.set(key, detail);
   const open = scoreDetail.open;
@@ -363,7 +359,7 @@ function tipHtml(id: string, names: Record<string, string>) {
     const chips = recs.map(r => { const f = computeForecast(r); return `<button type="button" class="chip" data-report-country="${esc(id)}" data-report-system="${r.system}" aria-label="${name} ${esc(f.systemKo)} 보고서 보기" title="${esc(f.systemKo)} 지도로 전환하고 보고서 열기"><i style="background:${SYSTEM_COLOR[r.system]}"></i>${esc(f.systemKo)}</button>`; }).join('');
     const best = bestWeapons.get(id);
     const forecast = best ? computeForecast(findRecord(id, best.system)!) : null;
-    return `<div class="th">${esc(meta?.flag ?? '')} ${name}</div>${best ? `<table><tr><th>최고 수주 가능성</th><td><i class="weapon-dot" style="background:${SYSTEM_COLOR[best.system]}"></i>${esc(seed.systems[best.system].ko)} · 판단 ${best.score}/100</td></tr><tr><th>교체 시기</th><td>${timingLabel(forecast!.remaining)}</td></tr></table>` : '<p class="map-note">비교 가능한 수주 판단 점수를 확인 중이거나 수출 제외 대상입니다.</p>'}<div class="chips">${chips}</div>`;
+    return `<div class="th">${esc(meta?.flag ?? '')} ${name}</div>${best ? `<table><tr><th>최고 수주 가능성</th><td><i class="weapon-dot" style="background:${SYSTEM_COLOR[best.system]}"></i>${esc(seed.systems[best.system].ko)} (${best.score}점)</td></tr><tr><th>교체 시기</th><td>${timingLabel(forecast!.remaining)}</td></tr></table>` : '<p class="map-note">비교 가능한 수주 판단 점수를 확인 중이거나 수출 제외 대상입니다.</p>'}<div class="chips">${chips}</div>`;
   }
   const rec = findRecord(id, mode);
   const sysKo = esc(seed.systems[mode].ko);
@@ -371,15 +367,15 @@ function tipHtml(id: string, names: Record<string, string>) {
   const style = mapStyles.get(id);
   if (scoreDetail.open && (scoreDetail.open.country !== id || scoreDetail.open.system !== mode)) scoreDetail.open = null;
   // 판단 점수 행: 누르거나(고정 카드에서) 커서를 올리면 바로 아래에 항목별 점수를 펼친다
-  const scoreRow = sc ? scoreRowHtml(id, mode, sc.grey ? `제외 · ${esc((sc.gate || '').slice(0, 60))}` : `${sc.score}/100`, !!scoreDetail.open) + scoreSlotHtml(id, mode) : '';
+  const scoreRow = sc ? scoreRowHtml(id, mode, sc.grey ? `제외됨: ${esc((sc.gate || '').slice(0, 60))}` : `${sc.score}/100`, !!scoreDetail.open) + scoreSlotHtml(id, mode) : '';
   if (!rec || style?.coverage === 'missing') {
     const neighbors = style?.neighbors ?? [];
     const rows: [string, string][] = [
-      ['인접국 참고 점수', style?.hatched ? `${style.referenceScore.toFixed(1)}/100 · 후보 ${style.referenceRank}위` : '평가 대상 아님'],
-      ['자료 있는 인접국', neighbors.length ? `${neighbors.length}개국 · ${neighbors.map(n => esc(names[n] ?? n)).join(' · ')}` : '없음'],
+      ['인접국 영향 점수', style?.hatched ? `${style.referenceScore.toFixed(1)}점, ${style.referenceRank}위` : '평가 대상 아님'],
+      ['자료 있는 인접국', neighbors.length ? `${neighbors.map(n => esc(names[n] ?? n)).join(', ')} (${neighbors.length}개국)` : '없음'],
       ['인접국 예상 사업 합계', `${fmtKrwRange(style?.neighborAmount ?? null)}${style?.neighborAmount ? ' <span class="pred">예측</span>' : ''}`],
     ];
-    return `<div class="th">${esc(meta?.flag ?? '')} ${name} · ${sysKo}<span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : '#8b98ad'}">${style?.hatched ? '인접국 참고' : '자료 없음'}</span></div>
+    return `<div class="th">${esc(meta?.flag ?? '')} ${name} ${sysKo}<span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : '#8b98ad'}">${style?.hatched ? '인접국 영향' : '자료 없음'}</span></div>
       <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
       <p class="map-note">${neighbors.length ? '인접국의 수와 확인 가능한 예상 사업 금액을 합산한 참고 점수입니다.' : '이 무기체계의 자료가 있는 육상 인접국이 없습니다.'} 이 국가의 보유 장비나 교체 일정은 확인되지 않았습니다.</p>`;
   }
@@ -387,20 +383,20 @@ function tipHtml(id: string, names: Record<string, string>) {
   const cur = f.current;
   const be = (b: { est: string[] }, k: string) => b.est.includes(k);
   const rows: [string, string][] = [];
-  rows.push(['현재 주력', cur ? `${esc(cur.model)} · 도입 ${cur.introYear ?? '미확인'}${est(be(cur, 'introYear'))} · ${cur.qty == null ? '수량 미확인' : `${cur.qty.toLocaleString()}${esc(f.unit)}`}${est(be(cur, 'qty'))}` : '보유 장비 조사 필요']);
-  if (cur) rows.push(['설계 수명', `${cur.life}년${est(f.lifeEst)}${cur.ext ? ` + MRO ${cur.ext}년` : ''}${cur.year == null ? ' · 도입 연도 확인 필요' : ` → ${cur.year}년`}`]);
-  rows.push(['교체 예상', f.window ? `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' · 후속 주기' : f.status === 'plan' ? ' · 사업 계획' : ''}` : '도입 연도·사업 일정 조사 필요']);
+  rows.push(['현재 주력', cur ? `${esc(cur.model)} ${cur.qty == null ? '수량 미확인' : `${cur.qty.toLocaleString()}${esc(f.unit)}`}${est(be(cur, 'qty'))}, ${cur.introYear == null ? '도입 연도 미확인' : `${cur.introYear}년 도입`}${est(be(cur, 'introYear'))}` : '보유 장비 조사 필요']);
+  if (cur) rows.push(['설계 수명', `${cur.life}년${est(f.lifeEst)}${cur.ext ? ` + MRO ${cur.ext}년` : ''}${cur.year == null ? ', 도입 연도 확인 필요' : ` → ${cur.year}년`}`]);
+  rows.push(['교체 예상', f.window ? `${fmtWin(f)} <span class="pred">예측</span>${f.status === 'next' ? ' (다음 교체 주기)' : f.status === 'plan' ? ' (사업 계획 기준)' : ''}` : '도입 연도와 사업 일정 조사 필요']);
   // 진행 중·선정 전 사업: 공급자가 정해지면 교체 수요 충족(사업 기회 아님), 선정 전이면 사업 기회 유지
-  if (f.program && f.program.id !== 'awarded') rows.push(['진행 사업', `${esc(f.program.reason.replace(/^[^:]*:\s*/, ''))} · ${esc(f.program.stageKo)}${f.program.open ? ' · 사업 기회' : ''}`]);
+  if (f.program && f.program.id !== 'awarded') rows.push(['진행 사업', `${esc(f.program.reason.replace(/^[^:]*:\s*/, ''))}, ${esc(f.program.stageKo)}${f.program.open ? ', 아직 사업 기회 있음' : ''}`]);
   const mro = rec.mro?.[rec.mro.length - 1];
   if (mro) rows.push(['최근 MRO', `${mro.year}${est(!!mro.est?.includes('year'))} ${esc(mro.text)}`]);
   if (rec.awarded && cur) rows.push(['최근 계약', `${rec.awarded.year} ${esc(rec.awarded.text)}`]);
   if (rec.plan) rows.push(['사업 계획', esc(rec.plan.text)]);
-  if (f.status !== 'none') rows.push(['예상 사업', `${fmtQtyRange(f.qty, esc(f.unit))} · ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
+  if (f.status !== 'none') rows.push(['예상 사업', `${fmtQtyRange(f.qty, esc(f.unit))}, ${fmtKrwRange(f.krw)} <span class="pred">예측</span>${est(f.krwEst)}`]);
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
-  if (style?.coverage === 'partial') rows.push(['자료 상태', f.remaining == null ? '자료 일부 · 시기 미확인' : '자료 일부']);
+  if (style?.coverage === 'partial') rows.push(['자료 상태', f.remaining == null ? '자료 일부만 있음, 시기 미확인' : '자료 일부']);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
-  return `<div class="th">${esc(meta.flag)} ${name} · ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span></div>
+  return `<div class="th">${esc(meta.flag)} ${name} ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span></div>
     <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
     <div class="src">${links}${f.sources.length > 4 ? `<span>+${f.sources.length - 4}</span>` : ''}</div>`;
 }

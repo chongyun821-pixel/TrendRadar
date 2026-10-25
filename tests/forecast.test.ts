@@ -96,6 +96,6 @@ describe('lookup & report', () => {
   it('보고서 6개 절', () => {
     const r = writeReport({ country: '베트남', system: '자주포' });
     expect('markdown' in r).toBe(true);
-    if ('markdown' in r) for (const h of ['요약', '현재 보유', '수명·MRO', '예측 근거', '한화 기회', '출처']) expect(r.markdown).toContain(h);
+    if ('markdown' in r) for (const h of ['요약', '현재 보유', '수명과 MRO', '예측 근거', '한화 기회', '출처']) expect(r.markdown).toContain(h);
   });
 });

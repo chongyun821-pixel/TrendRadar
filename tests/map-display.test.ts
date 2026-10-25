@@ -29,7 +29,7 @@ describe('지도 표시 조정', () => {
     expect(displayStyle({ ...DEFAULT_DISPLAY, hatch: false }, colors, hatched, base).hatched.size).toBe(0);
     const d = applyDisplayPatch({ ...DEFAULT_DISPLAY, hidden: ['CHN'], hatch: false }, { reset: true, legend: false });
     expect(d).toEqual({ ...DEFAULT_DISPLAY, legend: false });
-    expect(displaySummary({ ...DEFAULT_DISPLAY, hidden: ['CHN'], hatch: false }, id => id)).toBe('숨김 CHN · 빗금 끔');
+    expect(displaySummary({ ...DEFAULT_DISPLAY, hidden: ['CHN'], hatch: false }, id => id)).toBe('CHN 숨김, 빗금 끔');
   });
   it('set_map_state가 확대·국가 목록·표시 켜고 끄기를 해석한다', async () => {
     const t = await mapTarget('set_map_state', { zoom: '확대', hide: '중국, 러시아', only: '해제', highlight: 'POL', hatch: false, bars: 'false', resetDisplay: true });

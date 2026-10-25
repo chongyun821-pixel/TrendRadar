@@ -51,12 +51,12 @@ export function displayStyle(d: MapDisplay, colors: Map<string, Rgb>, hatched: R
 
 /** 범례에 붙이는 현재 표시 조정 요약. 기본 상태면 빈 문자열 */
 export function displaySummary(d: MapDisplay, name: (id: string) => string) {
-  const list = (ids: string[]) => ids.length <= 3 ? ids.map(name).join('·') : `${ids.slice(0, 3).map(name).join('·')} 외 ${ids.length - 3}개국`;
+  const list = (ids: string[]) => ids.length <= 3 ? ids.map(name).join(', ') : `${ids.slice(0, 3).map(name).join(', ')} 외 ${ids.length - 3}개국`;
   return [
-    d.only ? `표시 ${list(d.only)}` : '',
-    d.hidden.length ? `숨김 ${list(d.hidden)}` : '',
-    d.highlight.length ? `강조 ${list(d.highlight)}` : '',
+    d.only ? `${list(d.only)}만 표시` : '',
+    d.hidden.length ? `${list(d.hidden)} 숨김` : '',
+    d.highlight.length ? `${list(d.highlight)} 강조` : '',
     d.hatch ? '' : '빗금 끔',
     d.bars ? '' : '막대 끔',
-  ].filter(Boolean).join(' · ');
+  ].filter(Boolean).join(', ');
 }

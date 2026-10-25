@@ -94,7 +94,7 @@ describe('get_score_breakdown·/api/scores', () => {
     expect(packet.templateVersion).toBe('report-templates-v1');
     expect(packet.template.id).toBe('word-country-v1');
     expect(packet.evidenceTables).toHaveLength(1);
-    expect(packet.evidenceTables[0]).toMatchObject({ title: '폴란드 · 자주포 근거 표', columns: ['항목', '비중', '원점수', '출처 신뢰도', '점수', '판단 내용', '근거 ID'] });
+    expect(packet.evidenceTables[0]).toMatchObject({ title: '폴란드 자주포 근거 표', columns: ['항목', '비중', '원점수', '출처 신뢰도', '점수', '판단 내용', '근거 ID'] });
     expect(packet.evidenceTables[0].rows).toHaveLength(7);
   });
 });

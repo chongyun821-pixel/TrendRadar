@@ -8,15 +8,15 @@ export interface LocalResult { text?: string; report?: string; actions: Action[]
 
 export const HELP = [
   '**명령**',
-  '- `!모드 자주포` · `!모드 일반`',
+  '- `!모드 자주포`, `!모드 일반`',
   '- `!지도` 3D ↔ 2D',
   '- `!국가 폴란드`',
   '- `!예측 폴란드 자주포`',
   '- `!보고서 폴란드 자주포`',
   '- `!목록 호위함`',
   '- `!모델 지피티`',
-  '- `/sessions` 대화 전환·새 대화·삭제',
-  '- `/models` 모델·추론 강도 선택',
+  '- `/sessions` 대화 전환, 새 대화, 삭제',
+  '- `/models` 모델과 추론 강도 선택',
 ].join('\n');
 
 /** !명령 처리. names: 지도 국가명(id→한글) */
@@ -40,7 +40,7 @@ export function runCommand(input: string, names: Record<string, string>): LocalR
       const c = pickCountry(); const s = pickSys(); if (!c) return { text: '국가를 모르겠습니다.', actions: [] };
       const r = forecast({ country: c, system: s ?? undefined });
       if (!Array.isArray(r)) return { text: r.error, actions: [{ type: 'focus_country', country: c }] };
-      const lines = r.map(f => `- **${f.system}** ${f.window ?? '—'} · ${f.imminence} · ${f.qty} · ${f.krw} · 신뢰도 ${f.confidence}`);
+      const lines = r.map(f => `- **${f.system}** ${f.window ?? '—'}, ${f.imminence}, ${f.qty}, ${f.krw}, 신뢰도 ${f.confidence}`);
       const acts: Action[] = [{ type: 'focus_country', country: c }]; if (s) acts.unshift({ type: 'set_mode', system: s });
       return { text: `**${seed.countries[c]?.ko ?? c} 예측**\n${lines.join('\n')}`, actions: acts };
     }
@@ -54,7 +54,7 @@ export function runCommand(input: string, names: Record<string, string>): LocalR
     case '목록': case 'list': {
       const s = pickSys();
       const top = listForecasts({ system: s ?? undefined, limit: 8 });
-      return { text: `**${s ? seed.systems[s].ko : '전체'} 임박 순**\n` + top.map((f, i) => `${i + 1}. ${f.country} ${s ? '' : f.system + ' '}${f.window ?? '—'} · ${f.imminence} · ${f.krw}`).join('\n'), actions: s ? [{ type: 'set_mode', system: s }] : [] };
+      return { text: `**${s ? seed.systems[s].ko : '전체'} 임박 순**\n` + top.map((f, i) => `${i + 1}. ${f.country} ${s ? '' : f.system + ' '}${f.window ?? '—'}, ${f.imminence}, ${f.krw}`).join('\n'), actions: s ? [{ type: 'set_mode', system: s }] : [] };
     }
   }
   return { text: `모르는 명령: !${cmd}\n${HELP}`, actions: [] };

@@ -30,7 +30,7 @@ export function createUploader(o: {
         const notices = result.files.flatMap((file: any, index: number) => ['failed', 'unsupported'].includes(file.extraction) ? [`${files[index].name}: ${file.message}`] : []);
         o.status.textContent = [`${files.length}개 파일 추가됨`, ...notices].join('\n');
         await o.uploaded(id, token);
-      } catch (e) { if (token === o.view()) o.status.textContent = `업로드 실패 · ${e instanceof Error ? e.message : e}`; }
+      } catch (e) { if (token === o.view()) o.status.textContent = `업로드 실패: ${e instanceof Error ? e.message : e}`; }
     })();
     task = current;
     try { await current; } finally { task = null; o.addFiles.disabled = o.busy(); }

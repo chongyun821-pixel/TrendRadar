@@ -6,9 +6,9 @@ export function procurementCoverage(record: ProgramRecord | undefined, data: See
   const forecast = record ? computeForecast(record, data) : null;
   const active = record?.batches.filter(b => isCurrentBatch(b)) || [];
   const missing = [
-    ...(!forecast?.current ? ['현재 운용 장비(model·운용 상태)'] : []),
+    ...(!forecast?.current ? ['현재 운용 장비(model, 운용 상태)'] : []),
     ...(!forecast?.window ? ['도입 연도 또는 공개 사업 일정'] : []),
-    ...(!forecast?.qty ? ['보유·사업 수량'] : []),
+    ...(!forecast?.qty ? ['보유 수량과 사업 수량'] : []),
     ...(forecast?.window && active.some(b => b.introYear == null) ? ['일부 현역 배치의 도입 연도'] : []),
     ...(forecast?.qty && active.some(b => b.qty == null) ? ['일부 현역 장비의 보유 수량'] : []),
     ...(!forecast?.nSources ? ['보존한 원문 근거'] : []),

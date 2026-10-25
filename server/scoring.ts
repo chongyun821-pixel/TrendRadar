@@ -35,7 +35,7 @@ export const scoreSummary = (s: ScoredCase) => ({ country: s.country, system: s.
 export function evidenceTable(s: ScoredCase) {
   const pct = (n: number) => `${Math.round(n * 100)}%`;
   return {
-    title: `${s.countryKo} · ${s.systemKo} 근거 표`,
+    title: `${s.countryKo} ${s.systemKo} 근거 표`,
     header: {
       통과조건: s.gate.passed ? '통과' : `제외 — ${s.gate.reason}`,
       고객등급: `${tierLabel(s.tier)} (계수 ${s.tierFactor})`,

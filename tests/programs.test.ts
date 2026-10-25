@@ -63,8 +63,8 @@ describe('캐나다 진행 중 사업(마이그레이션 009)', () => {
     const g = computeForecast(tender);
     expect(g.status).toBe('plan'); expect(g.window).toEqual(f.window);
     expect(g.program).toMatchObject({ open: true, covers: 0 });
-    expect(g.calc.join('\n')).toContain('선정 전 경쟁(입찰·선정 중): 2027 계약 목표 → 공급자 미정, 사업 기회 유지');
-    expect((writeReport({ country: 'PHL', system: 'ssk' }, { ...seed, records: seed.records.map(r => (r.id === 'PHL-ssk' ? tender : r)) }) as { markdown: string }).markdown).toContain('공급자 미정(입찰·선정 중) → 사업 기회 유지');
+    expect(g.calc.join('\n')).toContain('선정 전 경쟁(입찰 또는 선정 중): 2027 계약 목표 → 공급자 미정, 사업 기회 유지');
+    expect((writeReport({ country: 'PHL', system: 'ssk' }, { ...seed, records: seed.records.map(r => (r.id === 'PHL-ssk' ? tender : r)) }) as { markdown: string }).markdown).toContain('공급자 미정(입찰 또는 선정 중) → 사업 기회 유지');
   });
 });
 
@@ -94,7 +94,7 @@ describe('진행 사업 일반 규칙', () => {
   it('연도가 하나도 없는 계약 사업은 교체 계산에 쓰지 않고 이유를 남긴다', () => {
     const f = computeForecast({ ...fleet, plan: undefined, projects: [project({})] });
     expect(f.status).toBe('open'); expect(needMet(f)).toBe(false);
-    expect(f.calc.join('\n')).toContain('계약·인도 연도 미확인으로 교체 계산에 반영하지 않음');
+    expect(f.calc.join('\n')).toContain('계약 연도와 인도 연도 미확인으로 교체 계산에 반영하지 않음');
   });
   it('여러 계약의 covers 합으로 충족을 판단하고 가장 최근 계약을 대표로 쓴다', () => {
     const f = computeForecast({ ...fleet, projects: [project({ id: 'a', covers: 0.5, contractYear: 2020, deliveryStart: 2022, deliveryEnd: 2024 }), project({ id: 'b', covers: 0.5, contractYear: 2025, deliveryStart: 2027, deliveryEnd: 2029 })] });

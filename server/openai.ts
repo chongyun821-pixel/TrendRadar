@@ -63,7 +63,7 @@ export async function chatOpenAI(input: ChatIn, env: Env): Promise<ChatOut> {
     input.signal?.throwIfAborted();
     const st = e instanceof ReqError ? e.status : 0;
     const body = e instanceof ReqError ? e.body : '';
-    const msg = st === 401 ? 'OpenAI 키 오류' : st === 429 ? (/insufficient_quota/.test(body) ? 'OpenAI 사용 한도·결제 확인 필요' : '요청 한도 초과. 잠시 후 다시 시도') : st === 404 ? '모델을 찾을 수 없음' : st === 403 ? 'OpenAI 접근 권한 오류' : st ? `AI 오류 ${st}` : 'OpenAI 연결 실패';
+    const msg = st === 401 ? 'OpenAI 키 오류' : st === 429 ? (/insufficient_quota/.test(body) ? 'OpenAI 사용 한도나 결제 확인 필요' : '요청 한도 초과. 잠시 후 다시 시도') : st === 404 ? '모델을 찾을 수 없음' : st === 403 ? 'OpenAI 접근 권한 오류' : st ? `AI 오류 ${st}` : 'OpenAI 연결 실패';
     return { ...out, error: msg, detail: body ? body.slice(0, 300) : String(e).slice(0, 200) };
   }
 }

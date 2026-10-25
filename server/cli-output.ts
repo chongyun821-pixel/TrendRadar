@@ -20,7 +20,7 @@ export function parseGrokStream(stdout: string, stderr = ''): CliParsed {
     } else if (e.type === 'error') error = String(e.message ?? 'error');
     else if (e.type === 'end') {
       if (e.usage) usage = { input: (e.usage.input_tokens ?? 0) + (e.usage.cache_read_input_tokens ?? 0), cached: e.usage.cache_read_input_tokens ?? 0, output: e.usage.output_tokens ?? 0 };
-      if (e.stopReason === 'cancelled' || e.stopReason === 'error') error = `그록 실행 ${e.stopReason}: 도구 권한·연결 상태를 확인하세요`;
+      if (e.stopReason === 'cancelled' || e.stopReason === 'error') error = `그록 실행 ${e.stopReason}: 도구 권한과 연결 상태를 확인하세요`;
     }
     else if (typeof e.text === 'string' && !all) { all = e.text; tail = e.text; } // --output-format json 호환
   }

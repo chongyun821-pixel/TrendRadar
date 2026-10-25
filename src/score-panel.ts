@@ -28,7 +28,7 @@ function scorePanelBody(detail: ScoreDetail) {
   if (detail.status === 'loading') return '<p class="score-status">항목별 점수를 불러오는 중…</p>';
   if (detail.status === 'error') return `<p class="score-status error">${esc(detail.message)}</p>`;
   const b = detail.data;
-  const gate = b.gate.passed ? '' : `<p class="score-gate">제외 · ${esc(b.gate.reason || '통과 조건 미충족')}</p>`;
+  const gate = b.gate.passed ? '' : `<p class="score-gate">제외됨: ${esc(b.gate.reason || '통과 조건 미충족')}</p>`;
   const items = b.components.map(c => {
     const ratio = c.weight > 0 && !c.missing ? Math.max(0, Math.min(1, c.points / c.weight)) : 0;
     const pts = c.missing ? '<span class="sf-miss">자료 없음</span>' : `${fmt1(c.points)} / ${esc(String(c.weight))}`;
@@ -38,5 +38,5 @@ function scorePanelBody(detail: ScoreDetail) {
   const sums = [`항목 합 ${fmt1(b.subtotal)}`, `${esc(tierLabel(b.tier))} ×${factorText(b.tierFactor)}`];
   if (b.domesticFactor !== 1) sums.push(`독자 개발 ${b.domestic ? DOMESTIC_KO[b.domestic] : ''} ×${factorText(b.domesticFactor)}`);
   sums.push(`<b>최종 ${b.gate.passed ? `${fmt1(b.score)}/100` : '0 (제외)'}</b>`);
-  return `${gate}<ul class="sf-list">${items}</ul><div class="score-sum">${sums.join(' · ')}</div>`;
+  return `${gate}<ul class="sf-list">${items}</ul><div class="score-sum">${sums.join(', ')}</div>`;
 }

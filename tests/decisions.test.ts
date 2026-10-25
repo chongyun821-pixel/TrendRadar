@@ -52,7 +52,7 @@ describe('인도 연도 없는 보유 행 추정', () => {
     const row = evidenceTable(scored(s)).rows.find(r => r[0] === '노후화')!;
     expect(String(row[2])).toContain('(추정)');
     const derived = computeScore({ country: 'ROU', system: 'sph', inventory: [inv({ confidence: 0.7 })], signals: [sig('s', 'contract', '2008-03-01', { model: 'M109' })], designLife: 35 }, base).components.find(c => c.factor === 'aging')!;
-    expect(derived.confidence).toBe(0.49); expect(derived.detail).toContain('계약·인도 신호 1');
+    expect(derived.confidence).toBe(0.49); expect(derived.detail).toContain('계약 또는 인도 신호 1');
   });
 });
 

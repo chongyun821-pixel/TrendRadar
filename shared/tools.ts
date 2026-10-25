@@ -94,15 +94,15 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
   const parts: string[] = [];
   for (const s of sysList) {
     const r = data.records.find(r => r.country === country && r.system === s);
-    if (!r) { parts.push(`## ${countryName} · ${data.systems[s].ko}\n데이터 없음`); continue; }
+    if (!r) { parts.push(`## ${countryName} ${data.systems[s].ko}\n데이터 없음`); continue; }
     const f = computeForecast(r, data);
     const sys = data.systems[s];
     const L: string[] = [];
-    L.push(`## ${f.flag} ${f.countryKo} · ${f.systemKo} 보고서`);
+    L.push(`## ${f.flag} ${f.countryKo} ${f.systemKo} 보고서`);
     L.push(`### 1. 요약`);
     L.push(`- 구분: ${f.status === 'next' && f.program && !f.program.open ? `진행 중 사업(${f.program.stageKo}) → 후속 주기` : STATUS_KO[f.status]}`);
     if (f.program) L.push(`- 사업 현황: ${f.program.reason}`);
-    if (f.window) L.push(`- 예상 시기(예측): **${f.window[0]}~${f.window[1]}년** · 임박도 ${CATEGORY_KO[f.category]} (점수 ${f.score})`);
+    if (f.window) L.push(`- 예상 시기(예측): **${f.window[0]}~${f.window[1]}년**, 임박도 ${CATEGORY_KO[f.category]} (점수 ${f.score})`);
     if (f.status !== 'none') L.push(`- 예상 규모(예측): **${fmtQtyRange(f.qty, f.unit)}**, **${fmtKrwRange(f.krw)}**${f.krwEst ? ' (추정 포함)' : ''}`);
     L.push(`- 신뢰도: ${f.confidence} (근거 ${f.nSources}건, 추정 항목 ${f.estCount}개)`);
     L.push(`- 자료 기준: ${data.meta.collected || '미확인'}`);
@@ -112,26 +112,26 @@ export function writeReport(a?: { country?: string; system?: string }, data: See
     if (r.awarded) L.push(`- 최근 계약: ${r.awarded.year}${est(r.awarded, 'year')} ${r.awarded.text}`);
     if (r.plan) L.push(`- 사업 계획: ${r.plan.text}`);
     for (const sg of r.signals ?? []) L.push(`- 동향: ${sg.year} ${sg.text}`);
-    L.push(`### 3. 수명·MRO`);
+    L.push(`### 3. 수명과 MRO`);
     L.push(`- 설계 수명: ${sys.designLife}년 (${f.lifeEst ? '체계 기본값, 추정' : `출처: ${(sys.lifeSrc || []).map(id => data.sources[id]?.t).filter(Boolean).join(', ')}`})`);
     if (r.mro?.length) for (const m of r.mro) L.push(`- ${m.year}${est(m, 'year')} ${m.text}${m.lifeExt ? ` → 수명 +${m.lifeExt}년${est(m, 'lifeExt')}` : ''}`);
     else L.push(`- 확인된 MRO 기록 없음`);
     L.push(`### 4. 예측 근거와 계산`);
     for (const c of f.calc) L.push(`- ${c}`);
-    L.push(`- 기준 연도 ${baseYear}, 남은 기간 = 시작 연도 − ${baseYear}. 동향 언급만으로 계약 수량·일정을 변경하지 않음`);
+    L.push(`- 기준 연도 ${baseYear}, 남은 기간 = 시작 연도 − ${baseYear}. 동향 언급만으로 계약 수량과 일정을 변경하지 않음`);
     if (r.analysis) {
-      const labels: Record<string, string> = { facts: '확인 사실', estimates: '추정', conflicts: '상충·선택 근거', unknowns: '미확인' };
+      const labels: Record<string, string> = { facts: '확인 사실', estimates: '추정', conflicts: '상충과 선택 근거', unknowns: '미확인' };
       for (const [label, items] of Object.entries(r.analysis)) if (Array.isArray(items)) for (const item of items) L.push(`- ${labels[label] || label}: ${item}`);
     }
     L.push(`### 5. 경쟁 구도와 한화 기회`);
     if (r.awarded) L.push(`- 기존 계약: ${r.awarded.text}`);
     if (r.plan) L.push(`- 경쟁 현황: ${r.plan.text}`);
     L.push(`- 해당 한화 제품: ${sys.hanwha.join(', ')}`);
-    for (const p of r.projects ?? []) L.push(`- ${p.id}: 구매국 ${p.buyer} · 공급자 ${p.supplier || '미정'}${p.reserve ? ` (예비 ${p.reserve})` : ''} · 단계 ${PROJECT_STAGE_KO[p.stage] ?? p.stage} · ${p.text}`);
+    for (const p of r.projects ?? []) L.push(`- ${p.id}: 구매국 ${p.buyer}, 공급자 ${p.supplier || '미정'}${p.reserve ? ` (예비 ${p.reserve})` : ''}, 단계 ${PROJECT_STAGE_KO[p.stage] ?? p.stage}, ${p.text}`);
     if (r.analysis?.opportunity) L.push(`- 조사 분석: ${r.analysis.opportunity}`);
-    L.push(needMet(f) ? `- 공급자 ${f.program!.stage === 'selected' ? '선정' : '계약'} 완료로 기존 전력 교체 수요 충족 → 신규 교체 사업 기회 아님. 후속 주기 ${f.window ? `${f.window[0]}~${f.window[1]}년(추정)` : '미확인'}, MRO·현지화·후속 물량만 기회${f.program!.reserve ? ` (예비 공급자 ${f.program!.reserve}: 협상 결렬 시에만 기회)` : ''}`
+    L.push(needMet(f) ? `- 공급자 ${f.program!.stage === 'selected' ? '선정' : '계약'} 완료로 기존 전력 교체 수요 충족 → 신규 교체 사업 기회 아님. 후속 주기 ${f.window ? `${f.window[0]}~${f.window[1]}년(추정)` : '미확인'}, MRO, 현지화, 후속 물량만 기회${f.program!.reserve ? ` (예비 공급자 ${f.program!.reserve}: 협상 결렬 시에만 기회)` : ''}`
       : f.program?.open ? `- 공급자 미정(${f.program.stageKo}) → 사업 기회 유지, 교체 창 전 1~3년이 제안 시점`
-      : f.status === 'next' ? `- 현 사업은 계약 완료. 후속·추가 물량, MRO·현지화 협력이 기회` : f.status === 'none' ? `- 데이터 보강 필요` : `- 교체 창 전 1~3년이 제안 시점`);
+      : f.status === 'next' ? `- 현 사업은 계약 완료. 후속 물량과 추가 물량, MRO와 현지화 협력이 기회` : f.status === 'none' ? `- 데이터 보강 필요` : `- 교체 창 전 1~3년이 제안 시점`);
     L.push(`### 6. 출처`);
     for (const so of f.sources) L.push(`- [${so.t}](${so.u})`);
     for (const id of sys.costSrc) { const so = data.sources[id]; if (so && !f.sources.includes(so)) L.push(`- [${so.t}](${so.u}) (단가)`); }
