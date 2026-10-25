@@ -15,3 +15,21 @@ shots/
 *.sqlite-shm
 .secrets*
 !.secrets.example
+
+# secrets, keys, temp
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*token*.json
+*.tmp
+*.bak
+tmp/
+.tmp/
+*.sqlite
+*.sqlite3
+*.db
+smoke-*
+
