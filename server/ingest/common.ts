@@ -8,7 +8,7 @@ import { baseYearOf } from '../../shared/base-year';
 export type Fetch = typeof fetch;
 export interface IngestOptions {
   dryRun?: boolean;
-  /** 네트워크 대신 읽을 로컬 파일(오프라인 재처리·테스트용) */
+  /** 네트워크 대신 읽을 로컬 파일(오프라인 재처리, 테스트용) */
   file?: string;
   fetch?: Fetch;
   repo?: Repository;
@@ -20,9 +20,9 @@ export interface IngestOptions {
   args?: Record<string, string | boolean>;
   /** 중지 신호. 네트워크 요청과 단계 사이에서 확인한다 */
   signal?: AbortSignal;
-  /** 진행 상황 알림(채팅 화면 표시·작업 생존 신호) */
+  /** 진행 상황 알림(채팅 화면 표시, 작업 생존 신호) */
   progress?: (message: string) => void | Promise<void>;
-  /** 적재·미리보기를 이 국가 ID로 한정한다(국가 쌍은 한쪽이라도 포함) */
+  /** 적재, 미리보기를 이 국가 ID로 한정한다(국가 쌍은 한쪽이라도 포함) */
   countries?: string[];
 }
 export interface SourceInfo { id: string; title: string; url: string; confidence: number; publishedAt?: string | null }
@@ -41,7 +41,7 @@ export function parseArgs(argv: string[]): Record<string, string | boolean> {
   return out;
 }
 
-/** 시간 제한·재시도(5xx·네트워크 오류) fetch. 4xx는 바로 실패한다(인증키 필요 여부를 그대로 보여주기 위해) */
+/** 시간 제한, 재시도(5xx, 네트워크 오류) fetch. 4xx는 바로 실패한다(인증키 필요 여부를 그대로 보여주기 위해) */
 export async function fetchRetry(fetchImpl: Fetch, url: string, init: RequestInit = {}, { retries = 3, timeoutMs = 60000, signal }: { retries?: number; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Response> {
   let last: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -64,7 +64,7 @@ export async function readInput(opts: IngestOptions, url: string, init?: Request
 }
 export const text = (bytes: Uint8Array, encoding = 'utf-8') => new TextDecoder(encoding).decode(bytes);
 
-/** RFC 4180 CSV(따옴표·줄바꿈 포함) */
+/** RFC 4180 CSV(따옴표, 줄바꿈 포함) */
 export function parseCsv(input: string, delimiter = ','): string[][] {
   const rows: string[][] = []; let row: string[] = [], cell = '', quoted = false;
   for (let i = 0; i < input.length; i++) {
@@ -111,7 +111,7 @@ export function countryIndex() {
   for (const [n, id] of Object.entries(EXTRA_NAMES)) { byName.set(fold(n), id); ids.add(id); }
   return index = { byName, ids, ko };
 }
-/** 국가명·ISO3 → 국가 ID. 비국가 행위자(반군·국제기구 등)와 알 수 없는 이름은 null */
+/** 국가명, ISO3 → 국가 ID. 비국가 행위자(반군, 국제기구 등)와 알 수 없는 이름은 null */
 export function countryId(name: string | null | undefined): string | null {
   if (!name) return null;
   if (/\*|rebels?|unknown|united nations|african union|nato|hezbollah|houthi|\brsf\b|house of representatives/i.test(name)) return null;
@@ -120,7 +120,7 @@ export function countryId(name: string | null | undefined): string | null {
 }
 
 export const sourceRow = (s: SourceInfo, collectedAt: string) => ({ t: s.title, u: s.url, y: Number(collectedAt.slice(0, 4)), publishedAt: s.publishedAt ?? null, collectedAt, kind: 'original' as const });
-/** 모든 행에 source_id·confidence·collected_at을 채운다(행에 이미 있으면 유지) */
+/** 모든 행에 source_id, confidence, collected_at을 채운다(행에 이미 있으면 유지) */
 export function stamp<T extends Record<string, any>>(rows: T[], source: SourceInfo, collectedAt: string, table?: CollectionTable): T[] {
   if (table === 'weights') return rows;
   return rows.map(r => ({ source_id: source.id, confidence: source.confidence, collected_at: collectedAt, ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== undefined)) } as unknown as T));
@@ -158,5 +158,5 @@ export function summarize(result: IngestResult, samples = 3) {
 
 /** 수집 범위의 끝 연도(--year, 기본 현재 연도). 내려받을 자료 범위에만 쓰고 판단 기준 연도로 쓰지 않는다 */
 export const collectionYear = (opts: IngestOptions) => opts.year || Number((opts.now || new Date().toISOString()).slice(0, 4));
-/** 판단 기준 연도: 운영 데이터 meta.baseYear(등급의 분쟁 당사국·긴장도의 '최근 3년' 창) */
+/** 판단 기준 연도: 운영 데이터 meta.baseYear(등급의 분쟁 당사국, 긴장도의 '최근 3년' 창) */
 export const judgmentBaseYear = async (repo: Repository) => baseYearOf(await repo.data());

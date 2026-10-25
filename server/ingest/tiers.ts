@@ -1,7 +1,7 @@
 /**
- * 고객 등급 판정 작업 → export_tiers(국가 단위 system='*'와 체계별). 수집된 export_controls·signals·pair_events를 읽어 shared/tiers.ts 규칙을 적용한다.
+ * 고객 등급 판정 작업 → export_tiers(국가 단위 system='*'와 체계별). 수집된 export_controls, signals, pair_events를 읽어 shared/tiers.ts 규칙을 적용한다.
  * 먼저 data/reference/export-controls.json의 한국 수출통제 목록을 export_controls에 적재한다.
- * 순서: sipri-embargoes·itar·sipri-transfers·ucdp 적재 후 실행. 사용: npm run ingest:tiers -- [--dry-run]
+ * 순서: sipri-embargoes, itar, sipri-transfers, ucdp 적재 후 실행. 사용: npm run ingest:tiers -- [--dry-run]
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

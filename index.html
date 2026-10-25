@@ -12,11 +12,18 @@
   <header class="top">
     <div class="top-left">
       <div class="brand" aria-label="HORUS"><img id="brandLogo" src="/logo-symbol.png" alt="" width="35" height="32" /><span class="wordmark">HORUS</span></div>
-      <nav class="view-tabs" aria-label="화면 전환"><button id="mapViewBtn" class="on" type="button" aria-current="page">지도</button><button id="reportViewBtn" type="button">보고서</button></nav>
+      <nav class="view-tabs" aria-label="화면 전환"><button id="mapViewBtn" class="on" type="button" aria-current="page">지도</button><button id="reportViewBtn" type="button">보고서</button><button id="settingsButton" type="button" title="설정 (Ctrl+,)">설정</button></nav>
     </div>
     <nav id="modes" class="modes" aria-label="무기체계"></nav>
     <button id="mapBtn" class="map-btn" type="button" aria-pressed="false">2D 지도</button>
   </header>
+  <main id="settingsView" class="settings-view" aria-label="설정" hidden>
+    <div class="settings-content">
+      <h1>설정</h1>
+      <section class="settings-card"><h2>기기 이름</h2><div class="settings-row device-row"><div class="settings-fields"><input id="deviceName" type="text" autocomplete="off" aria-label="기기 이름"><p>원격 클라이언트가 이 컴퓨터의 HORUS 앱을 찾을 때 사용하는 이름입니다.</p></div><button type="button" id="saveDeviceName">저장</button></div><div class="remote-status-row"><span id="remoteStatus" role="status">원격 연결 상태를 확인하고 있습니다.</span><button type="button" id="remoteAction" hidden></button></div><p id="remoteLinkFallback" class="remote-link-fallback" hidden>브라우저가 열리지 않으면 <a target="_blank" rel="noopener"></a> 주소를 여세요.</p></section>
+      <section class="settings-card"><h2>API 키</h2><div id="secretFields"></div></section>
+    </div>
+  </main>
   <div id="legend" class="legend"></div>
   <aside id="hatchRanking" class="hatch-ranking" aria-labelledby="hatchRankingTitle" hidden></aside>
   <div id="dataUpdated" class="data-updated"></div>

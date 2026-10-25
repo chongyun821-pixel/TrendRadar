@@ -20,16 +20,16 @@ describe('코드 점검 수정', () => {
   });
   it('알 수 없는 체계 이름은 전체 체계 보고서로 바꾸지 않는다', async () => {
     await repository().data();
-    expect(writeReport({ country: 'POL', system: '없는체계' })).toEqual({ error: '무기체계를 찾지 못함' });
+    expect(() => writeReport({ country: 'POL', system: '없는체계' })).toThrow('알 수 없는 무기체계 필터입니다');
     expect('markdown' in writeReport({ country: 'POL', system: '일반' })).toBe(true);
-    expect((await app.request('/api/report?country=POL&system=foo')).status).toBe(404);
+    expect((await app.request('/api/report?country=POL&system=foo')).status).toBe(400);
   });
   it('robots.txt의 빈 User-agent는 이 수집기 전용 규칙으로 보지 않는다', () => {
     expect(robotsAllowed('User-agent:\nDisallow: /\n\nUser-agent: *\nAllow: /', '/page')).toBe(true);
     expect(robotsAllowed('User-agent: ProcurementRadar\nDisallow: /x', '/x')).toBe(false);
     expect(robotsAllowed('User-agent: TrendRadar\nDisallow: /x\n\nUser-agent: *\nAllow: /', '/x')).toBe(true); // 예전 이름은 더 이상 이 수집기가 아니다
   });
-  it('판단 점수의 노후화는 점수와 같은 기준 연도의 예측을 쓴다', async () => {
+  it('종합 점수의 노후화는 점수와 같은 기준 연도의 예측을 쓴다', async () => {
     const repo = repository(), data = await repo.data();
     const record = data.records[0];
     const base = data.meta.baseYear;

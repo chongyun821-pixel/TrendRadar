@@ -1,5 +1,5 @@
 /**
- * SIPRI 무기 금수 DB(UN 의무·비의무, EU, 기타 다자) → export_controls. 인증키 불필요.
+ * SIPRI 무기 금수 DB(UN 의무, 비의무, EU, 기타 다자) → export_controls. 인증키 불필요.
  * 비국가 대상(괄호 안 무장단체 등) 금수는 국가 전체가 아니므로 status='partial'로 둔다.
  * CLI: npm run ingest:sipri-embargoes -- [--dry-run] [--file 저장한.html]
  */
@@ -10,7 +10,7 @@ import { htmlTables } from './html';
 export const SIPRI_EMBARGO_URL = 'https://www.sipri.org/databases/embargoes';
 export const SIPRI_EMBARGO_SOURCE = { id: 'sipri_embargoes', title: 'SIPRI Arms Embargoes Database', url: SIPRI_EMBARGO_URL, confidence: 1 };
 const REGIME_BY_CAPTION: [RegExp, string][] = [[/^mandatory un/i, 'UN'], [/^non.mandatory un/i, 'OTHER'], [/^eu/i, 'EU'], [/other multilateral/i, 'OTHER']];
-/** 괄호 안이 나라 전체가 아닌 대상(무장단체·비정부군)을 뜻하는지 */
+/** 괄호 안이 국가 전체가 아닌 대상(무장단체, 비정부군)을 뜻하는지 */
 const NON_STATE = /non-governmental|ngf|taliban|unita|rebel|forces|militia|al-qaida|isil|houthi|rsf|janjaweed|hezbollah|isis|\bfactions?\b|ecowas|states\)/i;
 /** 법적 구속력 없는 EU 정치 선언(국내 진압용 장비 등 한정). 국가 전체 금수가 아니라 status='partial'로 두어 조건부 수출 가능(승인 항목)으로 남긴다 */
 export const NON_BINDING = new Set(['EU:EGY', 'EU:CHN']);

@@ -1,6 +1,6 @@
-/** 지도 표시 조정(챗봇 화면 제어): 국가 숨기기·특정 국가만 표시·강조, 빗금·막대·범례 켜고 끄기 */
+/** 지도 표시 조정(챗봇 화면 제어): 국가 숨기기, 특정 국가만 표시, 강조, 빗금, 막대, 범례 켜고 끄기 */
 export interface MapDisplay {
-  /** 색·빗금·막대를 감출 국가(ISO 3자리) */
+  /** 색, 빗금, 막대를 감출 국가(ISO 3자리) */
   hidden: string[];
   /** 이 국가들만 표시한다. null이면 전체 */
   only: string[] | null;
@@ -22,13 +22,13 @@ export function applyDisplayPatch(current: MapDisplay, patch: MapDisplayPatch): 
 }
 export const isDefaultDisplay = (d: MapDisplay) => !d.hidden.length && !d.only && !d.highlight.length && d.hatch && d.bars && d.legend;
 
-/** 숨김·특정 국가만 표시를 반영해 이 국가를 지도에 칠할지 */
+/** 숨김, 특정 국가만 표시를 반영해 이 국가를 지도에 칠할지 */
 export function displayShows(d: MapDisplay, id: string) {
   return !d.hidden.includes(id) && (!d.only || d.only.includes(id));
 }
 
 type Rgb = [number, number, number];
-/** 강조 대상이 아닌 국가(색·막대)는 바탕색 쪽으로 어둡게 한다 */
+/** 강조 대상이 아닌 국가(색, 막대)는 바탕색 쪽으로 어둡게 한다 */
 const DIM = 0.12;
 /** 자료가 없는 국가를 강조할 때 쓰는 밝은 회색 */
 export const dimRgb = (rgb: Rgb, base: Rgb) => rgb.map((v, i) => base[i] + (v - base[i]) * DIM) as Rgb;
@@ -36,7 +36,7 @@ export const dimRgb = (rgb: Rgb, base: Rgb) => rgb.map((v, i) => base[i] + (v - 
 export const liftRgb = (rgb: Rgb) => rgb.map(v => Math.min(1, v * 1.4 + 0.2)) as Rgb;
 export const HIGHLIGHT_EMPTY_RGB: Rgb = [0.46, 0.52, 0.6];
 
-/** 지도 색·빗금에 표시 조정을 적용한다. 반환한 shows로 막대 표시 여부도 정한다 */
+/** 지도 색, 빗금에 표시 조정을 적용한다. 반환한 shows로 막대 표시 여부도 정한다 */
 export function displayStyle(d: MapDisplay, colors: Map<string, Rgb>, hatched: ReadonlySet<string>, base: Rgb) {
   const out = new Map<string, Rgb>(), hatch = new Set<string>();
   const focus = new Set(d.highlight);

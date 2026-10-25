@@ -8,7 +8,7 @@ import type { AppContext } from '../shared/app-context';
 import type { Env } from './env';
 import { validateAppContext } from './app-context';
 
-export async function executeTool(name: string, args: Record<string, any>, options: { conversationId?: string; runId?: string; env?: Env; appContext?: AppContext } = {}) {
+export async function executeTool(name: string, args: Record<string, any>, options: { conversationId?: string; runId?: string; env?: Env; appContext?: AppContext; signal?: AbortSignal } = {}) {
   const repo = repository();
   await repo.data();
   const conversationId = options.conversationId || (await repo.createConversation('MCP 도구 실행')).id;
@@ -21,7 +21,7 @@ export async function executeTool(name: string, args: Record<string, any>, optio
     const appContext = saved ? JSON.parse(saved.data) : options.appContext ? await validateAppContext(repo, { ...options.appContext, conversationId }) : undefined;
     if (!saved && appContext) await repo.event(runId, 'app.context', appContext);
     await repo.prepareWorkspace(conversationId);
-    const result = await executions.run({ conversationId, runId, repo, signal: new AbortController().signal, env: options.env || { ...process.env, ...loadDevVars(join(PROJECT_ROOT, '.secrets')) }, appContext }, () => runTool(name, args, newOut()));
+    const result = await executions.run({ conversationId, runId, repo, signal: options.signal || new AbortController().signal, env: options.env || { ...process.env, ...loadDevVars(join(PROJECT_ROOT, '.secrets')) }, appContext }, () => runTool(name, args, newOut()));
     if (!options.runId) {
       await repo.run("UPDATE runs SET status=?,ended_at=? WHERE id=? AND status='running'", result && typeof result === 'object' && 'error' in result ? 'failed' : 'completed', now(), runId);
       await repo.run("UPDATE runs SET status='cancelled',ended_at=? WHERE id=? AND status='stopping'", now(), runId);

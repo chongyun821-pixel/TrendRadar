@@ -20,7 +20,7 @@ import type { AddressInfo } from 'node:net';
 
 const parsed = (r: any) => JSON.parse(r.content[0].text);
 describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
-  it('Firecrawl Streamable HTTP 인증·검색·원문·실패 기록', async () => {
+  it('Firecrawl Streamable HTTP 인증, 검색, 원문, 실패 기록', async () => {
     let fail = false;
     const server = createServer(async (req, res) => {
       expect(req.headers.authorization).toBe('Bearer test-firecrawl-key');
@@ -49,7 +49,7 @@ describe('MCP 실제 전송 통합 (외부 자료는 가상)', () => {
       });
     } finally { await repo.run("UPDATE runs SET status='completed' WHERE id=?", runId); server.closeAllConnections(); await new Promise<void>(r => server.close(() => r())); }
   });
-  it('별도 MCP 프로세스에서 반영한 데이터·예측·6절 보고서를 웹 API에서 조회', async () => {
+  it('별도 MCP 프로세스에서 반영한 데이터, 예측, 6절 보고서를 웹 API에서 조회', async () => {
     const repo = repository(), c = await repo.createConversation(), runId = randomUUID();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test-mcp', 'running', now());
     const state = { screenId: randomUUID(), conversationId: c.id, model: 'codex', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: await repo.revision() };

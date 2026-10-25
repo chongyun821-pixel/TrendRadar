@@ -2,7 +2,7 @@
 import { CLI_OPTIONS, PROVIDERS, checkChoice, effortsFor, hasSubOptions, isProvider, type ModelChoice, type ProviderId } from '../shared/model-options';
 
 export type Slash = { cmd: 'sessions' } | { cmd: 'models' };
-/** 정확히 /sessions·/models(별칭 포함)만 명령으로 본다. 그 밖의 / 문장은 일반 메시지다 */
+/** 정확히 /sessions, /models(별칭 포함)만 명령으로 본다. 그 밖의 / 문장은 일반 메시지다 */
 export function parseSlash(text: string): Slash | null {
   const m = /^[/／]\s*([a-z가-힣]+)\s*$/i.exec(text.trim());
   if (!m) return null;
@@ -17,7 +17,7 @@ export const SLASH_COMMANDS = [
   { name: 'models', desc: '모델 변경', aliases: ['model', '모델'] },
   { name: 'sessions', desc: '세션 교체', aliases: ['session', '세션', '대화'] },
 ] as const;
-/** 입력이 / 로 시작하고 공백 없이 일부 일치하면 후보를 돌려준다(이름·별칭 앞부분 일치) */
+/** 입력이 / 로 시작하고 공백 없이 일부 일치하면 후보를 돌려준다(이름, 별칭 앞부분 일치) */
 export function slashSuggestions(text: string) {
   const m = /^[/／]([a-z가-힣]*)$/i.exec(text);
   if (!m) return [];
@@ -33,7 +33,7 @@ export interface PickItem { id: string; label: string; hint?: string; current?: 
 export type ModelStep = { title: string; items: PickItem[] } | { done: ModelChoice };
 /**
  * 모델 선택 단계. path: [제공자, CLI 모델, 추론 강도]까지 고른 값.
- * 지피티·네모트론은 제공자만 고르면 끝난다. available은 서버가 알려준 사용 가능 제공자.
+ * 지피티, 네모트론은 제공자만 고르면 끝난다. available은 서버가 알려준 사용 가능 제공자.
  */
 export function modelStep(path: string[], current: ModelChoice, available: ReadonlySet<string> = new Set(PROVIDERS.map(p => p.id))): ModelStep {
   const [provider, model, effort] = path;

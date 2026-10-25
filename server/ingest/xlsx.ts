@@ -1,4 +1,4 @@
-/** 최소 XLSX 읽기(공유 문자열·숫자 셀만). 의존성은 이미 쓰는 fflate뿐이다. */
+/** 최소 XLSX 읽기(공유 문자열, 숫자 셀만). 의존성은 이미 쓰는 fflate뿐이다. */
 import { unzipSync, strFromU8 } from 'fflate';
 
 const decodeXml = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, '&');

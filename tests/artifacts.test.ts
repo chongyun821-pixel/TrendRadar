@@ -20,8 +20,8 @@ async function fixture() {
   await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'codex', 'running', now());
   return { repo, c, controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {} } };
 }
-describe('CLI 완성 Word 파일의 등록·다운로드', () => {
-  it('MCP 등록 후 원본 바이트 그대로 다운로드·대화 복원, 이후 수정된 원본과 분리', async () => {
+describe('CLI 완성 Word 파일의 등록, 다운로드', () => {
+  it('MCP 등록 후 원본 바이트 그대로 다운로드, 대화 복원, 이후 수정된 원본과 분리', async () => {
     const { repo, c, ctx } = await fixture();
     const path = repo.path(c.id, 'reports/사업기회.docx'), bytes = document('가상 사업기회 검증');
     writeFileSync(path, bytes);
@@ -55,7 +55,7 @@ describe('CLI 완성 Word 파일의 등록·다운로드', () => {
     expect((await publishArtifact('reports/이전.docx', next)).id).toBe(first.id);
     expect(await collectDocuments(next)).toEqual([first]);
   });
-  it('작업 폴더 밖·다른 대화·잘못된 파일과 중지된 실행은 등록 불가', async () => {
+  it('작업 폴더 밖, 다른 대화, 잘못된 파일과 중지된 실행은 등록 불가', async () => {
     const { repo, c, ctx, controller } = await fixture();
     const other = await repo.createConversation();
     const path = repo.path(other.id, 'reports/다른.docx'); writeFileSync(path, document('다른 대화'));

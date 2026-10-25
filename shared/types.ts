@@ -9,11 +9,11 @@ export interface Awarded { year: number; text: string; qty: number | null; deliv
 export interface Plan { start: number; end: number; qty: [number, number] | null; text: string; est?: string[]; src: string[] }
 export interface Mro { year: number; text: string; lifeExt: number; est?: string[]; src: string[] }
 export interface Signal { year: number; text: string; src: string[] }
-/** 사업 단계: 선정 전(consideration·plan·tender)은 열린 경쟁, selected 이후(선정·계약·인도·완료)는 교체 수요를 채운 진행 사업 */
+/** 사업 단계: 선정 전(consideration, plan, tender)은 열린 경쟁, selected 이후(선정, 계약, 인도, 완료)는 교체 수요를 채운 진행 사업 */
 export const PROJECT_STAGES = ['consideration', 'plan', 'tender', 'selected', 'contract', 'delivery', 'completed', 'cancelled'] as const;
 export type ProjectStage = typeof PROJECT_STAGES[number];
 /**
- * 국가×체계의 개별 조달 사업. 연도·수량은 출처가 밝힌 값만 넣고 추정한 필드는 est에 이름을 적는다.
+ * 국가×체계의 개별 조달 사업. 연도, 수량은 출처가 밝힌 값만 넣고 추정한 필드는 est에 이름을 적는다.
  * covers: 이 사업이 기존 운용 전력 교체 수요를 채우는 비율(0~1, 생략 시 1). selected는 contractYear가 계약 목표 연도다.
  */
 export interface Project {
@@ -22,7 +22,7 @@ export interface Project {
   decisionYear?: number; contractYear?: number; deliveryStart?: number; deliveryEnd?: number;
   covers?: number; reserve?: string; asOf?: string; est?: string[]; src: string[];
 }
-/** 예측·점수·보고서가 함께 쓰는 사업 현황 요약(shared/forecast.ts programOf) */
+/** 예측, 점수, 보고서가 함께 쓰는 사업 현황 요약(shared/forecast.ts programOf) */
 export interface ProgramView {
   id: string; stage: ProjectStage; stageKo: string; supplier: string | null; model: string | null; reserve: string | null;
   qty: number | null; amount: number | null; currency: string | null;
@@ -41,7 +41,7 @@ export interface ProgramRecord {
   analysis?: { facts: string[]; estimates: string[]; conflicts: string[]; unknowns: string[]; opportunity?: string };
 }
 export interface SystemMeta { ko: string; unit: string; designLife: number; unitCost: [number, number]; unitCostEst: boolean; unitCostBasis: string; costSrc: string[]; hanwha: string[];
-  /** 설계 수명(designLife)의 출처 ID. 하나라도 있으면 수명을 추정으로 표시하지 않는다 */
+  /** 설계 수명(designLife)의 출처 ID. 하국가도 있으면 수명을 추정으로 표시하지 않는다 */
   lifeSrc?: string[] }
 export interface CountryMeta { ko: string; flag: string; lat: number; lon: number }
 export interface Seed {
@@ -57,20 +57,20 @@ export interface Forecast {
   id: string; country: string; countryKo: string; flag: string; system: SystemKey; systemKo: string; unit: string;
   status: 'open' | 'plan' | 'next' | 'none';
   window: [number, number] | null; remaining: number | null; category: Category; score: number;
-  qty: [number, number] | null; krw: [number, number] | null; size: number; // 미확인 수량·금액은 null. size = 0..1 (log scale)
+  qty: [number, number] | null; krw: [number, number] | null; size: number; // 미확인 수량, 금액은 null. size = 0..1 (log scale)
   confidence: '상' | '중' | '하'; nSources: number; latestSource: number; estCount: number;
   current: BatchCalc | null; batches: BatchCalc[];
   calc: string[]; sources: Source[];
   qtyEst: boolean; krwEst: boolean; lifeEst: boolean;
-  /** 진행 중·선정 전 사업 현황. 없으면 null */
+  /** 진행 중, 선정 전 사업 현황. 없으면 null */
   program?: ProgramView | null;
 }
 
 /* ───────── 데이터 수집 테이블 행 (db/migrations/004) ───────── */
 export type Tier = 1 | 2 | 3;
-export const SIGNAL_STAGES = ['review', 'tender', 'selection', 'contract', 'delivery', 'cancelled'] as const;
+export const SIGNAL_STAGES = ['consideration', 'tender', 'selected', 'contract', 'delivery', 'cancelled'] as const;
 export type SignalStage = typeof SIGNAL_STAGES[number];
-/** 모든 수치 행의 공통 근거: 출처 ID, 신뢰도(공식·DB 1.0, 전문 매체 0.7, 일반 뉴스·X 0.4), 수집 시각 */
+/** 모든 수치 행의 공통 근거: 출처 ID, 신뢰도(공식, DB 1.0, 전문 매체 0.7, 일반 뉴스, X 0.4), 수집 시각 */
 export interface Provenance { source_id?: string | null; confidence?: number | null; collected_at?: string | null }
 export interface SystemLinkRow extends Provenance { system: SystemKey; model: string; maker?: string | null; is_group: boolean; relation: 'group' | 'competitor' | 'substitute' | 'parent' | string }
 export interface TierReason { code: string; text: string; tier: Tier; evidence: string[] }

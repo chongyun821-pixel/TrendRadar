@@ -30,10 +30,10 @@ describe('지도에서 연 보고서', { timeout: 15000 }, () => {
     expect(saved.runs).toEqual([]);
     expect(saved.reportEntries.map((e: any) => [e.id, e.viewed])).toEqual([[entry.id, true]]);
     expect(saved.files.some((f: any) => f.name === `reports/${entry.id}.md` && f.kind === 'report')).toBe(true);
-    expect((await app.request(`/api/conversations/${c.id}/reports`, json({ country: '없는나라' }))).status).toBe(400);
+    expect((await app.request(`/api/conversations/${c.id}/reports`, json({ country: '없는국가' }))).status).toBe(400);
   });
 
-  it('다음 메시지에 첨부하면 모델이 보고서 본문과 열린 보고서·화면 상태를 받는다', async () => {
+  it('다음 메시지에 첨부하면 모델이 보고서 본문과 열린 보고서, 화면 상태를 받는다', async () => {
     const repo = repository(), c = await repo.createConversation();
     const entry = await (await app.request(`/api/conversations/${c.id}/reports`, json({ country: '폴란드', system: '다연장로켓' }))).json() as any;
     const bodies: any[] = [];
@@ -50,7 +50,7 @@ describe('지도에서 연 보고서', { timeout: 15000 }, () => {
     const sent = JSON.stringify(bodies.at(-1));
     expect(sent).toContain(`[첨부 보고서 ${entry.id}`);
     expect(sent).toContain(JSON.stringify(entry.markdown.slice(0, 40)).slice(1, -1));
-    // 화면 상태: 체계·국가·2D/3D·열린 보고서를 요청마다 받는다
+    // 화면 상태: 체계, 국가, 2D/3D, 열린 보고서를 요청마다 받는다
     const instructions = bodies.at(-1).instructions as string;
     expect(instructions).toContain('"mode":"mrl"'); expect(instructions).toContain('"focus":"POL"'); expect(instructions).toContain('"flat":true');
     expect(instructions).toContain(`"report":{"id":"${entry.id}"`);

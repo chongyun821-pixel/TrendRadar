@@ -18,23 +18,24 @@ import { storeFingerprint } from '../server/store';
 import { appUrl } from '../server/screen-hub';
 import { isLoopbackHost } from '../server/local-only';
 
-let externalConversation: string | undefined;
 const json = (v: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(v, null, 1) }] });
 
 /** 실행 식별자: HTTP 헤더(요청별) → 환경 변수(stdio 자식) → 외부 대화 */
 export interface RunIds { conversationId?: string; runId?: string }
-export function buildServer(ids: RunIds = {}) {
+export function buildServer(ids: RunIds = {}, useEnvironmentIds = false) {
+  let externalConversation: string | undefined;
   const s = new McpServer({ name: 'procurement-mcp', version: '0.2.0' });
-  const compatibility = [{ name: 'forecast', description: 'calculate_forecast의 기존 호환 이름', properties: { country: { type: 'string' as const }, system: { type: 'string' as const } }, required: ['country'] }];
+  const compatibility = [{ name: 'forecast', description: 'get_forecast의 호환 이름. 국가별 예상 교체 시기, 수량, 금액을 조회한다', properties: { country: { type: 'string' as const }, system: { type: 'string' as const } }, required: ['country'] }];
   for (const def of [...TOOL_DEFS, ...compatibility].filter(d => !d.name.startsWith('firecrawl_'))) {
     const shape = Object.fromEntries(Object.entries(def.properties).map(([key, p]) => {
-      let schema: z.ZodTypeAny = p.type === 'integer' ? z.number().int() : p.type === 'boolean' ? z.boolean() : z.string();
+      let schema: z.ZodTypeAny = p.type === 'integer' ? z.number().int() : p.type === 'number' ? z.number() : p.type === 'boolean' ? z.boolean() : z.string();
+      if (p.enum?.length) schema = z.enum(p.enum as [string, ...string[]]);
       if (p.description) schema = schema.describe(p.description);
       return [key, def.required?.includes(key) ? schema : schema.optional()];
     }));
     s.registerTool(def.name, { description: def.description, inputSchema: shape }, async a => {
-      const own = ids.conversationId || process.env.RADAR_CONVERSATION_ID;
-      const result = await executeTool(def.name, a, own ? { conversationId: own, runId: ids.conversationId ? ids.runId : process.env.RADAR_RUN_ID } : { conversationId: externalConversation });
+      const own = ids.conversationId || (useEnvironmentIds ? process.env.RADAR_CONVERSATION_ID : undefined);
+      const result = await executeTool(def.name, a, own ? { conversationId: own, runId: ids.runId || (useEnvironmentIds ? process.env.RADAR_RUN_ID : undefined) } : { conversationId: externalConversation });
       if (!own) externalConversation ??= result.conversationId;
       return json(result.result);
     });
@@ -71,5 +72,5 @@ if (argv.includes('--http')) {
     } catch { if (!res.headersSent) res.writeHead(400).end('잘못된 MCP 요청'); }
   }).listen(port, '127.0.0.1', () => console.error(`procurement-mcp (Streamable HTTP) → http://localhost:${port}/mcp`));
 } else {
-  await buildServer().connect(new StdioServerTransport());
+  await buildServer({}, true).connect(new StdioServerTransport());
 }

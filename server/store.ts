@@ -15,19 +15,19 @@ export const STORAGE_ROOT = resolve(PROJECT_ROOT, vars.RADAR_STORAGE_DIR || '.lo
 export const DB_PATH = resolve(PROJECT_ROOT, vars.RADAR_DB_PATH || join(STORAGE_ROOT, 'radar.sqlite'));
 export const now = () => new Date().toISOString();
 export const hash = (data: string | Uint8Array) => createHash('sha256').update(data).digest('hex');
-// SQLite는 격리 테스트·명시적 이전 원본에만 사용한다. 앱과 MCP의 운영 DB는 Supabase다.
+// SQLite는 격리 테스트, 명시적 이전 원본에만 사용한다. 앱과 MCP의 운영 DB는 Supabase다.
 export const DATABASE_KIND = process.env.NODE_ENV === 'test' && process.env.RADAR_DATABASE === 'sqlite' ? 'sqlite' : 'supabase';
 export function supabaseConfig(): SupabaseConfig {
   const config = { ...process.env, ...loadDevVars(join(PROJECT_ROOT, '.secrets')) };
   return { databaseUrl: config.DATABASE_URL || '', url: config.SUPABASE_URL || '', secretKey: config.SUPABASE_SECRET_KEY || '', bucket: config.SUPABASE_STORAGE_BUCKET || 'trendradar-private', schema: process.env.RADAR_PG_SCHEMA || config.RADAR_PG_SCHEMA || 'trendradar' };
 }
 /** 배포한 SQL 변경 이력. 표 구조는 schema 파일에도 있어 새 스키마에 바로 생성되고, 자료 변경은 버전별로 한 번만 적용한다. */
-/** 같은 저장소(DB·작업 폴더)를 쓰는 서버인지 비교하는 지문. 비밀값은 해시 안에만 들어가고 그대로 내보내지 않는다 */
+/** 같은 저장소(DB, 작업 폴더)를 쓰는 서버인지 비교하는 지문. 비밀값은 해시 안에만 들어가고 그대로 내보내지 않는다 */
 export function storeFingerprint() {
   const db = DATABASE_KIND === 'sqlite' ? DB_PATH : (({ url, schema }) => `${url}#${schema}`)(supabaseConfig());
   return hash(JSON.stringify([DATABASE_KIND, db, STORAGE_ROOT])).slice(0, 16);
 }
-export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블·IFV', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }, { version: 8, name: '레이저대공무기 모드 삭제', sqlite: '008_remove_laser.sql', postgres: '008_remove_laser.postgres.sql' }, { version: 9, name: '진행 중 사업(캐나다 HIMARS·CPSP)', sqlite: '009_programs.sql', postgres: '009_programs.postgres.sql' }] as const;
+export const MIGRATIONS = [{ version: 4, name: '데이터 수집 테이블, IFV', sqlite: '004_data_collection.sql', postgres: '004_data_collection.postgres.sql' }, { version: 5, name: '수집 작업 기록', sqlite: '005_ingest_runs.sql', postgres: '005_ingest_runs.postgres.sql' }, { version: 6, name: '대화 조회 색인', sqlite: '006_conversation_indexes.sql', postgres: '006_conversation_indexes.postgres.sql' }, { version: 7, name: '등급 표기 변경', sqlite: '007_tier_labels.sql', postgres: '007_tier_labels.postgres.sql' }, { version: 8, name: '레이저대공무기 모드 삭제', sqlite: '008_remove_laser.sql', postgres: '008_remove_laser.postgres.sql' }, { version: 9, name: '진행 중 사업(캐나다 HIMARS, CPSP)', sqlite: '009_programs.sql', postgres: '009_programs.postgres.sql' }, { version: 10, name: '무기 사전', sqlite: '010_weapon_dictionary.sql', postgres: '010_weapon_dictionary.postgres.sql' }, { version: 11, name: '신호 단계명 통일', sqlite: '011_signal_stages.sql', postgres: '011_signal_stages.postgres.sql' }, { version: 12, name: 'M92 Vulkan 개발국 정정', sqlite: '012_m92_origin.sql', postgres: '012_m92_origin.postgres.sql' }] as const;
 export class Repository {
   db!: DatabaseSync;
   private cached?: Seed;
@@ -68,7 +68,7 @@ export class Repository {
     if (!this.db.prepare('PRAGMA table_info(runs)').all().some(c => c.name === 'owner_pid')) this.db.exec('ALTER TABLE runs ADD COLUMN owner_pid INTEGER');
     this.db.exec("INSERT OR IGNORE INTO schema_migrations VALUES (3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))");
     this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS one_running_conversation ON runs(conversation_id) WHERE status IN ('running','stopping'); INSERT OR IGNORE INTO schema_migrations VALUES (2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));");
-    // 격리 테스트·이전 원본용 SQLite에만 자동 적용한다. Supabase는 `npm run supabase -- schema`로 명시 적용한다.
+    // 격리 테스트, 이전 원본용 SQLite에만 자동 적용한다. Supabase는 `npm run supabase -- schema`로 명시 적용한다.
     for (const m of MIGRATIONS) {
       if (this.db.prepare('SELECT 1 FROM schema_migrations WHERE version=?').get(m.version)) continue;
       this.db.exec('BEGIN IMMEDIATE');
@@ -265,7 +265,7 @@ export class Repository {
     const rel = relative(this.storage, value).replaceAll('\\', '/');
     return rel.startsWith('workspaces/') && !rel.split('/').includes('..') ? rel : value;
   }
-  // 경로 열에만 적용한다. 메시지·원문·로그 문자열은 경로처럼 보여도 변환하지 않는다.
+  // 경로 열에만 적용한다. 메시지, 원문, 로그 문자열은 경로처럼 보여도 변환하지 않는다.
   storedPath(path: string): string { return this.sql ? this.remotePath(path) : path; }
   private localPath(value: string): string {
     if (!/^workspaces\/[0-9a-f-]{36}\//i.test(value) || value.split('/').some(p => p === '..' || p.startsWith('.'))) throw new Error('잘못된 원격 파일 경로');
@@ -282,7 +282,7 @@ export class Repository {
     const previous = await this.one('SELECT hash FROM workspace_files WHERE path=?', remote);
     if (previous?.hash === digest) return;
     const artifact = await this.one('SELECT kind,hash FROM artifacts WHERE path=?', remote);
-    if (artifact && !['note','analysis'].includes(artifact.kind) && artifact.hash !== digest) throw new Error('보존한 원문·첨부·완성 파일은 덮어쓸 수 없습니다');
+    if (artifact && !['note','analysis'].includes(artifact.kind) && artifact.hash !== digest) throw new Error('보존한 원문, 첨부, 완성 파일은 덮어쓸 수 없습니다');
     const key = `objects/${digest}`;
     await this.cloud.put(key, bytes);
     await this.run('INSERT INTO workspace_files(path,object_key,hash,bytes,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(path) DO UPDATE SET object_key=excluded.object_key,hash=excluded.hash,bytes=excluded.bytes,updated_at=excluded.updated_at', remote, key, digest, bytes.length, now());

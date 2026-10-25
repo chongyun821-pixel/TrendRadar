@@ -7,7 +7,7 @@ import { app } from '../server/app';
 import { codexArgs, grokArgs } from '../server/cli';
 
 describe('/ 명령 해석', () => {
-  it('/sessions·/models와 별칭만 명령으로 본다', () => {
+  it('/sessions, /models와 별칭만 명령으로 본다', () => {
     expect(parseSlash('/sessions')).toEqual({ cmd: 'sessions' });
     expect(parseSlash('  /Sessions  ')).toEqual({ cmd: 'sessions' });
     expect(parseSlash('/models')).toEqual({ cmd: 'models' });
@@ -66,7 +66,7 @@ describe('모델 선택 단계', () => {
     expect(sol.items.map(i => i.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
     expect(modelStep(['codex', 'gpt-6.1-sol', 'high'], current)).toEqual({ done: { provider: 'codex', model: 'gpt-6.1-sol', effort: 'high' } });
   });
-  it('그록 빌드는 확인한 모델과 low~xhigh, 지피티·네모트론은 바로 완료', () => {
+  it('그록 빌드는 확인한 모델과 low~xhigh, 지피티, 네모트론은 바로 완료', () => {
     const grok = modelStep(['grok'], current);
     if ('done' in grok) throw new Error('단계');
     expect(grok.items.map(i => i.id)).toEqual(['grok-4.7', 'grok-4.7-build-fast', 'grok-4.6', 'grok-4.5']);
@@ -111,10 +111,10 @@ describe('서버 측 모델 선택 검증', () => {
     expect(appContextSchema.safeParse({ ...base, modelOptions: { model: 'gpt-6-astra', effort: 'high' } }).success).toBe(true);
     expect(appContextSchema.safeParse({ ...base, modelOptions: { foo: 1 } }).success).toBe(false);
   });
-  it('선택한 CLI 모델·강도가 실행 인자로 간다', () => {
+  it('선택한 CLI 모델, 강도가 실행 인자로 간다', () => {
     const g = grokArgs({ promptFile: 'p', sid: 's', cwd: '/w', model: 'grok-4.6', effort: 'low' });
     expect(g.slice(g.indexOf('-m'), g.indexOf('-m') + 4)).toEqual(['-m', 'grok-4.6', '--reasoning-effort', 'low']);
-    const c = codexArgs({ cwd: '/w', mcp: { command: 'node', args: ['t', 'm'], env: {} }, model: 'gpt-6-astra', effort: 'max' });
+    const c = codexArgs({ cwd: '/w', mcp: { url: 'http://127.0.0.1:62357/mcp', headers: {} }, model: 'gpt-6-astra', effort: 'max' });
     expect(c).toContain('gpt-6-astra'); expect(c).toContain('model_reasoning_effort="max"');
   });
 });

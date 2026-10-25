@@ -1,4 +1,4 @@
-/** 모델별 화면 도구 사용률: runs·events에서 실행마다 화면 도구를 불렀는지 센다(읽기 전용) */
+/** 모델별 화면 도구 사용률: runs, events에서 실행마다 화면 도구를 불렀는지 센다(읽기 전용) */
 import type { Repository } from './store';
 
 export const SCREEN_TOOL_NAMES = ['set_map_state', 'write_report', 'set_mode', 'focus_country', 'toggle_map_mode'];

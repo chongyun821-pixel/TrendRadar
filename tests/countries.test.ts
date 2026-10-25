@@ -36,7 +36,7 @@ describe('챗봇의 국가 등록', () => {
       expect(await tool('add_country', { country: '대한민국' })).toMatchObject({ researchRequired: true });
     }); } finally { await f.repo.close(); }
   });
-  it('미등록 국가를 한국어·영문·코드로 해석하고 긴 국가명의 부분 일치를 구분한다', () => {
+  it('미등록 국가를 한국어, 영문, 코드로 해석하고 긴 국가명의 부분 일치를 구분한다', () => {
     for (const name of ['독일', 'Germany', 'DEU', 'de']) expect(resolveCountry(name)).toBe('DEU');
     for (const name of ['튀르키예', '터키', 'Türkiye']) expect(resolveCountry(name)).toBe('TUR');
     expect(resolveCountry('기니비사우')).toBe('GNB');
@@ -46,7 +46,7 @@ describe('챗봇의 국가 등록', () => {
     for (const c of countryCatalog) { expect(Math.abs(c.lat)).toBeLessThanOrEqual(90); expect(Math.abs(c.lon)).toBeLessThanOrEqual(180); }
   });
 
-  it('조회는 저장하지 않으며 등록은 이력·버전을 갱신하고 재요청은 중복이나 빈 조달 자료를 만들지 않는다', async () => {
+  it('조회는 저장하지 않으며 등록은 이력, 버전을 갱신하고 재요청은 중복이나 빈 조달 자료를 만들지 않는다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const before = await f.repo.data();
@@ -75,7 +75,7 @@ describe('챗봇의 국가 등록', () => {
     }); } finally { await f.repo.close(); }
   });
 
-  it('등록 도중 중지하면 국가·이력·버전 변경을 함께 롤백한다', async () => {
+  it('등록 도중 중지하면 국가, 이력, 버전 변경을 함께 롤백한다', async () => {
     const f = await fixture(), run = f.repo.run.bind(f.repo);
     vi.spyOn(f.repo, 'run').mockImplementation(async (sql, ...args) => {
       const result = await run(sql, ...args);
@@ -91,7 +91,7 @@ describe('챗봇의 국가 등록', () => {
     }); } finally { await f.repo.close(); }
   });
 
-  it.each([true, false])('신규 국가 조사·정제·검증·반영을 끝까지 수행한다 (사전 등록=%s)', async registered => {
+  it.each([true, false])('신규 국가 조사, 정제, 검증, 반영을 끝까지 수행한다 (사전 등록=%s)', async registered => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       if (registered) expect(await tool('add_country', { country: '브라질' })).toMatchObject({ country: 'BRA', created: true });
@@ -115,7 +115,7 @@ describe('챗봇의 국가 등록', () => {
       expect(await f.repo.all('SELECT * FROM forecasts')).toHaveLength(1);
     }); } finally { await f.repo.close(); }
   });
-  it('비공개 수량을 null로 반영하고 지도용 조회·보고서·완결성 검사에서 시기와 규모를 분리한다', async () => {
+  it('비공개 수량을 null로 반영하고 지도용 조회, 보고서, 완결성 검사에서 시기와 규모를 분리한다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const quote = '가상 검증 자료: 장비 X는 2000년부터 운용했으며 수량은 비공개다.';
@@ -146,7 +146,7 @@ describe('챗봇의 국가 등록', () => {
       expect(await f.repo.revision()).toBe(1);
     }); } finally { await f.repo.close(); }
   });
-  it('간단한 장비 도구가 실제 원문으로 부분 자료를 저장하고 위조 인용·상충 수량·검색 요약을 거절한다', async () => {
+  it('간단한 장비 도구가 실제 원문으로 부분 자료를 저장하고 위조 인용, 상충 수량, 검색 요약을 거절한다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const quote = '가상 원문: X 장비가 2000년부터 운용 중이며 수량은 미공개다.';
@@ -167,13 +167,13 @@ describe('챗봇의 국가 등록', () => {
     vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
       const request = JSON.parse(init.body as string);
       expect(request.tools.some((t: any) => t.name === 'add_country')).toBe(true);
-      expect(request.instructions).toContain('나라·국가를 추가');
+      expect(request.instructions).toContain('국가를 추가');
       const call = (name: string) => ({ type: 'function_call', id: `fc_${step}`, call_id: `c_${step}`, name, arguments: '{"country":"독일"}' });
       const output = ++step === 1 ? [call('find_country')] : step === 2 ? [call('add_country')] : [{ type: 'message', content: [{ type: 'output_text', text: '독일을 등록했습니다. 조달 조사 자료는 아직 없습니다.' }] }];
       if (step === 3) expect(JSON.parse(request.input.filter((i: any) => i.type === 'function_call_output').at(-1).output)).toMatchObject({ ok: true, country: 'DEU' });
       return new Response(JSON.stringify({ output }), { headers: { 'content-type': 'application/json' } });
     }));
-    const response = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt', messages: [{ role: 'user', text: '독일을 나라 목록에 추가해줘' }] }) }, { OPENAI_API_KEY: 'test-key' });
+    const response = await app.request('/api/chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ model: 'gpt', messages: [{ role: 'user', text: '독일을 국가 목록에 추가해줘' }] }) }, { OPENAI_API_KEY: 'test-key' });
     const result = await response.json();
     expect(result.tools).toEqual(['find_country', 'add_country']); expect(result.reply).toContain('등록');
     const mapped = await (await app.request('/api/data')).json();

@@ -1,5 +1,5 @@
 /**
- * World Bank 지표 API → budgets 보완. SIPRI 값이 있으면 유지하고 빈 칸(usd_m·gdp_pct)만 채우며 GDP(US$ 백만)는 항상 갱신한다.
+ * World Bank 지표 API → budgets 보완. SIPRI 값이 있으면 유지하고 빈 칸(usd_m, gdp_pct)만 채우며 GDP(US$ 백만)는 항상 갱신한다.
  * 인증키 불필요. 응답이 느려(30초 이상) 재시도한다.
  * CLI: npm run ingest:worldbank -- [--dry-run] [--since 2010] [--file 응답묶음.json]
  */
@@ -8,7 +8,7 @@ import { collectionYear, countryIndex, fetchRetry, load, text, type IngestOption
 import { readFileSync } from 'node:fs';
 
 export const WB_INDICATORS = { gdp_pct: 'MS.MIL.XPND.GD.ZS', usd: 'MS.MIL.XPND.CD', gdp: 'NY.GDP.MKTP.CD' } as const;
-export const WB_SOURCE = { id: 'worldbank_wdi', title: 'World Bank World Development Indicators (SIPRI 기반 국방비·GDP)', url: 'https://data.worldbank.org/indicator/MS.MIL.XPND.GD.ZS', confidence: 1 };
+export const WB_SOURCE = { id: 'worldbank_wdi', title: 'World Bank World Development Indicators (SIPRI 기반 국방비, GDP)', url: 'https://data.worldbank.org/indicator/MS.MIL.XPND.GD.ZS', confidence: 1 };
 export const wbUrl = (indicator: string, from: number, to: number, page = 1) => `https://api.worldbank.org/v2/country/all/indicator/${indicator}?format=json&per_page=20000&date=${from}:${to}&page=${page}`;
 
 interface WbPoint { countryiso3code: string; date: string; value: number | null; country: { value: string } }
@@ -17,14 +17,14 @@ export function wbPoints(body: unknown): WbPoint[] {
   if (!Array.isArray(body) || body.length < 2) { const msg = (body as any)?.[0]?.message?.[0]?.value; throw new Error(`World Bank 응답 형식 오류${msg ? `: ${msg}` : ''}`); }
   return (body[1] || []) as WbPoint[];
 }
-/** World Bank 집계 코드(지역·소득 그룹) — 국가가 아니다 */
+/** World Bank 집계 코드(지역, 소득 그룹) — 국가가 아니다 */
 const AGGREGATES = new Set('AFE AFW ARB CEB CSS EAP EAR EAS ECA ECS EMU EUU FCS HIC HPC IBD IBT IDA IDB IDX INX LAC LCN LDC LIC LMC LMY LTE MEA MIC MNA NAC OED OSS PRE PSS PST SAS SSA SSF SST TEA TEC TLA TMN TSA TSS UMC WLD'.split(' '));
 
 export function normalizeWorldBank(series: { gdp_pct: WbPoint[]; usd: WbPoint[]; gdp: WbPoint[] }) {
   const rows = new Map<string, Partial<BudgetRow>>(), known = countryIndex().ids;
   const put = (p: WbPoint, f: (r: Partial<BudgetRow>) => void) => {
     const id = p.countryiso3code === 'XKX' ? 'KOS' : p.countryiso3code;
-    if (!id || AGGREGATES.has(id) || !known.has(id) || p.value == null) return; // 지역·소득 그룹 합계 제외
+    if (!id || AGGREGATES.has(id) || !known.has(id) || p.value == null) return; // 지역, 소득 그룹 합계 제외
     const key = `${id}:${p.date}`; if (!rows.has(key)) rows.set(key, { country: id, year: Number(p.date) });
     f(rows.get(key)!);
   };

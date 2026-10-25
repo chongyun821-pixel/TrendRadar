@@ -31,7 +31,26 @@ async function payload(f: Awaited<ReturnType<typeof fixture>>) {
   return { record: raw, expectedVersion: 1, reason: '가상 계획 검증', asOf: '2026-10-16', sources: { 'test-source': { ...source, status: undefined, t: '검증용', u: 'https://example.org/test', y: 2026 } }, evidence: [{ path: 'plan', sourceId: 'test-source', quote: text }] };
 }
 describe('SQLite 조사 반영', () => {
-  it('수집→근거 검사→이력·예측 저장, 반복 반영·중복·버전 충돌 방지, 재시작 유지', async () => {
+  it('signal-only submission bumps revision and writes history, forecast, and signals', async () => {
+    const f = await fixture();
+    await executions.run(f.ctx, async () => {
+      const first = await payload(f);
+      await submitResearch(first);
+      const beforeRevision = await f.repo.revision();
+      const next: any = structuredClone(first);
+      next.expectedVersion = 2;
+      next.signalRows = [{ id: 'signal-only-test', stage: 'consideration', model: 'Test system', sourceType: 'official', sourceId: 'test-source', quote: first.evidence[0].quote, published_at: '2026-10-16' }];
+      const result = await submitResearch(next);
+      expect(result.ok).toBe(true);
+      expect(await f.repo.revision()).toBe(beforeRevision + 1);
+      expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(2);
+      expect(await f.repo.all('SELECT * FROM forecasts WHERE record_id=?', next.record.id)).toHaveLength(2);
+      expect(await f.repo.one('SELECT id FROM signals WHERE id=?', 'research:POL:sph:signal-only-test')).toBeTruthy();
+    });
+    await f.repo.close();
+  });
+
+  it('수집→근거 검사→이력, 예측 저장, 반복 반영, 중복, 버전 충돌 방지, 재시작 유지', async () => {
     const f = await fixture();
     await executions.run(f.ctx, async () => {
       const p = await payload(f);
@@ -51,7 +70,7 @@ describe('SQLite 조사 반영', () => {
     });
     await f.repo.close();
   });
-  it('요약·원문 실패는 근거로 쓸 수 없고 변경 근거 없으면 롤백', async () => {
+  it('요약, 원문 실패는 근거로 쓸 수 없고 변경 근거 없으면 롤백', async () => {
     const f = await fixture();
     await executions.run(f.ctx, async () => {
       const p = await payload(f);
@@ -63,7 +82,7 @@ describe('SQLite 조사 반영', () => {
       expect(await f.repo.revision()).toBe(1);
     }); await f.repo.close();
   });
-  it('단가·수명 가정 갱신은 전체 예측과 이력을 재계산하고 오래된 버전은 거절', async () => {
+  it('단가, 수명 가정 갱신은 전체 예측과 이력을 재계산하고 오래된 버전은 거절', async () => {
     const f = await fixture();
     await executions.run(f.ctx, async () => {
       const quote = '가상 검증: 자주포 설계 수명 40년, 단가 200~300억 원.';
@@ -95,7 +114,7 @@ describe('SQLite 조사 반영', () => {
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(0);
     }); await f.repo.close();
   });
-  it('대화 삭제 후 조달 데이터·원문·조사 이력 보존', async () => {
+  it('대화 삭제 후 조달 데이터, 원문, 조사 이력 보존', async () => {
     const f = await fixture();
     await executions.run(f.ctx, async () => {
       const p = await payload(f); await submitResearch(p);
@@ -120,7 +139,7 @@ describe('SQLite 조사 반영', () => {
     expect(repeated.id).toBe(file.id);
     await f.repo.close();
   });
-  it('DOCX 문서·표 텍스트 추출과 잘못된 PDF 실패 표시', async () => {
+  it('DOCX 문서, 표 텍스트 추출과 잘못된 PDF 실패 표시', async () => {
     const f = await fixture();
     const bytes = zipSync({ 'word/document.xml': strToU8('<w:document><w:body><w:p><w:r><w:t>한글 &amp; 근거</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>수량 12</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>') });
     const file = await attach(f.repo, f.conversation.id, new File([bytes], '근거.docx'));
@@ -152,7 +171,7 @@ describe('SQLite 조사 반영', () => {
   });
 });
 
-describe('영속 채팅·비동기 실행', () => {
+describe('영속 채팅, 비동기 실행', () => {
   it('다른 살아 있는 서버 실행은 유지하고 종료된 프로세스의 실행만 복원 중단 표시', async () => {
     const repo = repository(), c = await repo.createConversation(), alive = randomUUID(), dead = randomUUID();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', alive, c.id, 'nemotron', 'running', now(), process.ppid);
@@ -161,7 +180,7 @@ describe('영속 채팅·비동기 실행', () => {
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at,owner_pid) VALUES(?,?,?,?,?,?)', dead, c.id, 'nemotron', 'running', now(), 2147483647);
     await recoverRuns(); expect((await repo.one('SELECT status FROM runs WHERE id=?', dead)).status).toBe('interrupted');
   });
-  it('긴 기록을 순서대로 요약하고 원문·후속 메시지는 보존', async () => {
+  it('긴 기록을 순서대로 요약하고 원문, 후속 메시지는 보존', async () => {
     const f = await fixture();
     const messages = Array.from({ length: 20 }, (_, i) => ({ role: 'user' as const, text: `${i}:` + '가'.repeat(4000) }));
     await executions.run(f.ctx, async () => {
@@ -173,7 +192,7 @@ describe('영속 채팅·비동기 실행', () => {
       expect((await f.repo.one('SELECT covered FROM context_summaries')).covered).toBe(12);
     }); await f.repo.close();
   });
-  it('긴 대화·도구 라운드·출력을 임의로 자르지 않음', async () => {
+  it('긴 대화, 도구 라운드, 출력을 임의로 자르지 않음', async () => {
     const text = '가'.repeat(3000);
     expect(recentMessages({ messages: Array.from({ length: 20 }, () => ({ role: 'user', text })) })).toHaveLength(20);
     expect(recentMessages({ messages: [{ role: 'user', text }] })[0].text).toHaveLength(3000);
@@ -185,7 +204,7 @@ describe('영속 채팅·비동기 실행', () => {
     expect((await chat({ messages: [{ role: 'user', text: '질문' }] }, { OPENAI_API_KEY: 'fake' })).reply).toBe(text);
     expect(n).toBe(6);
   });
-  it('API로 대화 선택·메시지 복원·첨부·삭제와 보고서 저장', async () => {
+  it('API로 대화 선택, 메시지 복원, 첨부, 삭제와 보고서 저장', async () => {
     const c = await (await app.request('/api/conversations', { method: 'POST' })).json();
     const form = new FormData(); form.append('files', new File(['시험 첨부'], '첨부.txt', { type: 'text/plain' }));
     expect((await app.request(`/api/conversations/${c.id}/files`, { method: 'POST', body: form })).status).toBe(201);

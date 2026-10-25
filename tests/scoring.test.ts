@@ -15,9 +15,9 @@ import type { ExportTierRow } from '../shared/types';
 
 const tierRow = (country: string, tier: 1 | 2 | 3, system: ExportTierRow['system'] = '*'): Partial<ExportTierRow> => ({ country, system, tier, tier_reasons: { reasons: [{ code: tier === 3 ? 'embargo:UN' : 'clear', text: tier === 3 ? 'UN 안보리 무기 금수: 시험' : '시험', tier, evidence: [] }], facts: { koreanDeliveries: tier === 1 ? 2 : 0 }, approvals: tier === 2 ? ['시험 승인'] : [] }, tier_checked_at: '2026-10-21T00:00:00Z', source_id: 'tier_rules_v1', confidence: 1, collected_at: '2026-10-21T00:00:00Z' });
 
-describe('판단 점수 산식', () => {
+describe('종합 점수 산식', () => {
   const base = 2026;
-  it('도입 의사·재정·주변국·접근성 항목은 비중 × 원점수 × 신뢰도, 등급 계수 적용', () => {
+  it('도입 의사, 재정, 주변국, 접근성 항목은 비중 × 원점수 × 신뢰도, 등급 계수 적용', () => {
     const input = {
       country: 'ROU', system: 'sph' as const,
       tier: tierRow('ROU', 2) as ExportTierRow,
@@ -34,8 +34,8 @@ describe('판단 점수 산식', () => {
     expect(s.imminenceYear).toBe(2028);
     expect(s.approvals).toEqual(['시험 승인']);
   });
-  it('수출 불가·독자 양산은 0점 회색, 개발 단계는 감점, DB 비중이 기본값을 덮어쓴다', () => {
-    const signals = [{ id: 's', country: 'X', system: 'sam' as const, stage: 'selection' as const, published_at: '2026-01-01', confidence: 1 }];
+  it('수출 불가, 독자 양산은 0점 회색, 개발 단계는 감점, DB 비중이 기본값을 덮어쓴다', () => {
+    const signals = [{ id: 's', country: 'X', system: 'sam' as const, stage: 'selected' as const, published_at: '2026-01-01', confidence: 1 }];
     expect(computeScore({ country: 'X', system: 'sam', signals, tier: tierRow('X', 3) as ExportTierRow }, base)).toMatchObject({ score: 0, grey: true, gate: { passed: false } });
     expect(computeScore({ country: 'X', system: 'sam', signals, domestic: { country: 'X', system: 'sam', status: 'production', program: '자체 체계' } }, base)).toMatchObject({ score: 0, grey: true });
     const dev = computeScore({ country: 'X', system: 'sam', signals, domestic: { country: 'X', system: 'sam', status: 'development' } }, base);
@@ -44,8 +44,8 @@ describe('판단 점수 산식', () => {
   });
 });
 
-describe('get_score_breakdown·/api/scores', () => {
-  it('MCP·에이전트 도구와 API가 같은 점수를 낸다', async () => {
+describe('get_score_breakdown, /api/scores', () => {
+  it('MCP, 에이전트 도구와 API가 같은 점수를 낸다', async () => {
     expect(TOOL_DEFS.find(t => t.name === 'get_score_breakdown')).toMatchObject({ required: ['country', 'system'] });
     const repo = repository();
     await upsertRows(repo, 'export_tiers', [tierRow('POL', 1), tierRow('EGY', 3)]);
@@ -55,14 +55,14 @@ describe('get_score_breakdown·/api/scores', () => {
     expect(r.components).toHaveLength(7);
     expect(r.components.find((c: any) => c.factor === 'aging').evidence[0]).toMatch(/^records:/); // 보유 이력 표가 비면 기존 기록 예측 사용
     expect(r.evidenceIds).toContain('export_tiers:POL:*');
-    expect(await runTool('get_score_breakdown', { country: '없는나라', system: '자주포' }, out)).toMatchObject({ error: expect.any(String) });
+    expect(await runTool('get_score_breakdown', { country: '없는국가', system: '자주포' }, out)).toMatchObject({ error: expect.any(String) });
     const res = await app.request('/api/scores?system=sph');
     const body = await res.json();
     expect(body.scores.find((s: any) => s.country === 'POL')).toMatchObject({ score: r.score, grey: false });
     expect(body.scores.find((s: any) => s.country === 'EGY')).toMatchObject({ score: 0, grey: true, tier: 3 });
     expect((await app.request('/api/scores')).status).toBe(400);
     expect(r.evidenceMarkdown).toContain('| 항목 | 비중 | 원점수 | 출처 신뢰도 | 점수 | 판단 내용 | 근거 ID |');
-    expect(r.evidenceMarkdown).toContain('- 고객등급: 수출 가능 (계수 1)');
+    expect(r.evidenceMarkdown).toContain('- 고객등급 수출 가능 (계수 1)');
   });
   it('GET /api/scores/:country는 get_score_breakdown과 같은 항목별 점수를 돌려준다', async () => {
     const repo = repository();
@@ -78,11 +78,11 @@ describe('get_score_breakdown·/api/scores', () => {
     expect(body.components).toEqual(tool.components);
     const summary = (await (await app.request('/api/scores?system=sph')).json()).scores.find((s: any) => s.country === 'POL');
     expect(summary.score).toBe(body.score);
-    // 한국어 국가명·체계 별칭, 제외 국가, 잘못된 입력
+    // 한국어 국가명, 체계 별칭, 제외 국가, 잘못된 입력
     expect(await (await app.request(`/api/scores/${encodeURIComponent('폴란드')}?system=${encodeURIComponent('자주포')}`)).json()).toMatchObject({ country: 'POL', system: 'sph', score: body.score });
     expect(await (await app.request('/api/scores/EGY?system=sph')).json()).toMatchObject({ grey: true, score: 0, gate: { passed: false, reason: expect.stringContaining('수출 불가') } });
     expect((await app.request('/api/scores/POL')).status).toBe(400);
-    expect((await app.request(`/api/scores/${encodeURIComponent('없는나라')}?system=sph`)).status).toBe(404);
+    expect((await app.request(`/api/scores/${encodeURIComponent('없는국가')}?system=sph`)).status).toBe(404);
     // 읽기 전용 GET은 다른 출처에서 와도 기존 규칙대로 허용, 쓰기 메서드는 없다
     expect((await app.request('/api/scores/POL?system=sph', { headers: { origin: 'https://evil.example', host: 'localhost' } })).status).toBe(200);
     expect((await app.request('/api/scores/POL?system=sph', { method: 'POST', headers: { origin: 'https://evil.example', host: 'localhost' } })).status).toBe(403);
@@ -123,7 +123,7 @@ describe('조사 결과 signals 추출', () => {
       expect(stored.score.components.find((c: any) => c.factor === 'intent')).toMatchObject({ points: 15, evidence: ['signals:research:ROU:sph:rou-sph-2026'] });
       // 기록 변경 없이 단계만 바뀌면 같은 ID로 갱신
       const next = await submitResearch({ ...p, expectedVersion: 2, signalRows: [{ ...signalRows[0], stage: 'contract' }] });
-      expect(next).toMatchObject({ unchanged: true, signals: 1 });
+      expect(next).toMatchObject({ ok: true, version: 3, signals: 1 });
       expect((await selectRows(repo, 'signals')).map(s => s.stage)).toEqual(['contract']);
     });
     await repo.close();

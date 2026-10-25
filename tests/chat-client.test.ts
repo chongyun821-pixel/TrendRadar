@@ -5,7 +5,7 @@ import { app } from '../server/app';
 import { cliChoice } from '../server/cli';
 
 describe('채팅 요청 본문', () => {
-  it('선택한 제공자와 CLI 모델·추론 강도를 요청마다 그대로 보낸다', () => {
+  it('선택한 제공자와 CLI 모델, 추론 강도를 요청마다 그대로 보낸다', () => {
     expect(chatBody({ provider: 'grok', model: 'grok-4.6', effort: 'low' }, 'c1', '안녕', { mode: null }, { focus: 'POL' })).toEqual({
       conversationId: 'c1', model: 'grok', options: { model: 'grok-4.6', effort: 'low' }, messages: [{ role: 'user', text: '안녕' }], state: { mode: null }, appContext: { focus: 'POL' },
     });
@@ -21,7 +21,7 @@ describe('채팅 요청 본문', () => {
 });
 
 describe('모델 목록과 기본값 표시', () => {
-  it('목록 순서는 그록 빌드·코덱스·지피티·네모트론이고, 세부 선택이 없을 때 서버가 쓸 CLI 기본값을 알려준다', async () => {
+  it('목록 순서는 그록 빌드, 코덱스, 지피티, 네모트론이고, 세부 선택이 없을 때 서버가 쓸 CLI 기본값을 알려준다', async () => {
     const env = { LOCAL_CLI: '0', GROK_EFFORT: 'medium', CODEX_MODEL: 'gpt-6-astra' };
     const body = await (await app.request('/api/models', {}, env)).json() as any;
     expect(body.models.map((m: { name: string }) => m.name)).toEqual(['그록 빌드', '코덱스', '지피티', '네모트론']);

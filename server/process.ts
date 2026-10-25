@@ -1,6 +1,6 @@
 /**
  * CLI 자식 프로세스 실행과 중지. Node 전용(호출하는 쪽에서 동적 import 로 불러 Workers 번들에 넣지 않는다).
- * 중지 시 직계 자식만이 아니라 프로세스 트리(MCP 서버·네이티브 실행 파일 등 손자 프로세스)까지 종료한다.
+ * 중지 시 직계 자식만이 아니라 프로세스 트리(MCP 서버, 네이티브 실행 파일 등 손자 프로세스)까지 종료한다.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 

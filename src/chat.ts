@@ -14,6 +14,8 @@ import { bindTitleEditor } from './chat-title';
 import { createUploader } from './chat-upload';
 import { createReportAttachments } from './chat-attachments';
 import { createScreenCommands, type ScreenCommand } from './screen-commands';
+import { markdownToDoc } from '../shared/report-doc';
+import { countryName } from '../shared/country-name';
 
 export { pickModel, type ModelInfo };
 
@@ -21,7 +23,7 @@ interface ChatOpts {
   names: Record<string, string>;
   getState(): { mode: SystemKey | null; flat: boolean; focus: string | null; display: MapDisplay };
   dataVersion(): number;
-  actions: { set_mode(s: SystemKey | null): void; toggle_map_mode(flat?: boolean): void; focus_country(id: string | null): void; set_display(patch: MapDisplayPatch): void; zoom(z: MapZoom): void };
+  actions: { set_mode(s: SystemKey | null): void; toggle_map_mode(flat?: boolean): void; focus_country(id: string | null): void; set_display(patch: MapDisplayPatch): void; zoom(z: MapZoom): void; set_app_view(view: 'map' | 'report'): void; set_chat_open(open: boolean): void; open_search(query?: string): void; open_settings(toggle?: boolean): void };
   modeKo(): string | null;
   refreshData(): Promise<void>;
 }
@@ -66,7 +68,7 @@ export function initChat(o: ChatOpts) {
   const save = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* 저장 제한 */ } };
   const read = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
   const showChoice = () => { choiceLabelEl.textContent = choiceLabel(choice, choice.provider === 'codex' || choice.provider === 'grok' ? cliDefaults[choice.provider] : undefined); };
-  /** 모델 선택(제공자·CLI 모델·추론 강도). 전역 마지막 선택과 대화별 선택을 함께 저장하고, 다음 요청부터 그대로 서버에 보낸다 */
+  /** 모델 선택(제공자, CLI 모델, 추론 강도). 전역 마지막 선택과 대화별 선택을 함께 저장하고, 다음 요청부터 그대로 서버에 보낸다 */
   function setChoice(next: ModelChoice | null, persist = true) {
     if (!next || !models.some(m => m.id === next.provider && m.available)) return false;
     choice = next; showChoice();
@@ -85,9 +87,10 @@ export function initChat(o: ChatOpts) {
   }).catch(e => { progress.set(e.message); });
   showChoice();
 
-  /* ───────── 입력창·메뉴 ───────── */
+  /* ───────── 입력창, 메뉴 ───────── */
   const open = () => root.classList.add('open');
   const collapse = () => { root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
+  const setChatOpen = (isOpen: boolean, focusInput = false) => { if (isOpen) { open(); if (focusInput) input.focus(); } else collapse(); };
   function closeMenus() {
     workspace.hidden = true; picker.close();
     attachButton.setAttribute('aria-expanded', 'false');
@@ -129,7 +132,17 @@ export function initChat(o: ChatOpts) {
       else if (a.type === 'focus_country') { const country = resolveCountry(a.country, o.names); if (country) o.actions.focus_country(country); }
       else if (a.type === 'set_display') o.actions.set_display(a.display);
       else if (a.type === 'zoom') o.actions.zoom(a.zoom);
+      else if (a.type === 'set_app_view') setAppView(a.view);
+      else if (a.type === 'open_report_editor') { const entry = messages.reportEntries.find(r => r.id === currentReport?.id); if (entry) dispatchEditor(entry); else dispatchEvent(new Event('radar:open-ranking-report-editor')); }
+      else if (a.type === 'close_report_editor') dispatchEvent(new Event('radar:close-report-editor'));
+      else if (a.type === 'set_chat_open') o.actions.set_chat_open(a.open);
+      else if (a.type === 'open_search') o.actions.open_search(a.query);
+      else if (a.type === 'open_settings') o.actions.open_settings(a.toggle);
     }
+  }
+  function setAppView(view: 'map' | 'report') {
+    o.actions.set_app_view(view);
+    activeView = view === 'report' && currentReport ? 'report' : 'map';
   }
   function busy(on: boolean) {
     sending = on; root.classList.toggle('busy', on); stop.hidden = !on; updateSendButton();
@@ -189,6 +202,15 @@ export function initChat(o: ChatOpts) {
     const entry = messages.reportEntries.find(r => r.id === element.dataset.reportId);
     if (!entry) return;
     const { markdown: _text, createdAt: _date, ...ref } = entry; currentReport = ref; activeView = 'report';
+    if (!element.querySelector('.report-editor-open-button')) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'report-editor-open-button'; button.textContent = '내보내기';
+      button.addEventListener('click', event => { event.stopPropagation(); dispatchEditor(entry); }); element.prepend(button);
+    }
+  }
+  function dispatchEditor(entry: ReportEntry) {
+    const title = [entry.country ? o.names[entry.country] || countryName(entry.country, seed) : null, entry.system ? seed.systems[entry.system]?.ko : null, '분석 보고서'].filter(Boolean).join(' ');
+    const sourceRef = [entry.country ? o.names[entry.country] || countryName(entry.country, seed) : null, entry.system ? seed.systems[entry.system]?.ko : null].filter(Boolean).join(' ');
+    dispatchEvent(new CustomEvent('radar:open-report-editor', { detail: markdownToDoc(entry.markdown, title, entry.id, sourceRef) }));
   }
   list.addEventListener('pointerdown', event => { const report = (event.target as HTMLElement).closest<HTMLElement>('.m.report'); if (report) activateReport(report); });
   list.addEventListener('scroll', () => {
@@ -213,28 +235,32 @@ export function initChat(o: ChatOpts) {
     },
   });
 
-  /* ───────── 지도에서 연 보고서: 채팅 요청 없이 표시하고 다음 메시지에 첨부 ───────── */
+  /* ───────── 지도에서 연 보고서: 채팅 요청 없이 표시만 한다(채팅 첨부는 자동으로 넣지 않는다) ───────── */
   const reportAttachments = createReportAttachments(get('#attachments'));
   /** 이 화면에서 연 보고서. 서버 저장본을 받기 전에 다시 그려도 사라지지 않게 한다 */
   let viewedReports: ReportEntry[] = [];
-  const reportLabel = (entry: ReportRef) => [entry.country ? o.names[entry.country] || entry.country : null, entry.system ? seed.systems[entry.system]?.ko : null, '보고서'].filter(Boolean).join(' ');
-  async function viewReport(country: string, system: SystemKey | null) {
+  async function viewReport(country: string, system: SystemKey | null): Promise<ReportEntry | null> {
     const token = view;
     try {
       const id = await ensureConversation(token);
       const entry: ReportEntry = await api(`/conversations/${id}/reports`, post({ country, system }));
-      if (token !== view) return;
+      if (token !== view) return null;
       if (!viewedReports.some(r => r.id === entry.id)) viewedReports.push(entry);
       if (!messages.reportEntries.some(r => r.id === entry.id)) messages.reportEntries = [...messages.reportEntries, entry];
       let element = list.querySelector<HTMLElement>(`.m.report[data-report-id="${CSS.escape(entry.id)}"]`);
       if (!element) { messages.removeEmpty(); element = messages.addReport(entry); }
       activateReport(element); list.scrollTop = element.offsetTop - list.offsetTop; markProgrammaticScroll();
-      reportAttachments.add({ id: entry.id, label: reportLabel(entry) });
       void screen.sync();
-    } catch (error) { if (token === view) showError(error); }
+      return entry;
+    } catch (error) { if (token === view) showError(error); return null; }
+  }
+  async function attachReport(country: string, system: SystemKey) {
+    open();
+    const entry = await viewReport(country, system);
+    if (entry) reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
   }
 
-  /* ───────── 대화 목록·전환 ───────── */
+  /* ───────── 대화 목록, 전환 ───────── */
   /** 대화 캐시: 전환 즉시 마지막으로 받은 내용을 보여주고 최신 내용은 뒤에서 받는다 */
   const conversations = new Map<string, Conversation>(), loading = new Map<string, Promise<Conversation>>();
   let historyRows: { id: string; title: string }[] = [];
@@ -265,7 +291,7 @@ export function initChat(o: ChatOpts) {
     if (picker.isOpen('sessions')) openSessions(false);
     return rows;
   }
-  /** /sessions: 새 대화·대화 전환·삭제(낙관적). 목록은 저장본을 바로 보이고 최신 목록으로 갱신한다 */
+  /** /sessions: 새 대화, 대화 전환, 삭제(낙관적). 목록은 저장본을 바로 보이고 최신 목록으로 갱신한다 */
   function openSessions(refresh = true) {
     const items: PickItem[] = [{ id: '', label: '＋ 새 대화' }, ...historyRows.map(r => ({ id: r.id, label: r.title, current: r.id === conversationId, deletable: true }))];
     picker.open('sessions', { title: '↑↓로 이동, Enter로 열기, Delete로 삭제', items, start: 0 }, {
@@ -275,7 +301,7 @@ export function initChat(o: ChatOpts) {
     });
     if (refresh) void refreshHistory().catch(showError);
   }
-  /** / 명령 자동완성: Tab 완성, ↑↓ 이동, Enter·클릭 실행, Esc 닫기 */
+  /** / 명령 자동완성: Tab 완성, ↑↓ 이동, Enter, 클릭 실행, Esc 닫기 */
   function openSlashHints() {
     const items: PickItem[] = slashSuggestions(input.value).map(s => ({ id: s.name, label: s.command, hint: s.desc }));
     const run = (item: PickItem) => { input.value = `/${item.id}`; void send(input.value).catch(showError); };
@@ -305,10 +331,10 @@ export function initChat(o: ChatOpts) {
     }
   }
   bindTitleEditor(titleEl, { onEdit: () => picker.close(), rename: (next, previous) => { void renameConversation(next, previous); } });
-  choiceLabelEl.addEventListener('click', () => { open(); openModels(); });
+  choiceLabelEl.addEventListener('click', () => openModels());
   // ^: /sessions 선택기(다시 누르면 닫기)
   get('#sessionsButton').addEventListener('click', () => { if (picker.isOpen('sessions')) picker.close(); else { open(); openSessions(); } });
-  /** /models: 제공자 → (코덱스·그록 빌드) 모델 → 추론 강도 */
+  /** /models: 제공자 → (코덱스, 그록 빌드) 모델 → 추론 강도 */
   function openModels(path: string[] = []) {
     const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));
     if ('done' in step) { picker.close(); if (!setChoice(step.done)) progress.set('사용할 수 없는 모델'); return; }
@@ -317,7 +343,7 @@ export function initChat(o: ChatOpts) {
       back: path.length ? () => openModels(path.slice(0, -1)) : undefined,
     });
   }
-  /** 화면 전환 공통: 진행 표시·전송 대상·자료 상태를 대화에 맞게 초기화한다 */
+  /** 화면 전환 공통: 진행 표시, 전송 대상, 자료 상태를 대화에 맞게 초기화한다 */
   function resetSession(id: string | null) {
     // 보고서 첨부는 그 대화의 다음 메시지에만 붙는다
     if (id !== conversationId || !id) { reportAttachments.clear(); viewedReports = []; }
@@ -360,7 +386,7 @@ export function initChat(o: ChatOpts) {
     if (!activeRun) progress.set(latestRun(c)?.error ? `이전 작업 오류: ${latestRun(c).error}` : '');
   }
 
-  /* ───────── 실행 추적·중지 ───────── */
+  /* ───────── 실행 추적, 중지 ───────── */
   /** 실행 중이거나 가장 먼저 대기한 요청을 따라간다(대기열은 FIFO, runs는 최신순) */
   function followConversation(c: Conversation, token: number) {
     const run = c.runs.find(r => ['running', 'stopping'].includes(r.status)) || c.runs.filter(r => r.status === 'queued').at(-1);
@@ -410,8 +436,8 @@ export function initChat(o: ChatOpts) {
           if (event.name === 'model.fallback') activity('모델 재연결 중');
         }
         if (!isActiveStatus(run.status)) {
-          // 접힌 창도 응답이 끝나면(답변·보고서만 있는 답·오류) 펼쳐 보여준다. 대화를 다시 불러오다 실패해도 펼친다(사용자 중지·취소는 그대로 둔다)
-          if (run.status === 'failed' || run.status === 'completed') open();
+          // 접힌 창도 응답이 끝나면(답변, 보고서만 있는 답, 오류) 펼쳐 보여준다. 대화를 다시 불러오다 실패해도 펼친다(사용자 중지, 취소는 그대로 둔다)
+          if (run.status === 'failed' || run.status === 'completed') setChatOpen(true);
           const c = await loadConversation(conversationId!, true);
           if (!current()) return;
           // 답과 함께 온 화면 동작(화면 연결이 없을 때 남긴 것)은 사용자가 그사이 화면을 바꿨더라도 적용한다
@@ -457,7 +483,7 @@ export function initChat(o: ChatOpts) {
     const slash = parseSlash(text);
     if (slash) {
       clearInput(); updateSendButton(); open();
-      if (slash.cmd === 'sessions') openSessions(); else openModels();
+      if (slash.cmd === 'sessions') openSessions(); else o.actions.open_settings();
       return;
     }
     const modelCommand = /^[!！]\s*(?:모델|model)\s*(.*)$/i.exec(text.trim());
@@ -486,7 +512,7 @@ export function initChat(o: ChatOpts) {
         if (entry.cancelled) await api(`/runs/${accepted.runId}/stop`, post()).catch(showError);
         if (token !== view) { dropEntry(); return; }
         const c: Conversation = await loadConversation(id!, true);
-        // 서버 저장본(대기 또는 시작된 메시지)을 그리는 순간 전송 중 표시를 뺀다: 중복·깜박임 없음
+        // 서버 저장본(대기 또는 시작된 메시지)을 그리는 순간 전송 중 표시를 뺀다: 중복, 깜박임 없음
         dropEntry();
         if (token !== view) return;
         renderConversation(c); followConversation(c, token);
@@ -522,7 +548,7 @@ export function initChat(o: ChatOpts) {
     box.appendChild(button); box.classList.add('show');
   }
 
-  /* ───────── 화면 명령(MCP·모델이 요청한 지도·보고서·대화·모델 전환) ───────── */
+  /* ───────── 화면 명령(MCP, 모델이 요청한 지도, 보고서, 대화, 모델 전환) ───────── */
   async function applyCommand(command: ScreenCommand) {
     const data = command.data;
     if (data.type === 'show_report') {
@@ -546,11 +572,17 @@ export function initChat(o: ChatOpts) {
       if (data.display) o.actions.set_display(data.display);
       if ('country' in data) o.actions.focus_country(data.country);
       if (data.zoom != null) o.actions.zoom(data.zoom);
-    } else if (data.type === 'switch_conversation') await selectConversation(data.conversationId, false);
+    } else if (data.type === 'set_app_view') setAppView(data.view);
+    else if (data.type === 'open_report_editor') { const entry = messages.reportEntries.find(r => r.id === currentReport?.id); if (entry) dispatchEditor(entry); else dispatchEvent(new Event('radar:open-ranking-report-editor')); }
+    else if (data.type === 'close_report_editor') dispatchEvent(new Event('radar:close-report-editor'));
+    else if (data.type === 'set_chat_open') o.actions.set_chat_open(data.open);
+    else if (data.type === 'open_search') o.actions.open_search(data.query);
+    else if (data.type === 'open_settings') o.actions.open_settings(data.toggle);
+    else if (data.type === 'switch_conversation') await selectConversation(data.conversationId, false);
     else if (data.type === 'set_chat_model') { if (!setModel(data.model, data.cliModel, data.effort)) throw new Error('모델을 선택할 수 없습니다'); }
     else throw new Error('지원하지 않는 화면 명령');
   }
   const screen = createScreenCommands({ screenId, snapshot: appSnapshot, apply: applyCommand });
   screen.start();
-  return { send, viewReport, suggest, collapse, open, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
+  return { send, viewReport, attachReport, suggest, collapse, open, setChatOpen, focusInput: () => input.focus(), dispatch: exec, openModels, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }

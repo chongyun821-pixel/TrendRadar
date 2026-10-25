@@ -27,7 +27,7 @@ export interface WeaponScore { country: string; system: SystemKey; score: number
 function hasOwnData(record: ProgramRecord | undefined, forecast: Forecast | null) {
   return !!(forecast?.current || forecast?.window || forecast?.nSources || record?.projects?.length || record?.signals?.length || record?.analysis?.facts.length);
 }
-/** 일반 지도는 실제 판단 점수와 자체 자료가 모두 있는 무기 중 최고점을 고른다. */
+/** 일반 지도는 실제 종합 점수와 자체 자료가 모두 있는 무기 중 최고점을 고른다. */
 export function leadingWeapons(data: Seed, scores: Iterable<WeaponScore>) {
   const known = new Set(data.records.filter(r => hasOwnData(r, computeForecast(r, data))).map(r => `${r.system}:${r.country}`));
   const best = new Map<string, WeaponScore>();
@@ -74,7 +74,7 @@ export function mapCountryStyles(data: Seed, system: SystemKey, geography: GeoFe
       neighborAmount: null, referenceScore: 0, referenceRank: null, remaining: forecast?.remaining ?? null,
     });
   }
-  // 자체 자료 판정을 먼저 고정한다. 바다 건너 나라, 중복 국경, 빗금 국가는 인접국 수에 더하지 않는다.
+  // 자체 자료 판정을 먼저 고정한다. 바다 건너 국가, 중복 국경, 빗금 국가는 인접국 수에 더하지 않는다.
   const adjacency = new Map<string, Set<string>>();
   for (const [a, b] of borders) {
     if (a === b) continue;
@@ -96,7 +96,7 @@ export function mapCountryStyles(data: Seed, system: SystemKey, geography: GeoFe
     const knownAmounts = style.neighbors.flatMap(id => amounts.has(id) ? [amounts.get(id)!] : []);
     if (knownAmounts.length) style.neighborAmount = knownAmounts.reduce<[number, number]>((sum, amount) => [sum[0] + amount[0], sum[1] + amount[1]], [0, 0]);
   }
-  // 빗금 후보끼리 비교한다. 수·금액 각각 최대값 대비 비율에 50점씩 준다.
+  // 빗금 후보끼리 비교한다. 수, 금액 각각 최대값 대비 비율에 50점씩 준다.
   const mapped = new Set(geography.map(f => f.id));
   const missing = [...styles].filter(([id, style]) => mapped.has(id) && style.hatched);
   const midpoint = (style: CountryMapStyle) => style.neighborAmount ? (style.neighborAmount[0] + style.neighborAmount[1]) / 2 : 0;

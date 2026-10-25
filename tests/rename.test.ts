@@ -5,7 +5,7 @@ import { app } from '../server/app';
 const patch = (id: string, body: unknown) => app.request(`/api/conversations/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 describe('대화 제목 변경 API', () => {
-  it('제목을 바꾸고 목록·대화 조회에 반영하며 순서(updated_at)는 유지한다', async () => {
+  it('제목을 바꾸고 목록, 대화 조회에 반영하며 순서(updated_at)는 유지한다', async () => {
     const repo = repository(), c = await repo.createConversation();
     const before = (await repo.one('SELECT updated_at FROM conversations WHERE id=?', c.id)).updated_at;
     const r = await patch(c.id, { title: '  폴란드   자주포 조사 ' });
@@ -19,7 +19,7 @@ describe('대화 제목 변경 API', () => {
     await repo.message(c.id, 'user', '다른 질문');
     expect((await repo.conversation(c.id)).title).toBe('폴란드 자주포 조사');
   });
-  it('빈 제목·잘못된 본문은 400, 없는 대화는 404', async () => {
+  it('빈 제목, 잘못된 본문은 400, 없는 대화는 404', async () => {
     const c = await repository().createConversation();
     expect((await patch(c.id, { title: '   ' })).status).toBe(400);
     expect((await patch(c.id, { title: 'x', extra: 1 })).status).toBe(400);

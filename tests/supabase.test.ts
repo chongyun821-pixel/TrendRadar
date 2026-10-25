@@ -13,8 +13,8 @@ import { validateAppContext } from '../server/app-context';
 import { runTool, newOut } from '../server/agent';
 import type { AppContext } from '../shared/app-context';
 
-describe('SQL 호환·비동기 트랜잭션', () => {
-  it('값의 물음표와 SQL 문자열 리터럴을 구분하고 조회 순서·충돌 구문을 보존', () => {
+describe('SQL 호환, 비동기 트랜잭션', () => {
+  it('값의 물음표와 SQL 문자열 리터럴을 구분하고 조회 순서, 충돌 구문을 보존', () => {
     expect(postgresQuery("SELECT '?' AS literal FROM messages WHERE text=? ORDER BY rowid")).toBe("SELECT '?' AS literal FROM messages WHERE text=$1 ORDER BY row_order");
     expect(postgresQuery('INSERT OR IGNORE INTO sources VALUES (?,?)')).toBe('INSERT INTO sources VALUES ($1,$2) ON CONFLICT DO NOTHING');
   });
@@ -47,7 +47,7 @@ describe('SQL 호환·비동기 트랜잭션', () => {
   });
 });
 
-describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 검증 (모델·조사 자료는 가상)', () => {
+describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 검증 (모델, 조사 자료는 가상)', () => {
   const suffix = randomUUID().replaceAll('-','');
   const config = { ...supabaseConfig(), schema: `trendradar_test_${suffix}`, bucket: `trendradar-test-${suffix}` };
   const dir = mkdtempSync(join(tmpdir(),'radar-supabase-'));
@@ -74,14 +74,14 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
       await client.storage.deleteBucket(config.bucket);
     }
   }, 60000);
-  it('전체 SQL 객체·순서·예측을 이전하고 중복 이전이 데이터를 덮어쓰지 않는다', async () => {
+  it('전체 SQL 객체, 순서, 예측을 이전하고 중복 이전이 데이터를 덮어쓰지 않는다', async () => {
     const snapshot = localSnapshot(join(dir,'source.sqlite'),dir);
     await importSnapshot(repo,snapshot);
     expect((await verifySnapshot(repo,snapshot,config)).records).toBe(snapshot.tables.find(t => t.name === 'records')!.rows.length);
     const altered = structuredClone(snapshot); altered.tables.find(t => t.name==='metadata')!.rows[0].value='changed';
     await expect(importSnapshot(repo,altered)).rejects.toThrow(/덮어쓰지/);
   }, 60000);
-  it('원문·한글 파일을 원격 보존하고 새 로컬 캐시에서 해시 그대로 복원, 조사 반영·충돌·중지·삭제 후 근거 보존', async () => {
+  it('원문, 한글 파일을 원격 보존하고 새 로컬 캐시에서 해시 그대로 복원, 조사 반영, 충돌, 중지, 삭제 후 근거 보존', async () => {
     const c = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
     await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)',runId,c.id,'test','running',now());
     const ctx = { repo, conversationId: c.id, runId, signal: controller.signal, env: {} };
@@ -89,7 +89,7 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
     await validateAppContext(repo, screen);
     const commands = (await repo.one('SELECT count(*) AS n FROM app_commands')).n;
     await executions.run({ ...ctx, appContext: screen }, async () => {
-      // 화면 상태·명령은 앱 서버 메모리(화면 허브)에만 있다. 이 시험에는 앱 서버가 없으므로 바로 inactive
+      // 화면 상태, 명령은 앱 서버 메모리(화면 허브)에만 있다. 이 시험에는 앱 서버가 없으므로 바로 inactive
       expect(await runTool('get_app_context', {}, newOut())).toMatchObject({ request: { focus: 'POL' }, current: { available: false } });
       expect(await runTool('set_map_state', { country: 'FIN' }, newOut())).toMatchObject({ status: 'inactive' });
     });
@@ -135,7 +135,7 @@ describe.runIf(process.env.RADAR_TEST_SUPABASE === '1')('실제 Supabase 격리 
     expect(await repo.all('SELECT * FROM changes')).toHaveLength(1);
     expect(readFileSync(path,'utf8')).toContain('격리 검증');
   }, 60000);
-  it('원격 전체 백업을 빈 스키마로 복구하고 삭제된 대화의 원문·이력도 검증한다', async () => {
+  it('원격 전체 백업을 빈 스키마로 복구하고 삭제된 대화의 원문, 이력도 검증한다', async () => {
     const folder=join(dir,'cloud-backup');
     const snapshot=await exportSnapshot(repo,folder);
     const restoreConfig={...config,schema:`trendradar_restore_${suffix}`};

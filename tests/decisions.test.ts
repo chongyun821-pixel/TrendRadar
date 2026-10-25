@@ -35,13 +35,13 @@ describe("'최근 3년' = 기준 연도 포함 4개년", () => {
 
 describe('인도 연도 없는 보유 행 추정', () => {
   const inv = (extra: Partial<InventoryRow> = {}): InventoryRow => ({ id: 'i1', country: 'ROU', system: 'sph', model: 'M109', quantity: 36, confidence: 1, ...extra });
-  it('같은 모델 배치 → 계약·인도 신호 → 기준 연도 − 수명 절반 순서로 추정한다', () => {
+  it('같은 모델 배치 → 계약, 인도 신호 → 기준 연도 − 수명 절반 순서로 추정한다', () => {
     const batches = [{ model: 'M109A5', introYear: 1995, qty: 36, life: 35, ext: 0, year: 2030, est: [] }];
     expect(estimateDelivered(inv(), base, 35, batches)).toEqual({ year: 1995, basis: 'batch' });
     expect(estimateDelivered(inv(), base, 35, [], [sig('s', 'contract', '2008-03-01', { model: 'M109' }), sig('t', 'delivery', '2010-01-01', { model: 'M109' })])).toEqual({ year: 2008, basis: 'signal' });
     expect(estimateDelivered(inv(), base, 35)).toEqual({ year: 2026 - 18, basis: 'default' });
   });
-  it('추정 행은 추정으로 표시하고 신뢰도를 낮춘다(실제 인도 연도·퇴역 연도가 있으면 그대로)', () => {
+  it('추정 행은 추정으로 표시하고 신뢰도를 낮춘다(실제 인도 연도, 퇴역 연도가 있으면 그대로)', () => {
     const exact = computeScore({ country: 'ROU', system: 'sph', inventory: [inv({ delivered_year: 2000 })], designLife: 35 }, base).components.find(c => c.factor === 'aging')!;
     expect(exact).toMatchObject({ confidence: 1, detail: '최초 퇴역 예상 2035년, 10년 내 교체 대상 36/36' });
     expect(exact.estimated).toBeUndefined();
@@ -61,11 +61,11 @@ describe('근거 없는 긴장도 추정', () => {
     const t = computeTension({ country: 'FIN', neighbor: 'SWE', base, events: [], budgets: [], signals: [], disputes: [], alliances: [] });
     expect(t).toMatchObject({ tension: 0, confidence: null, hasEvidence: false });
   });
-  it('두 나라가 들어간 근거 있는 쌍의 중앙값 → 전체 중앙값 → 기본값, 같은 동맹이면 30% 감산, 신뢰도 0.2', () => {
+  it('두 국가가 들어간 근거 있는 쌍의 중앙값 → 전체 중앙값 → 기본값, 같은 동맹이면 30% 감산, 신뢰도 0.2', () => {
     const row = (country: string, neighbor: string, tension: number, hasEvidence: boolean, components: Record<string, any> = {}) => ({ country, neighbor, tension, hasEvidence, confidence: hasEvidence ? 1 : null, components });
     const rows = [row('FIN', 'RUS', 40, true), row('FIN', 'NOR', 10, true), row('EST', 'LVA', 70, true), row('FIN', 'SWE', 0, false), row('PRT', 'ESP', 0, false, { alliance: { name: 'NATO', discount: 0.3, before: 0 } })];
     const [, , , fin, prt] = estimateMissingTension(rows);
-    expect(fin).toMatchObject({ tension: 25, confidence: TENSION_ESTIMATE.CONFIDENCE, components: { estimated: { rule: '두 나라가 들어간 근거 있는 쌍의 중앙값', baseline: 25, pairs: 2 } } });
+    expect(fin).toMatchObject({ tension: 25, confidence: TENSION_ESTIMATE.CONFIDENCE, components: { estimated: { rule: '두 국가가 들어간 근거 있는 쌍의 중앙값', baseline: 25, pairs: 2 } } });
     expect(prt.tension).toBe(28); // 전체 중앙값 40 × 0.7
     expect(prt.components.estimated.rule).toBe('근거 있는 전체 쌍의 중앙값');
     expect(estimateMissingTension([row('A', 'B', 0, false)])[0]).toMatchObject({ tension: TENSION_ESTIMATE.DEFAULT, components: { estimated: { rule: '기본값' } } });
@@ -74,7 +74,7 @@ describe('근거 없는 긴장도 추정', () => {
     const t = computeTension({ country: 'FIN', neighbor: 'SWE', base, events: [], signals: [], disputes: [], alliances: [], budgets: [2023, 2024, 2025].map((year, i) => ({ country: 'FIN', year, usd_m: 100 + i * 10, confidence: 0.7 })) });
     expect(t).toMatchObject({ hasEvidence: true, confidence: 0.7 });
   });
-  it('판단 점수의 주변국 압력에 추정 표시가 붙는다', () => {
+  it('종합 점수의 주변국 압력에 추정 표시가 붙는다', () => {
     const n: NeighborRow = { country: 'ROU', neighbor: 'UKR', kind: 'land', tension: 25, components: { estimated: { rule: '기본값' } }, confidence: 0.2 };
     const c = computeScore({ country: 'ROU', system: 'sph', neighbors: [n] }, base).components.find(x => x.factor === 'neighbor')!;
     expect(c).toMatchObject({ estimated: true, confidence: 0.2 });
@@ -88,7 +88,7 @@ describe('설계 수명 추정 표시', () => {
     const rec = data.records.find((r: any) => r.system === 'sph');
     expect(computeForecast(rec, data).lifeEst).toBe(true);
     const plain = writeReport({ country: rec.country, system: 'sph' }, data);
-    expect('markdown' in plain && plain.markdown).toContain('(체계 기본값, 추정)');
+    expect('markdown' in plain && plain.markdown).toContain('체계 기본값을 적용한 추정치');
     const sourceId = Object.keys(data.sources)[0];
     data.systems.sph.lifeSrc = ['없는-출처'];
     expect(computeForecast(rec, data).lifeEst).toBe(true); // 존재하지 않는 출처는 근거가 아니다
@@ -96,7 +96,8 @@ describe('설계 수명 추정 표시', () => {
     const f = computeForecast(rec, data), before = computeForecast(rec, JSON.parse(JSON.stringify(await repository().data())));
     expect(f.lifeEst).toBe(false); expect(f.estCount).toBe(before.estCount - 1);
     const report = writeReport({ country: rec.country, system: 'sph' }, data);
-    expect('markdown' in report && report.markdown).toContain(`출처: ${data.sources[sourceId].t}`);
+    expect('markdown' in report && report.markdown).toContain(`근거 자료 ${data.sources[sourceId].t}`);
+    expect('markdown' in report && report.markdown).not.toContain('체계 기본값을 적용한 추정치');
     expect(getLifespan({ system: 'sph' }).systems[0].estimate).toBe(true); // 운영 데이터에는 아직 수명 출처가 없다
   });
 });

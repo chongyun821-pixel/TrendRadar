@@ -1,11 +1,11 @@
-/** 지도 정보 카드의 판단 점수 행과 항목별 점수 패널(순수 HTML 조립). 계산은 서버 scoreCase(shared/forecast.ts computeScore)가 한다. */
+/** 지도 정보 카드의 종합 점수 행과 항목별 점수 패널(순수 HTML 조립). 계산은 서버 scoreCase(shared/forecast.ts computeScore)가 한다. */
 import type { ScoreBreakdown } from '../shared/types';
 import { tierLabel } from '../shared/tiers';
 import { esc } from './md';
 
 export const est = (on: boolean) => (on ? ' <em>추정</em>' : '');
 
-/** 패널 상태: 불러오는 중 · 실패 · 받은 내역 */
+/** 패널 상태: 불러오는 중 ,  실패 ,  받은 내역 */
 export type ScoreDetail = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ok'; data: ScoreBreakdown };
 
 const DETAIL_MAX = 48;
@@ -14,12 +14,12 @@ const fmt1 = (n: number) => (Math.round(n * 10) / 10).toFixed(1);
 const factorText = (n: number) => String(Math.round(n * 100) / 100);
 const cut = (s: string, max = DETAIL_MAX) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
 
-/** 판단 점수 행. 누르거나 커서를 올리면 항목별 점수를 펼친다 */
+/** 종합 점수 행. 누르거나 커서를 올리면 항목별 점수를 펼친다 */
 export function scoreRowHtml(country: string, system: string, value: string, open: boolean) {
-  return `<tr class="score-row${open ? ' open' : ''}" data-score-country="${esc(country)}" data-score-system="${esc(system)}" role="button" tabindex="0" aria-expanded="${open}" title="항목별 점수 보기"><th>판단 점수</th><td>${value}<span class="score-more" aria-hidden="true">▸</span></td></tr>`;
+  return `<tr class="score-row${open ? ' open' : ''}" data-score-country="${esc(country)}" data-score-system="${esc(system)}" role="button" tabindex="0" aria-expanded="${open}" title="항목별 점수 보기"><th>종합 점수</th><td>${value}<span class="score-more" aria-hidden="true">▸</span></td></tr>`;
 }
 
-/** 항목별 점수 패널(판단 점수 행 바로 아래 표 행) */
+/** 항목별 점수 패널(종합 점수 행 바로 아래 표 행) */
 export function scorePanelHtml(detail: ScoreDetail, color: string) {
   return `<tr class="score-detail"><td colspan="2"><div class="score-panel" style="--c:${esc(color)}">${scorePanelBody(detail)}</div></td></tr>`;
 }

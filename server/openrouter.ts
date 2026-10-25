@@ -10,7 +10,7 @@ export const NEMOTRON_SUPER = 'nvidia/nemotron-3-super-120b-a12b:free';
 export const FREE_MODELS_ROUTER = 'openrouter/free';
 
 /** 함수 호출을 못 하는 모델용 핵심 도구(화면 먼저). 전체 목록은 너무 길어 쓰지 않는다 */
-export const TEXT_TOOLS = ['set_map_state', 'write_report', 'get_app_context', 'query_procurement', 'get_forecast', 'list_forecasts', 'calculate_forecast', 'get_country_analysis', 'search_programs', 'get_inventory', 'get_lifespan', 'get_score_breakdown', 'search_sources', 'collect_source', 'read_source'];
+export const TEXT_TOOLS = ['set_map_state', 'write_report', 'get_app_context', 'query_procurement', 'get_forecast', 'list_forecasts', 'calculate_forecast', 'get_country_analysis', 'search_programs', 'get_inventory', 'lookup_weapon', 'get_lifespan', 'get_score_breakdown', 'search_sources', 'collect_source', 'read_source'];
 export const TEXT_PROTOCOL = [
   '도구는 함수 호출 대신 답 맨 끝의 JSON 블록으로 요청한다:',
   '```json',

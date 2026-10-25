@@ -34,7 +34,7 @@ const hang = (init?: RequestInit) => new Promise<Response>((_, reject) => init?.
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('수집 채팅 도구', () => {
-  it('도구 정의가 공용 목록(지피티·네모트론·MCP)에 있고 상태 문구가 있다', () => {
+  it('도구 정의가 공용 목록(지피티, 네모트론, MCP)에 있고 상태 문구가 있다', () => {
     const names = TOOL_DEFS.map(t => t.name);
     for (const n of ['list_ingest_sources', 'run_ingest', 'get_ingest_run']) { expect(names).toContain(n); expect(toolActivity(`procurement__${n}`)).toBe('공개 자료 수집 중'); }
     const run = TOOL_DEFS.find(t => t.name === 'run_ingest')!;
@@ -42,7 +42,7 @@ describe('수집 채팅 도구', () => {
     for (const s of INGEST_SOURCES) expect(run.properties.source.description).toContain(s.id);
   });
 
-  it('미리보기는 적재하지 않고 행 수·표본만 돌려준다', async () => {
+  it('미리보기는 적재하지 않고 행 수, 표본만 돌려준다', async () => {
     const calls = stubNetwork({ 'https://www.law.cornell.edu/': () => new Response(readFileSync(fixture('itar-126-1.html'), 'utf8')) });
     const { ctx } = await context();
     const r = await call(ctx, 'run_ingest', { source: 'itar' });
@@ -60,7 +60,7 @@ describe('수집 채팅 도구', () => {
     expect(events.filter(e => e.name === 'ingest.progress').map(e => JSON.parse(e.data).message).join(' ')).toContain('미리보기 완료');
   });
 
-  it('dryRun=false는 SQLite에 적재하고 변경 기록·실행 기록을 남긴다(국가 한정)', async () => {
+  it('dryRun=false는 SQLite에 적재하고 변경 기록, 실행 기록을 남긴다(국가 한정)', async () => {
     stubNetwork({ 'https://www.law.cornell.edu/': () => new Response(readFileSync(fixture('itar-126-1.html'), 'utf8')) });
     const { ctx } = await context();
     const preview = await call(ctx, 'run_ingest', { source: 'itar' });
@@ -86,7 +86,7 @@ describe('수집 채팅 도구', () => {
     expect((await call(ctx, 'run_ingest', { source: 'nope' })).error).toMatch(/인자 오류/);
     expect((await call(ctx, 'run_ingest', { source: 'gdelt', months: 99 })).error).toMatch(/months/);
     expect((await call(ctx, 'run_ingest', { source: 'itar', since: 2000 })).error).toMatch(/쓰지 않는 인자: since/);
-    expect((await call(ctx, 'run_ingest', { source: 'ucdp', countries: '없는나라' })).error).toMatch(/국가를 알 수 없음/);
+    expect((await call(ctx, 'run_ingest', { source: 'ucdp', countries: '없는국가' })).error).toMatch(/국가를 알 수 없음/);
     expect((await call(ctx, 'get_ingest_run', { id: 'x' })).error).toMatch(/인자 오류/);
   });
 
@@ -122,7 +122,7 @@ describe('수집 채팅 도구', () => {
 });
 
 describe('수집 실패 시 대체 수집 안내', () => {
-  it('실패 결과에 원문 주소·뽑을 내용·다음 행동(fallback)을 작게 넣는다', async () => {
+  it('실패 결과에 원문 주소, 뽑을 내용, 다음 행동(fallback)을 작게 넣는다', async () => {
     stubNetwork({ 'https://www.law.cornell.edu/': () => new Response('<html>바뀐 페이지</html>', { status: 404 }) });
     const { ctx } = await context();
     const r = await call(ctx, 'run_ingest', { source: 'itar' });
@@ -148,7 +148,7 @@ describe('수집 실패 시 대체 수집 안내', () => {
     expect(present({ ...base, status: 'cancelled' })).not.toHaveProperty('fallback');
     expect(present({ ...base, status: 'failed', error: 'x'.repeat(2000) })).toMatchObject({ error: 'x'.repeat(300), fallback: { url: 'https://data.gdeltproject.org/events/index.html' } });
   });
-  it('모델별 지침: 그록·코덱스는 기본 웹 도구, 지피티·네모트론은 Firecrawl(설정 시) 또는 collect_source', async () => {
+  it('모델별 지침: 그록, 코덱스는 기본 웹 도구, 지피티, 네모트론은 Firecrawl(설정 시) 또는 collect_source', async () => {
     const { systemPrompt, ingestFallbackGuide } = await import('../server/agent');
     const { buildPrompt } = await import('../server/cli');
     const msg = { conversationId: 'x', messages: [{ role: 'user' as const, text: '수집해줘' }] };

@@ -111,14 +111,14 @@ async function waitForRun(runId: string) {
   }
 }
 
-/** 사용자 중지(API·대화 삭제)로 실행을 끝낼 때의 사유 */
+/** 사용자 중지(API, 대화 삭제)로 실행을 끝낼 때의 사유 */
 export const STOPPED_MESSAGE = '사용자가 조사를 중지했습니다';
 class StopRequest extends Error { constructor() { super(STOPPED_MESSAGE); this.name = 'StopRequest'; } }
-/** stopGraceMs: 중지 요청 후 모델·CLI 정리를 기다리는 최대 시간. 넘으면 실행을 중지됨으로 확정하고 대기열을 이어간다 */
+/** stopGraceMs: 중지 요청 후 모델, CLI 정리를 기다리는 최대 시간. 넘으면 실행을 중지됨으로 확정하고 대기열을 이어간다 */
 export const runSettings = { stopGraceMs: 5000 };
 const ACTIVE = ['running', 'stopping'];
 
-/** 실행 종료 기록은 한 번만 남긴다. 강제 종료 뒤 늦게 끝난 원래 실행이 상태·메시지를 덮어쓰지 않는다 */
+/** 실행 종료 기록은 한 번만 남긴다. 강제 종료 뒤 늦게 끝난 원래 실행이 상태, 메시지를 덮어쓰지 않는다 */
 async function finalizeRun(runId: string, conversationId: string, status: 'cancelled' | 'failed', error: string) {
   const repo = repository();
   return queueTransaction(async () => {
@@ -135,7 +135,7 @@ async function assertRunning(runId: string, signal: AbortSignal) {
   if ((await repository().one('SELECT status FROM runs WHERE id=?', runId))?.status !== 'running') throw new Error('현재 조사 실행이 종료되었습니다');
 }
 
-/** 로컬 명령(!모델·!보고서 등) 또는 선택한 모델로 답을 만든다 */
+/** 로컬 명령(!모델, !보고서 등) 또는 선택한 모델로 답을 만든다 */
 async function answer(input: ChatIn, env: Env, runId: string, signal: AbortSignal) {
   const repo = repository(), conversationId = input.conversationId!, text = input.messages[0].text;
   await repo.prepareWorkspace(conversationId);
@@ -193,7 +193,7 @@ function executeRun(input: ChatIn, env: Env, runId: string) {
     } catch { controller.abort(new Error('조사 실행 상태 확인 실패')); }
     finally { checking = false; }
   }, 1000);
-  // 중지 후 CLI·모델 호출이 정해진 시간 안에 정리되지 않아도 실행을 중지됨으로 확정한다.
+  // 중지 후 CLI, 모델 호출이 정해진 시간 안에 정리되지 않아도 실행을 중지됨으로 확정한다.
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   controller.signal.addEventListener('abort', () => {
     watchdog = setTimeout(() => { void finalizeRun(runId, conversationId, 'cancelled', STOPPED_MESSAGE).catch(() => {}).finally(settle); }, runSettings.stopGraceMs);
@@ -226,7 +226,7 @@ function executeRun(input: ChatIn, env: Env, runId: string) {
   return { runId, conversationId, done, finished };
 }
 
-/** 대기 요청은 실행하지 않고 취소하고, 진행 중 요청은 중지 상태로 바꾼 뒤 모델·CLI 프로세스를 중단한다 */
+/** 대기 요청은 실행하지 않고 취소하고, 진행 중 요청은 중지 상태로 바꾼 뒤 모델, CLI 프로세스를 중단한다 */
 export async function stopRun(runId: string) {
   const repo = repository();
   await repo.run("UPDATE runs SET status='cancelled',error=?,ended_at=? WHERE id=? AND status='queued'", '대기 메시지를 취소했습니다', now(), runId);

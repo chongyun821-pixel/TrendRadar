@@ -1,6 +1,6 @@
 /**
- * 인접국·긴장도 산출 작업 → neighbors. 육상 국경(공유 꼭짓점)·해상 인접(400km)·GDELT 경쟁국 쌍마다 shared/tension.ts로 0~100 긴장도를 계산한다.
- * 순서: ucdp·gdelt·sipri-milex·sipri-transfers 적재 후 매월 실행. 사용: npm run ingest:tension -- [--dry-run] [--as-of 2026-09]
+ * 인접국, 긴장도 산출 작업 → neighbors. 육상 국경(공유 꼭짓점), 해상 인접(400km), GDELT 경쟁국 쌍마다 shared/tension.ts로 0~100 긴장도를 계산한다.
+ * 순서: ucdp, gdelt, sipri-milex, sipri-transfers 적재 후 매월 실행. 사용: npm run ingest:tension -- [--dry-run] [--as-of 2026-09]
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,8 +41,8 @@ export async function ingestTension(opts: IngestOptions = {}) {
   }
   const rows: Partial<NeighborRow>[] = estimateMissingTension(computed).map(({ hasEvidence: _, ...r }) => ({ ...r, computed_at: now }));
   const estimated = computed.filter(r => !r.hasEvidence).length;
-  const notes = [`기준 ${asOf}(충돌·구매 ${base - 3}~${base}), 쌍 ${pairs.size}개(육상 ${[...pairs.values()].filter(k => k === 'land').length}, 해상 ${[...pairs.values()].filter(k => k === 'sea').length}, 경쟁국 ${[...pairs.values()].filter(k => k === 'rival').length})`];
+  const notes = [`기준 ${asOf}(충돌과 구매 ${base - 3}~${base}), 쌍 ${pairs.size}개(육상 ${[...pairs.values()].filter(k => k === 'land').length}, 해상 ${[...pairs.values()].filter(k => k === 'sea').length}, 경쟁국 ${[...pairs.values()].filter(k => k === 'rival').length})`];
   if (estimated) notes.push(`근거 없는 방향 ${estimated}개는 추정 긴장도(근거 있는 쌍의 중앙값, 신뢰도 0.2)`);
-  if (!events.length) notes.push('pair_events가 비어 있어 충돌·이벤트 요소가 0입니다. ucdp·gdelt를 먼저 실행하세요');
+  if (!events.length) notes.push('pair_events가 비어 있어 충돌과 이벤트 요소가 0이다. ucdp와 gdelt를 먼저 실행한다');
   return load(opts, TENSION_SOURCE, { neighbors: rows }, notes);
 }

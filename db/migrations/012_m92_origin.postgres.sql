@@ -1,0 +1,13 @@
+-- 012 무기 사전 M92 Vulkan 개발국 정정 (PostgreSQL / Supabase. 적용: npm run supabase -- schema)
+-- 근거: MilitaryLeak 2019-01-02 "Croatian modification of a mobile multiple rocket launcher 128mm M-77 Oganj in 122mm M-92 Vulkan". 제조사는 출처에 없어 NULL 유지.
+INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at)
+  SELECT 'weapon_dictionary:m92-vulkan','weapon-fix:2026-10-25', json_build_object('origin',origin,'description',description,'sources',sources)::text,
+    json_build_object('origin','HRV','description','M92 Vulkan(LRSV-122 M-92)은 크로아티아가 유고슬라비아제 128mm M-77 Oganj 자주 다연장로켓을 122mm Grad 규격 로켓용으로 개조한 체계다. 발사관을 122mm로 바꾸고 발사함과 사격 체계를 고쳤으며, 크로아티아군이 운용하고 NATO 폴란드 전진배치 전투단에도 배치됐다. 슬로보드나 달마시야는 평균 사용 연한이 30년을 넘고 사거리는 20km까지라고 적는다. 제조사와 취역 연도는 출처에서 확인되지 않는다.','sources',sources || '[{"id":"hrv_vulkan_militaryleak","t":"Croatian Army M-92 Vulkan Multiple Launch Rocket System (MilitaryLeak, 2019-01-02)","u":"https://militaryleak.com/2019/01/02/croatian-army-m-92-vulkan-multiple-launch-rocket-system/","y":2019,"publishedAt":"2019-01-02"}]'::jsonb)::text,
+    'M92 Vulkan 개발국 정정: 소련(RUS)이 아니라 크로아티아(HRV)가 M-77 Oganj를 122mm로 개조한 체계(MilitaryLeak 2019-01-02). 제조사는 출처에 없어 비워 둠','[{"path":"origin","rule":"weapon-fix"},{"path":"description","rule":"weapon-fix"},{"path":"sources","rule":"weapon-fix","url":"https://militaryleak.com/2019/01/02/croatian-army-m-92-vulkan-multiple-launch-rocket-system/"}]', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  FROM weapon_dictionary WHERE id='m92-vulkan' AND origin IS DISTINCT FROM 'HRV';
+UPDATE weapon_dictionary SET origin='HRV', description='M92 Vulkan(LRSV-122 M-92)은 크로아티아가 유고슬라비아제 128mm M-77 Oganj 자주 다연장로켓을 122mm Grad 규격 로켓용으로 개조한 체계다. 발사관을 122mm로 바꾸고 발사함과 사격 체계를 고쳤으며, 크로아티아군이 운용하고 NATO 폴란드 전진배치 전투단에도 배치됐다. 슬로보드나 달마시야는 평균 사용 연한이 30년을 넘고 사거리는 20km까지라고 적는다. 제조사와 취역 연도는 출처에서 확인되지 않는다.',
+  sources=CASE WHEN sources @> '[{"id":"hrv_vulkan_militaryleak"}]'::jsonb THEN sources ELSE sources || '[{"id":"hrv_vulkan_militaryleak","t":"Croatian Army M-92 Vulkan Multiple Launch Rocket System (MilitaryLeak, 2019-01-02)","u":"https://militaryleak.com/2019/01/02/croatian-army-m-92-vulkan-multiple-launch-rocket-system/","y":2019,"publishedAt":"2019-01-02"}]'::jsonb END,
+  updated_at=to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+  WHERE id='m92-vulkan' AND origin IS DISTINCT FROM 'HRV';
+UPDATE metadata SET value=(CAST(value AS BIGINT)+1)::text WHERE key='revision' AND NOT EXISTS (SELECT 1 FROM schema_migrations WHERE version=12);
+INSERT INTO schema_migrations(version,applied_at) VALUES (12, to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) ON CONFLICT DO NOTHING;

@@ -1,7 +1,7 @@
 /**
  * 수집 작업 실행기: 채팅 도구가 수집을 백그라운드로 돌리고 상태를 ingest_runs에 기록한다.
  * - 출처별 동시 실행은 ingest_runs의 부분 고유 색인(one_running_ingest)으로 막는다(프로세스가 달라도 적용).
- * - 진행 상황은 heartbeat_at·progress 열과 대화 실행의 ingest.progress 이벤트로 남긴다.
+ * - 진행 상황은 heartbeat_at, progress 열과 대화 실행의 ingest.progress 이벤트로 남긴다.
  * - 작업은 시작한 프로세스 안에서만 돈다. 프로세스가 끝나 생존 신호가 끊긴 작업은 다음 조회 때 failed로 정리한다.
  */
 import { randomUUID } from 'node:crypto';
@@ -26,7 +26,7 @@ interface Job { id: string; source: string; controller: AbortController; done: P
 const runtime = globalThis as typeof globalThis & { __radarIngestJobs?: Map<string, Job> };
 const jobs = runtime.__radarIngestJobs ??= new Map<string, Job>();
 
-/** 모델·기록용 요약: 표별 행 수, 표본 3행, 메모 일부. 전체 자료는 넣지 않는다 */
+/** 모델, 기록용 요약: 표별 행 수, 표본 3행, 메모 일부. 전체 자료는 넣지 않는다 */
 export function compactSummary(result: IngestResult) {
   const s = summarize(result, 3);
   const notes = s.notes.slice(0, 8).map(n => n.length > 200 ? `${n.slice(0, 200)}…` : n);
@@ -102,7 +102,7 @@ export async function startIngest(repo: Repository, o: StartIngest): Promise<{ i
       const summary = compactSummary(result);
       const ended = now();
       if (!o.dryRun) {
-        // 변경 기록: 무엇을 어느 출처로 몇 행 적재했는지(근거 = 출처 식별자·주소·작업 id)
+        // 변경 기록: 무엇을 어느 출처로 몇 행 적재했는지(근거 = 출처 식별자, 주소, 작업 id)
         await repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)',
           `@ingest:${source.id}`, o.runId || id, null, JSON.stringify({ ingestRun: id, written: summary.written, rows: Object.fromEntries(Object.entries(summary.tables).map(([t, v]) => [t, v.rows])) }),
           `공개 자료 수집: ${source.ko}`, JSON.stringify([{ sourceId: summary.source.id, url: summary.source.url, title: summary.source.title, ingestRun: id }]), ended);
@@ -148,7 +148,7 @@ export async function cancelIngest(repo: Repository, id: string) {
   await reapStale(repo);
 }
 
-/** 출처별 마지막 실행·마지막 적재와 현재 저장 행 수 */
+/** 출처별 마지막 실행, 마지막 적재와 현재 저장 행 수 */
 export async function ingestOverview(repo: Repository, sourceIds: string[], tables: string[]) {
   const counts: Record<string, { rows: number; latest: string | null }> = {};
   const marks = sourceIds.map(() => '?').join(',');

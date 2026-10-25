@@ -14,14 +14,14 @@ export interface AppContext {
   screenId: string;
   conversationId: string | null;
   model: string;
-  /** CLI 모델·추론 강도(코덱스·그록 빌드만) */
+  /** CLI 모델, 추론 강도(코덱스, 그록 빌드만) */
   modelOptions?: { model?: string; effort?: string };
   activeView: 'map' | 'report';
   mode: SystemKey | null;
   flat: boolean;
   focus: string | null;
   filters: { system: SystemKey | null };
-  /** 챗봇 표시 조정(숨김·특정 국가만·강조·빗금·막대·범례) */
+  /** 챗봇 표시 조정(숨김, 특정 국가만, 강조, 빗금, 막대, 범례) */
   display?: MapDisplay;
   report: ReportRef | null;
   dataVersion: number;

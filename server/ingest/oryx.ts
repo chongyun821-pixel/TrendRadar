@@ -1,6 +1,6 @@
 /**
- * Oryx 사진 확인 손실 목록(러시아·우크라이나) → consumption(kind='loss'). 인증키 불필요, 블로그 HTML 구조를 정규식으로 읽는다.
- * 손실 수는 사진·영상으로 확인된 최소값이다(실제 손실은 더 많다). 전문 매체 수준으로 보고 신뢰도 0.7.
+ * Oryx 사진 확인 손실 목록(러시아, 우크라이나) → consumption(kind='loss'). 인증키 불필요, 블로그 HTML 구조를 정규식으로 읽는다.
+ * 손실 수는 사진, 영상으로 확인된 최소값이다(실제 손실은 더 많다). 전문 매체 수준으로 보고 신뢰도 0.7.
  * CLI: npm run ingest:oryx -- [--dry-run] [--side RUS|UKR] [--file 저장한.html]
  */
 import type { ConsumptionRow, SystemKey } from '../../shared/types';
@@ -11,10 +11,10 @@ export const ORYX_PAGES = {
   RUS: { url: 'https://www.oryxspioenkop.com/2022/02/attack-on-europe-documenting-equipment.html', target: 'UKR' },
   UKR: { url: 'https://www.oryxspioenkop.com/2022/02/attack-on-europe-documenting-ukrainian.html', target: 'RUS' },
 } as const;
-export const ORYX_SOURCE = { id: 'oryx_ukraine', title: 'Oryx — Attack On Europe: Documenting Equipment Losses (Russia·Ukraine)', url: ORYX_PAGES.RUS.url, confidence: 0.7 };
+export const ORYX_SOURCE = { id: 'oryx_ukraine', title: 'Oryx — Attack On Europe: Documenting Equipment Losses (Russia, Ukraine)', url: ORYX_PAGES.RUS.url, confidence: 0.7 };
 export const ORYX_CONFLICT = 'russia-ukraine-2022';
 
-/** Oryx 분류 → 앱 체계. 함정 분류는 모델명으로 호위함·잠수함만 고른다 */
+/** Oryx 분류 → 앱 체계. 함정 분류는 모델명으로 호위함, 잠수함만 고른다 */
 export function oryxSystem(category: string, model: string): SystemKey | null {
   const c = category.toLowerCase();
   if (c.startsWith('self-propelled artillery')) return 'sph';
@@ -50,5 +50,5 @@ export async function ingestOryx(opts: IngestOptions = {}) {
   const rows: Partial<ConsumptionRow>[] = [];
   for (const side of sides) rows.push(...parseOryx(text(await readInput(opts, ORYX_PAGES[side].url)), side, period));
   if (!rows.length) throw new Error('Oryx 손실 항목을 찾지 못했습니다(페이지 구조 변경 확인 필요)');
-  return load(opts, ORYX_SOURCE, { consumption: rows }, [`${sides.join('·')} 손실, 기간 ${period}, 사진 확인 최소값`]);
+  return load(opts, ORYX_SOURCE, { consumption: rows }, [`${sides.join(', ')} 손실, 기간 ${period}, 사진 확인 최소값`]);
 }

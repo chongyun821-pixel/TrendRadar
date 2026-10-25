@@ -22,7 +22,7 @@ export async function preservedSource(filePath: string, quote: string, title: st
   return { sourceId, url, source: { t: title || url, u: url, y: publishedAt ? Number(publishedAt.slice(0, 4)) : 0, publishedAt, collectedAt: sourceFile.collected_at, filePath: sourceFile.name, hash: sourceFile.hash, kind: 'original' as const } };
 }
 
-/** 단순 장비 반영도 기존 원문·정제·검증·버전 검사와 변경/예측 이력을 거친다. */
+/** 단순 장비 반영도 기존 원문, 정제, 검증, 버전 검사와 변경/예측 이력을 거친다. */
 export async function saveEquipment(raw: Record<string, unknown>) {
   const a = z.object({ country: z.string(), system: z.string(), model: z.string().trim().min(1), filePath: z.string().min(1), quote: z.string().min(1),
     introYear: z.number().int().min(1800).max(2300).nullable().optional(), qty: z.number().int().nonnegative().nullable().optional(),

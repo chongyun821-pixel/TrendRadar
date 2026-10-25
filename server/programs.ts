@@ -15,9 +15,9 @@ const STAGE_ALIASES: Record<string, Project['stage']> = { 검토: 'consideration
 const evidenceItem = z.object({ filePath: z.string().min(1), quote: z.string().min(1), title: z.string().optional() });
 
 /**
- * 진행 중·선정 전 사업 하나를 원문 근거와 함께 저장·갱신한다(record.projects, 같은 id는 갱신).
- * save_equipment처럼 보존 원문·인용문을 검사하고 정제(normalize)→사전 검증(validate)→반영(apply)과 변경·예측 이력을 거친다.
- * 공급자가 정해진 단계(selected·contract·delivery·completed)는 교체 수요를 채운 것으로 계산되어 사업 기회에서 빠진다.
+ * 진행 중, 선정 전 사업 하나를 원문 근거와 함께 저장, 갱신한다(record.projects, 같은 id는 갱신).
+ * save_equipment처럼 보존 원문, 인용문을 검사하고 정제(normalize)→사전 검증(validate)→반영(apply)과 변경, 예측 이력을 거친다.
+ * 공급자가 정해진 단계(selected, contract, delivery, completed)는 교체 수요를 채운 것으로 계산되어 사업 기회에서 빠진다.
  */
 export async function saveProgram(raw: Record<string, unknown>) {
   const a = z.object({

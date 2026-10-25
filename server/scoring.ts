@@ -1,13 +1,14 @@
-/** 판단 점수(요구서 6장) 조회: 수집 테이블 + 기존 기록 예측을 묶어 shared/forecast.ts의 computeScore로 계산한다. */
+/** 종합 점수(요구서 6장) 조회: 수집 테이블 + 기존 기록 예측을 묶어 shared/forecast.ts의 computeScore로 계산한다. */
 import { tierLabel } from '../shared/tiers';
 import type { Repository } from './store';
 import type { ScoreBreakdown, Seed, SystemKey } from '../shared/types';
 import { computeForecast, computeScore } from '../shared/forecast';
+import { countryName } from '../shared/country-name';
 import { inputsFor, scoringBundle } from './collection';
 
 export interface ScoredCase extends ScoreBreakdown { countryKo: string; systemKo: string; recordId: string | null }
 
-/** 한 체계의 국가별 점수. countries를 주면 그 나라만, 없으면 기록·등급·신호가 있는 나라 전체 */
+/** 한 체계의 국가별 점수. countries를 주면 그 국가만, 없으면 기록, 등급, 신호가 있는 국가 전체 */
 export async function scoreSystem(repo: Repository, data: Seed, system: SystemKey, countries?: string[]): Promise<ScoredCase[]> {
   const bundle = await scoringBundle(repo, system);
   const base = data.meta.baseYear, designLife = data.systems[system]?.designLife;
@@ -20,7 +21,7 @@ export async function scoreSystem(repo: Repository, data: Seed, system: SystemKe
     const record = data.records.find(r => r.country === country && r.system === system) || null;
     const forecast = record ? computeForecast(record, data, base) : null; // 점수와 같은 기준 연도
     const breakdown = computeScore({ ...inputsFor(bundle, country), forecast, designLife }, base);
-    return { ...breakdown, countryKo: data.countries[country]?.ko ?? country, systemKo: data.systems[system]?.ko ?? system, recordId: record?.id ?? null };
+    return { ...breakdown, countryKo: countryName(country, data), systemKo: data.systems[system]?.ko ?? system, recordId: record?.id ?? null };
   });
 }
 
@@ -28,7 +29,7 @@ export async function scoreCase(repo: Repository, data: Seed, country: string, s
   return (await scoreSystem(repo, data, system, [country]))[0];
 }
 
-/** 지도·목록용 요약(점수, 회색 여부, 임박 연도, 통과 실패 사유) */
+/** 지도, 목록용 요약(점수, 회색 여부, 임박 연도, 통과 실패 사유) */
 export const scoreSummary = (s: ScoredCase) => ({ country: s.country, system: s.system, score: s.score, grey: s.grey, tier: s.tier, tierLabel: tierLabel(s.tier), gate: s.gate.reason, imminenceYear: s.imminenceYear });
 
 /** 보고서 양식 evidenceTable 형식의 케이스별 근거 표 */
@@ -40,7 +41,7 @@ export function evidenceTable(s: ScoredCase) {
       통과조건: s.gate.passed ? '통과' : `제외 — ${s.gate.reason}`,
       고객등급: `${tierLabel(s.tier)} (계수 ${s.tierFactor})`,
       독자개발: s.domestic ? `${({ none: '없음', development: '개발 중', production: '양산' } as const)[s.domestic]} (계수 ${s.domesticFactor})` : '자료 없음',
-      판단점수: s.gate.passed ? `${s.score}/100 (항목 합 ${s.subtotal})` : '0 (제외)',
+      종합점수: s.gate.passed ? `${s.score}/100 (항목 합 ${s.subtotal})` : '0 (제외)',
       승인필요: s.approvals.length ? s.approvals : ['없음'],
     },
     columns: ['항목', '비중', '원점수', '출처 신뢰도', '점수', '판단 내용', '근거 ID'],
@@ -49,6 +50,6 @@ export function evidenceTable(s: ScoredCase) {
 }
 export function evidenceTableMarkdown(s: ScoredCase) {
   const t = evidenceTable(s), cell = (v: unknown) => String(v).replace(/\|/g, '\\|');
-  return [`**${t.title}**`, '', ...Object.entries(t.header).map(([k, v]) => `- ${k}: ${Array.isArray(v) ? v.join('; ') : v}`), '',
+  return [`**${t.title}**`, '', ...Object.entries(t.header).map(([k, v]) => `- ${k} ${Array.isArray(v) ? v.join('; ') : v}`), '',
     `| ${t.columns.join(' | ')} |`, `|${t.columns.map(() => '---').join('|')}|`, ...t.rows.map(r => `| ${r.map(cell).join(' | ')} |`)].join('\n');
 }

@@ -248,7 +248,7 @@ try {
     const g = (window as any).__globe, idx = g.byId.get('DEU').idx * 4;
     return g.colorAnim === 1 && g.next[idx] === 236;
   });
-  assert.match(await page.locator('#legend').innerText(), /나라별 수주 가능성이 가장 높은 무기/);
+  assert.match(await page.locator('#legend').innerText(), /국가별 수주 가능성이 가장 높은 무기/);
   assert.equal(await page.locator('#legend .sz').count(), 0);
   assert.equal(await page.evaluate(() => (window as any).__globe.spikes.length), 0);
   const general = await page.evaluate(() => {

@@ -19,7 +19,7 @@ const local = (path: string, init: RequestInit = {}, remote = '127.0.0.1') => {
 };
 const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
-/** 실제 HTTP 서버로 앱을 띄운다(SSE·다른 프로세스 MCP용) */
+/** 실제 HTTP 서버로 앱을 띄운다(SSE, 다른 프로세스 MCP용) */
 const servers: Server[] = [];
 async function serveApp() {
   const server = createServer(getRequestListener((req, { incoming }) => { rememberRemote(req, incoming.socket.remoteAddress); return app.fetch(req); }));
@@ -66,7 +66,7 @@ afterEach(async () => {
 });
 
 describe('화면 허브 로컬 전용 보호', () => {
-  it('루프백 주소·localhost Host·같은 출처만 받는다', async () => {
+  it('루프백 주소, localhost Host, 같은 출처만 받는다', async () => {
     expect(localOnly({ remote: '127.0.0.1', host: 'localhost:62356' })).toBeNull();
     expect(localOnly({ remote: '::1', host: '[::1]:62356', origin: 'http://[::1]:62356' })).toBeNull();
     expect(localOnly({ remote: '::ffff:127.0.0.1', host: '127.0.0.1:62356', origin: 'http://127.0.0.1:62356' })).toBeNull();
@@ -77,7 +77,7 @@ describe('화면 허브 로컬 전용 보호', () => {
     expect(localServerUrl('0.0.0.0', 62356)).toBe('http://127.0.0.1:62356');
     expect(localServerUrl('::1', 1)).toBe('http://[::1]:1');
   });
-  it('외부 주소·다른 출처 요청은 화면 경로에서 403', async () => {
+  it('외부 주소, 다른 출처 요청은 화면 경로에서 403', async () => {
     expect((await local('/api/screen/context', {}, '10.0.0.2')).status).toBe(403);
     expect((await app.request('/api/screen/context')).status).toBe(403);
     expect((await local('/api/screen/command', { ...json({ data: { type: 'set_map_state', country: 'POL' } }), headers: { 'content-type': 'application/json', origin: 'https://evil.example' } })).status).toBe(403);
@@ -92,7 +92,7 @@ describe('화면 명령 (DB 없이 SSE)', () => {
     expect(Date.now() - started).toBeLessThan(500);
     expect(await (await local('/api/screen/context')).json()).toMatchObject({ available: false });
   });
-  it('SSE로 명령을 밀어 넣고 적용·실패·시간 초과 결과를 동기로 돌려주며 가장 최근에 사용한 탭으로 보낸다', async () => {
+  it('SSE로 명령을 밀어 넣고 적용, 실패, 시간 초과 결과를 동기로 돌려주며 가장 최근에 사용한 탭으로 보낸다', async () => {
     const base = await serveApp();
     const commands = (await repository().one('SELECT count(*) AS n FROM app_commands')).n;
     const first = await browserTab(base); tabs.push(first);
@@ -117,7 +117,7 @@ describe('화면 명령 (DB 없이 SSE)', () => {
     expect(await (await fetch(`${base}/api/screen/results/${randomUUID()}`, json({ screenId: silent.id, status: 'applied' }))).json()).toEqual({ ok: true, accepted: false });
     expect((await repository().one('SELECT count(*) AS n FROM app_commands')).n).toBe(commands);
   });
-  it('알 수 없는 명령·잘못된 화면 ID는 거절한다', async () => {
+  it('알 수 없는 명령, 잘못된 화면 ID는 거절한다', async () => {
     expect((await local('/api/screen/command', json({ data: { type: 'drop_tables' } }))).status).toBe(400);
     expect((await local('/api/screen/events?screen=abc')).status).toBe(400);
     expect(await (await local('/api/screen/state', json({ screenId: randomUUID(), hidden: true }))).json()).toEqual({ ok: true, connected: false });
@@ -125,7 +125,7 @@ describe('화면 명령 (DB 없이 SSE)', () => {
 });
 
 describe('HTTP MCP 서버(실행 ID 헤더)', () => {
-  it('헤더의 대화·실행에 저장하고 헤더가 없으면 외부 대화, 화면 명령은 앱 서버로 보낸다', async () => {
+  it('헤더의 대화, 실행에 저장하고 헤더가 없으면 외부 대화, 화면 명령은 앱 서버로 보낸다', async () => {
     const base = await serveApp(), repo = repository();
     const tab = await browserTab(base); tabs.push(tab);
     const port = 30000 + Math.floor(Math.random() * 20000);

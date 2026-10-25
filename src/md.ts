@@ -12,7 +12,7 @@ parser.renderer.rules.table_open = (tokens, index, options, _env, renderer) =>
 parser.renderer.rules.table_close = (tokens, index, options, _env, renderer) =>
   renderer.renderToken(tokens, index, options) + '</div>\n';
 
-/** 사용자·모델·보고서에 같은 Markdown 렌더러를 적용한다. 원문 HTML은 실행하지 않는다. */
+/** 사용자, 모델, 보고서에 같은 Markdown 렌더러를 적용한다. 원문 HTML은 실행하지 않는다. */
 export function md(src: string): string {
   return parser.render(src);
 }

@@ -1,25 +1,25 @@
 /**
  * 화면 허브: 열린 지도 화면(브라우저 탭)과 앱 서버 사이의 실시간 연결. DB를 쓰지 않고 앱 서버 메모리에만 둔다.
  *  - 브라우저는 GET /api/screen/events(SSE)로 연결해 명령을 받고, 적용 결과를 POST /api/screen/results/:id로 돌려준다.
- *    화면 상태(모드·국가·2D/3D·보고서·탭 숨김)는 POST /api/screen/state로 바뀔 때마다 알린다.
- *  - MCP 서버·모델 도구는 POST /api/screen/command로 명령을 보내고 적용 결과(applied·failed)를 동기로 받는다.
+ *    화면 상태(모드, 국가, 2D/3D, 보고서, 탭 숨김)는 POST /api/screen/state로 바뀔 때마다 알린다.
+ *  - MCP 서버, 모델 도구는 POST /api/screen/command로 명령을 보내고 적용 결과(applied, failed)를 동기로 받는다.
  *    연결된 화면이 없으면 바로 inactive, 제시간에 답이 없으면 timeout.
- *  - 대화별 대상 지정은 없다. 탭이 여러 개면 보이는 탭 중 가장 최근에 사용한(연결·포커스·조작) 탭 하나로 보낸다.
- * 앱 서버 프로세스 안(지피티·네모트론 실행, /api/tools)은 허브를 직접 부르고, 다른 프로세스(MCP stdio·HTTP)는 RADAR_APP_URL로 HTTP 요청한다.
+ *  - 대화별 대상 지정은 없다. 탭이 여러 개면 보이는 탭 중 가장 최근에 사용한(연결, 포커스, 조작) 탭 하나로 보낸다.
+ * 앱 서버 프로세스 안(지피티, 네모트론 실행, /api/tools)은 허브를 직접 부르고, 다른 프로세스(MCP stdio, HTTP)는 RADAR_APP_URL로 HTTP 요청한다.
  */
 import { randomUUID } from 'node:crypto';
 import type { AppContext } from '../shared/app-context';
 
 export type ScreenStatus = 'applied' | 'failed' | 'inactive' | 'timeout';
 export interface ScreenResult { ok: boolean; status: ScreenStatus | 'queued'; screenId?: string; detail?: string; message?: string; error?: string; hidden?: boolean; screen?: AppContext }
-export const SCREEN_COMMANDS = ['set_map_state', 'show_report', 'switch_conversation', 'set_chat_model'] as const;
+export const SCREEN_COMMANDS = ['set_map_state', 'show_report', 'switch_conversation', 'set_chat_model', 'set_app_view', 'set_chat_open', 'open_search', 'open_settings', 'open_report_editor', 'close_report_editor'] as const;
 export type ScreenCommandData = { type: typeof SCREEN_COMMANDS[number] } & Record<string, unknown>;
 
 /** 결과 대기 시간(ms). RADAR_SCREEN_TIMEOUT_MS로 바꾸고 테스트는 줄일 수 있다 */
 export const screenSettings = { timeoutMs: Number(process.env.RADAR_SCREEN_TIMEOUT_MS) || 6000 };
 export const SCREEN_MESSAGES = {
   inactive: '화면이 열려 있지 않음: 앱 지도 화면(브라우저 탭)이 열려 있지 않아 화면을 바꾸지 못했다. 앱을 열고 다시 요청해 달라고 사용자에게 한 줄로 알린다',
-  noServer: '화면이 열려 있지 않음: 앱 서버(npm run dev)가 실행 중이 아니어서 화면을 바꾸지 못했다. 앱을 실행·열고 다시 요청해 달라고 사용자에게 한 줄로 알린다',
+  noServer: '화면이 열려 있지 않음: 앱 서버(npm run dev)가 실행 중이 아니어서 화면을 바꾸지 못했다. 앱을 실행, 열고 다시 요청해 달라고 사용자에게 한 줄로 알린다',
   timeout: '화면이 제시간에 응답하지 않아 적용 여부를 확인하지 못했다. 화면을 확인해 달라고 사용자에게 한 줄로 알린다',
   closed: '명령을 적용하기 전에 화면 연결이 끊겼다. 앱 화면을 열고 다시 요청해 달라고 사용자에게 한 줄로 알린다',
   hidden: '앱 탭이 백그라운드에 있다. 적용은 끝났고 탭을 열면 바뀐 화면이 보인다',
@@ -39,7 +39,7 @@ export function hostScreens() { hub.hosted = true; }
 export const hostsScreens = () => hub.hosted;
 
 export function connectScreen(id: string, send: Screen['send']) {
-  // 같은 탭이 다시 연결하면(네트워크 끊김·서버 재시작) 상태와 활동 순서를 이어받아 다른 탭을 앞지르지 않는다
+  // 같은 탭이 다시 연결하면(네트워크 끊김, 서버 재시작) 상태와 활동 순서를 이어받아 다른 탭을 앞지르지 않는다
   const previous = hub.screens.get(id);
   const screen: Screen = { id, hidden: previous?.hidden ?? false, activeAt: previous?.activeAt ?? tick(), updatedAt: Date.now(), send, state: previous?.state };
   hub.screens.set(id, screen);
@@ -49,7 +49,7 @@ export function connectScreen(id: string, send: Screen['send']) {
     for (const [commandId, p] of hub.pending) if (p.screenId === id) { hub.pending.delete(commandId); p.resolve(screenFail('inactive', SCREEN_MESSAGES.closed, { screenId: id })); }
   };
 }
-/** 화면 상태·탭 숨김·활동 알림. 연결 전에 온 상태도 받아 둔다(연결하면 이어받는다) */
+/** 화면 상태, 탭 숨김, 활동 알림. 연결 전에 온 상태도 받아 둔다(연결하면 이어받는다) */
 export function updateScreen(id: string, o: { state?: AppContext; hidden?: boolean; active?: boolean }) {
   const screen = hub.screens.get(id);
   if (!screen) return false;

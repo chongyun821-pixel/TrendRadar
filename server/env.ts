@@ -1,4 +1,4 @@
-/** 서버 환경 설정(.secrets·환경 변수) 키 목록 */
+/** 서버 환경 설정(.secrets, 환경 변수) 키 목록 */
 export interface Env {
   OPENAI_API_KEY?: string; OPENAI_MODEL?: string; OPENAI_BASE_URL?: string;
   OPENROUTER_API_KEY?: string; OPENROUTER_BASE_URL?: string;

@@ -6,7 +6,7 @@
 
 1. 빈 스키마라면 먼저 `npm run supabase -- migrate`로 초기 자료를 넣는다.
 2. `npm run supabase -- schema`로 대기 중인 마이그레이션(004: 수집 테이블, 장갑차→IFV 이름 변경, 기본 비중 / 005: 수집 작업 기록 `ingest_runs` / 008: 삭제한 레이저대공무기(`laser`) 행 정리)을 버전별 트랜잭션으로 적용한다. 같은 명령을 다시 실행해도 이미 적용한 버전은 건너뛴다. SQL 파일을 직접 실행하려면 `db/migrations/004_data_collection.postgres.sql`을 사용한다.
-3. 로컬 SQLite(테스트·이전용)는 저장소를 열 때 같은 마이그레이션을 자동 적용한다.
+3. 로컬 SQLite(테스트, 이전용)는 저장소를 열 때 같은 마이그레이션을 자동 적용한다.
 
 ## 실행
 
@@ -14,33 +14,37 @@
 
 | 명령 | 출처 | 적재 표 | 인증키 |
 |---|---|---|---|
-| `npm run ingest:sipri-embargoes` | SIPRI 무기 금수 DB(UN·EU·기타) | `export_controls` | 불필요 |
+| `npm run ingest:sipri-embargoes` | SIPRI 무기 금수 DB(UN, EU, 기타) | `export_controls` | 불필요 |
 | `npm run ingest:itar` | 22 CFR 126.1(d) (Cornell LII 사본) | `export_controls` | 불필요 |
 | `npm run ingest:sipri-transfers` | SIPRI 무기 이전 DB(거래 목록 CSV) | `signals`, `inventory` | 불필요 |
 | `npm run ingest:sipri-milex` | SIPRI 국방비 XLSX | `budgets` | 불필요 |
-| `npm run ingest:worldbank` | World Bank 지표 API(국방비·GDP) | `budgets` 보완 | 불필요 |
+| `npm run ingest:worldbank` | World Bank 지표 API(국방비, GDP) | `budgets` 보완 | 불필요 |
 | `npm run ingest:ucdp` | UCDP 전투 사망자(dyadic) 내려받기 | `pair_events` | 불필요 |
 | `npm run ingest:gdelt` | GDELT 1.0 일별 이벤트 파일 | `pair_events` | 불필요 |
-| `npm run ingest:oryx` | Oryx 러시아·우크라이나 손실 목록 | `consumption` | 불필요 |
-| `npm run ingest:tiers` | 위 자료 + `data/reference/export-controls.json`(수기 통제·수출 불가 지정) | `export_tiers` | 해당 없음 |
-| `npm run ingest:tension` | 위 자료 + 국경·`data/reference/*.json` | `neighbors` | 해당 없음 |
+| `npm run ingest:oryx` | Oryx 러시아, 우크라이나 손실 목록 | `consumption` | 불필요 |
+| `npm run ingest:tiers` | 위 자료 + `data/reference/export-controls.json`(수기 통제, 수출 불가 지정) | `export_tiers` | 해당 없음 |
+| `npm run ingest:tension` | 위 자료 + 국경, `data/reference/*.json` | `neighbors` | 해당 없음 |
 
-`npm run ingest:all`은 위 순서대로 실행하고 실패한 단계를 마지막에 보여준다(`--skip gdelt,oryx`로 제외). 등급·긴장도는 앞 단계 결과를 DB에서 읽으므로 드라이런에서도 DB 연결이 필요하다. 매월 `gdelt` → `tension` → `tiers` 순으로 다시 실행한다.
+`npm run ingest:all`은 위 순서대로 실행하고 실패한 단계를 마지막에 보여준다(`--skip gdelt,oryx`로 제외). 등급, 긴장도는 앞 단계 결과를 DB에서 읽으므로 드라이런에서도 DB 연결이 필요하다. 매월 `gdelt` → `tension` → `tiers` 순으로 다시 실행한다.
 
-주요 옵션: `--year`(수집 범위의 끝 연도, 기본 올해. 판단 기준 연도는 `meta.baseYear`로 고정이라 등급·긴장도의 '최근 3년' 창은 바뀌지 않는다), `--since`(시작 연도), GDELT의 `--months 12 --days 1,8,15,22 --to 2026-09 --force`, Oryx의 `--side RUS|UKR`, SIPRI 국방비·UCDP의 `--url`(새 판 파일).
+주요 옵션: `--year`(수집 범위의 끝 연도, 기본 올해. 판단 기준 연도는 `meta.baseYear`로 고정이라 등급, 긴장도의 '최근 3년' 창은 바뀌지 않는다), `--since`(시작 연도), GDELT의 `--months 12 --days 1,8,15,22 --to 2026-09 --force`, Oryx의 `--side RUS|UKR`, SIPRI 국방비, UCDP의 `--url`(새 판 파일).
 
 ## 채팅에서 실행
 
-채팅 모델(그록 빌드·코덱스는 procurement MCP, 나머지는 공용 도구)이 같은 라이브러리(`server/ingest/`)를 호출한다. CLI(`scripts/ingest/`)는 인자 해석만 하는 얇은 진입점이다.
+채팅 모델(그록 빌드, 코덱스는 procurement MCP, 나머지는 공용 도구)이 같은 라이브러리(`server/ingest/`)를 호출한다. CLI(`scripts/ingest/`)는 인자 해석만 하는 얇은 진입점이다.
 
-- `list_ingest_sources`: 출처별 채우는 표, 마지막 실행·적재, 저장 행 수.
-- `run_ingest(source, dryRun=true, countries, since, year, months, side, asOf, wait)`: 기본은 미리보기. `dryRun=false`면 적재하고 `changes`에 `@ingest:<출처>` 기록(근거: 출처 ID·주소·작업 id)을 남긴다.
-- `get_ingest_run(id, wait, cancel)`: 진행 확인·중지.
+- `list_ingest_sources`: 출처별 채우는 표, 마지막 실행, 적재, 저장 행 수.
+- `run_ingest(source, dryRun=true, countries, since, year, months, side, asOf, wait)`: 기본은 미리보기. `dryRun=false`면 적재하고 `changes`에 `@ingest:<출처>` 기록(근거: 출처 ID, 주소, 작업 id)을 남긴다.
+- `get_ingest_run(id, wait, cancel)`: 진행 확인, 중지.
 - 작업은 백그라운드로 돌고 응답은 최대 `wait`초(기본 40, 최대 50) 기다린다. 넘으면 `status: running`과 id를 돌려준다. 진행 상황은 `ingest_runs`(005)와 대화 실행의 `ingest.progress` 이벤트로 채팅 상태줄에 표시한다.
-- 같은 출처는 동시에 하나만 실행한다(`ingest_runs`의 부분 고유 색인). 작업은 시작한 프로세스 안에서만 돌아서, 코덱스·그록의 MCP 프로세스가 끝나면 함께 멈추고 3분 동안 생존 신호가 없으면 다음 조회 때 `failed`로 정리된다. 긴 GDELT 수집은 같은 대화 안에서 `get_ingest_run`으로 이어 확인하거나 CLI로 실행한다.
+- 같은 출처는 동시에 하나만 실행한다(`ingest_runs`의 부분 고유 색인). 작업은 시작한 프로세스 안에서만 돌아서, 코덱스, 그록의 MCP 프로세스가 끝나면 함께 멈추고 3분 동안 생존 신호가 없으면 다음 조회 때 `failed`로 정리된다. 긴 GDELT 수집은 같은 대화 안에서 `get_ingest_run`으로 이어 확인하거나 CLI로 실행한다.
 - 결과에는 표별 행 수와 표본 3행만 담는다.
 
-수집이 실패하면(`status=failed`) 결과에 `fallback: { url, what, suggestion }`(산출 작업은 `after`)이 붙는다. 모델은 한 번 재시도 후 그 주소를 직접 읽는다. 그록·코덱스는 기본 웹 도구 → 연결된 Firecrawl MCP → `collect_source`, 지피티·네모트론은 Firecrawl 도구(설정 시) → `search_sources`·`collect_source` 순서다. 원문은 `save_source`로 보존하고 반영 가능한 자료는 `normalize_procurement_data`→`validate_research`→`apply_research`로, 적재 도구가 없는 표는 값·URL·신뢰도만 답한다. 권한 설정은 바꾸지 않았다.
+수집이 실패하면(`status=failed`) 결과에 `fallback: { url, what, suggestion }`(산출 작업은 `after`)이 붙는다. 모델은 한 번 재시도 후 그 주소를 직접 읽는다. 그록, 코덱스는 기본 웹 도구 → 연결된 Firecrawl MCP → `collect_source`, 지피티, 네모트론은 Firecrawl 도구(설정 시) → `search_sources`, `collect_source` 순서다. 원문은 `save_source`로 보존하고 반영 가능한 자료는 `normalize_procurement_data`→`validate_research`→`apply_research`로, 적재 도구가 없는 표는 값, URL, 신뢰도만 답한다. 권한 설정은 바꾸지 않았다.
+
+## 회사 이름 표기
+
+한화 계열사 회사 이름은 국문으로 쓴다. 한화오션, 한화에어로스페이스, 한화시스템, 한화디펜스, (주)한화, 한화디펜스 오스트레일리아, 한화필리조선소처럼 쓰고 단독 Hanwha는 한화로 쓴다. 원문 인용과 출처 제목, URL, ID, 형식명만 원문 그대로 둔다. 저장 경로의 정규화가 공급자와 제조사 필드 및 국문 서술을 같은 규칙으로 변환한다.
 
 ## 출처별 주의
 
@@ -50,12 +54,12 @@
 - UCDP: API(`ucdpapi.pcr.uu.se`)는 `x-ucdp-access-token`이 필요해 쓰지 않고 공개 CSV 묶음을 쓴다. 국가 간 분쟁(type 2)은 `source='ucdp'`, 그 밖의 정부 대 정부 쌍은 `ucdp_intl`.
 - GDELT: 하루 파일이 5~7MB라 달마다 표본일만 받아 일수로 환산한다(신뢰도 0.7). 이미 적재된 달은 건너뛴다. 평문 HTTP는 막힐 수 있어 HTTPS 주소를 쓴다.
 - ITAR: eCFR은 자동 요청을 403/406으로 막아 Cornell LII 사본을 읽는다.
-- 금수: 비국가 대상(NGF 등)과 법적 구속력 없는 EU 정치 선언은 `partial`로 두어 조건부 수출 가능(승인 필요)으로 판정한다. 이집트(EGY)·중국(CHN)은 `data/reference/export-controls.json`의 수기 지정(`regime: MANUAL`, 사유 포함)으로 수출 불가다.
+- 금수: 비국가 대상(NGF 등)과 법적 구속력 없는 EU 정치 선언은 `partial`로 두어 조건부 수출 가능(승인 필요)으로 판정한다. 이집트(EGY), 중국(CHN)은 `data/reference/export-controls.json`의 수기 지정(`regime: MANUAL`, 사유 포함)으로 수출 불가다.
 - 한국 수출통제 목록과 체계별 미국산 부품 여부는 `data/reference/export-controls.json`에서 수기로 관리한다(현재 부품 여부 미확인). 방산 협정 목록은 아직 수집하지 않는다.
 - 영토 분쟁(`data/reference/territorial-disputes.json`)은 위키백과 기준 정적 목록(신뢰도 0.4), 동맹(`alliances.json`)은 수기 목록이다.
-- 긴장도: 충돌·구매는 `meta.baseYear` 기준 최근 3년(2023~2026, 기준 연도 포함 4개년), 적대 이벤트는 `--as-of` 월까지 12개월이다. 근거가 하나도 없는 방향은 근거 있는 쌍의 중앙값(없으면 10)으로 추정하고 신뢰도 0.2, `components.estimated`로 표시한다.
-- 원문 수집(`collect_source`)의 User-Agent는 `ProcurementRadar/1.0`(앱 package.json 이름 procurement-radar의 ASCII 표기)이며, robots.txt에서 `ProcurementRadar`·`procurement-radar` 전용 규칙을 따른다.
+- 긴장도: 충돌, 구매는 `meta.baseYear` 기준 최근 3년(2023~2026, 기준 연도 포함 4개년), 적대 이벤트는 `--as-of` 월까지 12개월이다. 근거가 하나도 없는 방향은 근거 있는 쌍의 중앙값(없으면 10)으로 추정하고 신뢰도 0.2, `components.estimated`로 표시한다.
+- 원문 수집(`collect_source`)의 User-Agent는 `ProcurementRadar/1.0`(앱 package.json 이름 procurement-radar의 ASCII 표기)이며, robots.txt에서 `ProcurementRadar`, `procurement-radar` 전용 규칙을 따른다.
 
-## 판단 점수
+## 종합 점수
 
-`get_score_breakdown(country, system)` 도구(MCP·채팅 공통)와 `GET /api/scores?system=`이 통과 조건, 항목별 점수(비중 × 원점수 × 출처 신뢰도), 등급 계수와 근거 ID(`표:키`)를 돌려준다. 비중은 `weights` 표에서 바로 바꾼다. 조사 제출의 `signalRows`(템플릿 참고)는 원문 인용 검사 후 `signals`에 들어가고, 반영 시 `forecasts.data.score`에 점수가 함께 저장된다.
+`get_score_breakdown(country, system)` 도구(MCP, 채팅 공통)와 `GET /api/scores?system=`이 통과 조건, 항목별 점수(비중 × 원점수 × 출처 신뢰도), 등급 계수와 근거 ID(`표:키`)를 돌려준다. 비중은 `weights` 표에서 바로 바꾼다. 조사 제출의 `signalRows`(템플릿 참고)는 원문 인용 검사 후 `signals`에 들어가고, 반영 시 `forecasts.data.score`에 점수가 함께 저장된다.

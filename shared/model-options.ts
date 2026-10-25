@@ -1,4 +1,4 @@
-/** 채팅 모델 선택표: 제공자 → (CLI 모델 → 추론 강도). 화면 선택기·서버 검증·모델 목록이 같은 표(같은 순서)를 쓴다. */
+/** 채팅 모델 선택표: 제공자 → (CLI 모델 → 추론 강도). 화면 선택기, 서버 검증, 모델 목록이 같은 표(같은 순서)를 쓴다. */
 export type ProviderId = 'codex' | 'grok' | 'gpt' | 'nemotron';
 export interface ModelChoice { provider: ProviderId; model?: string; effort?: string }
 export const PROVIDERS: { id: ProviderId; name: string }[] = [
@@ -6,7 +6,7 @@ export const PROVIDERS: { id: ProviderId; name: string }[] = [
 ];
 /**
  * CLI 모델과 허용 추론 강도.
- * - 코덱스: `-c model_reasoning_effort=…`. Codex CLI 모델 목록(2026-09-29 기준) low~max, Sol·Astra는 ultra도 허용.
+ * - 코덱스: `-c model_reasoning_effort=…`. Codex CLI 모델 목록(2026-09-29 기준) low~max, Sol, Astra는 ultra도 허용.
  * - 그록 빌드: `-m`, `--reasoning-effort low|medium|high|xhigh`. 모델은 Grok Build CLI `grok models`에 나온 이름만 둔다.
  */
 export const CLI_OPTIONS: Record<'codex' | 'grok', { models: { id: string; efforts: string[] }[]; defaultModel: string; defaultEffort: string }> = {
@@ -33,7 +33,7 @@ export const hasSubOptions = (p: ProviderId): p is 'codex' | 'grok' => p === 'co
 export const modelsFor = (p: ProviderId) => hasSubOptions(p) ? CLI_OPTIONS[p].models.map(m => m.id) : [];
 export const effortsFor = (p: ProviderId, model?: string) => hasSubOptions(p) ? CLI_OPTIONS[p].models.find(m => m.id === (model || CLI_OPTIONS[p].defaultModel))?.efforts || [] : [];
 
-/** 선택 검증 결과: 오류 문구 또는 정리된 선택(지피티·네모트론은 하위 선택을 버린다) */
+/** 선택 검증 결과: 오류 문구 또는 정리된 선택(지피티, 네모트론은 하위 선택을 버린다) */
 export function checkChoice(raw: { provider?: unknown; model?: unknown; effort?: unknown }): { ok: true; choice: ModelChoice } | { ok: false; error: string } {
   if (!isProvider(raw.provider)) return { ok: false, error: `모르는 모델: ${String(raw.provider ?? '')}` };
   const provider = raw.provider;

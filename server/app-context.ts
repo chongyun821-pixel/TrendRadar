@@ -22,20 +22,20 @@ export const appContextSchema = z.object({
   hidden: z.boolean().optional(),
 }).strict();
 const S = (description: string) => ({ type: 'string' as const, description });
-/** 화면 도구(모델에게 먼저 보인다). set_map_state 하나로 국가·체계·2D/3D를 맞춘다. 대상은 가장 최근에 사용한 앱 탭 하나 */
+/** 화면 도구(모델에게 먼저 보인다). set_map_state 하나로 국가, 체계, 2D/3D를 맞춘다. 대상은 가장 최근에 사용한 앱 탭 하나 */
 export const SCREEN_DEFS: ToolDef[] = [
-  { name: 'set_map_state', description: '열린 앱 지도 화면(가장 최근에 사용한 탭)을 국가·무기체계·2D/3D·확대 단계와 국가 숨김·특정 국가만 표시·강조·빗금·막대·범례 표시로 맞춘다(한 번에, 사용자가 보던 화면과 무관하게 적용). 브라우저 적용 결과(applied·failed·inactive·timeout)를 바로 돌려준다', properties: { country: S('국가 이름·ISO 코드·별칭(예: 폴란드, POL). 선택 해제는 "해제"'), system: S('자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함 또는 일반'), flat: { type: 'boolean', description: 'true=2D 지도, false=3D 지구본' },
-    zoom: S('확대·축소: in(확대)·out(축소)·reset(기본 거리) 또는 1(가장 멀리)~10(가장 가까이) 단계. country와 함께 주면 그 국가로 이동한 뒤 적용'),
-    hide: S('색·빗금·막대를 숨길 국가 목록(쉼표 구분, 예: "중국, 러시아"). 지정한 목록으로 바꾸며 "해제"는 숨김 없음'),
+  { name: 'set_map_state', description: '열린 앱 지도 화면(가장 최근에 사용한 탭)을 국가, 무기체계, 2D/3D, 확대 단계와 국가 숨김, 특정 국가만 표시, 강조, 빗금, 막대, 범례 표시로 맞춘다(한 번에, 사용자가 보던 화면과 무관하게 적용). 브라우저 적용 결과(applied, failed, inactive, timeout)를 바로 돌려준다', properties: { country: S('국가 이름, ISO 코드, 별칭(예: 폴란드, POL). 선택 해제는 "해제"'), system: S('자주포, IFV, 대공미사일, 다연장로켓, 호위함, 재래식 잠수함 또는 일반'), flat: { type: 'boolean', description: 'true=2D 지도, false=3D 지구본' },
+    zoom: S('확대, 축소: in(확대), out(축소), reset(기본 거리) 또는 1(가장 멀리)~10(가장 가까이) 단계. country와 함께 주면 그 국가로 이동한 뒤 적용'),
+    hide: S('색, 빗금, 막대를 숨길 국가 목록(쉼표 구분, 예: "중국, 러시아"). 지정한 목록으로 바꾸며 "해제"는 숨김 없음'),
     only: S('이 국가들만 표시하고 나머지는 숨긴다(쉼표 구분). "해제"는 전체 표시'),
     highlight: S('강조할 국가(쉼표 구분). 나머지 국가는 어둡게 한다. "해제"는 강조 없음'),
     hatch: { type: 'boolean', description: 'false=인접국 참고 빗금 숨김, true=다시 표시' },
     bars: { type: 'boolean', description: 'false=예상 금액 막대(2D는 원) 숨김, true=다시 표시' },
     legend: { type: 'boolean', description: 'false=범례 숨김, true=다시 표시' },
-    resetDisplay: { type: 'boolean', description: 'true=숨김·특정 국가만·강조·빗금·막대·범례 조정을 모두 기본으로 되돌린다(다른 항목은 그 뒤에 적용)' } } },
-  { name: 'get_app_context', description: '요청 당시와 지금의 화면 상태(모드·선택 국가·열린 보고서·탭 표시 여부). 지금 상태는 가장 최근에 사용한 앱 탭', properties: {} },
+    resetDisplay: { type: 'boolean', description: 'true=숨김, 특정 국가만, 강조, 빗금, 막대, 범례 조정을 모두 기본으로 되돌린다(다른 항목은 그 뒤에 적용)' } } },
+  { name: 'get_app_context', description: '요청 당시와 지금의 화면 상태(모드, 선택 국가, 열린 보고서, 탭 표시 여부). 지금 상태는 가장 최근에 사용한 앱 탭', properties: {} },
 ];
-/** 예전 이름. 모델에게는 보이지 않고 액션 블록·기존 호출만 받는다 */
+/** 예전 이름. 모델에게는 보이지 않고 액션 블록, 기존 호출만 받는다 */
 export const LEGACY_SCREEN_TOOLS = ['set_mode', 'focus_country', 'toggle_map_mode', 'get_map_state'] as const;
 export const APP_DEFS: ToolDef[] = [
   { name: 'list_conversations', description: '저장된 대화 목록을 조회한다', properties: {} },
@@ -44,7 +44,11 @@ export const APP_DEFS: ToolDef[] = [
   { name: 'switch_conversation', description: '열린 앱 화면(가장 최근에 사용한 탭)에 표시할 대화를 전환한다. 진행 중 작업의 저장 대상은 유지한다', properties: { conversationId: S('전환할 대화 ID') }, required: ['conversationId'] },
   { name: 'create_conversation', description: '새 대화를 만든다. 화면 전환은 switch_conversation으로 요청한다', properties: { title: S('대화 제목') } },
   { name: 'delete_conversation', description: '대화를 삭제하고 원문 근거와 보고서 및 파일은 보존한다. 현재 실행 중인 대화는 중지 후 삭제한다', properties: { conversationId: S('삭제할 대화 ID') }, required: ['conversationId'] },
-  { name: 'set_chat_model', description: '열린 앱 화면(가장 최근에 사용한 탭)의 다음 요청부터 사용할 모델을 변경한다', properties: { model: S('codex, grok, gpt, nemotron'), cliModel: S('코덱스: gpt-6.1-sol·gpt-6-luna·gpt-6-astra, 그록 빌드: grok-4.7·grok-4.7-build-fast·grok-4.6·grok-4.5'), effort: S('추론 강도(코덱스 low~max·ultra, 그록 빌드 low~xhigh)') }, required: ['model'] },
+  { name: 'set_chat_model', description: '열린 앱 화면(가장 최근에 사용한 탭)의 다음 요청부터 사용할 모델을 변경한다', properties: { model: S('codex, grok, gpt, nemotron'), cliModel: S('코덱스: gpt-6.1-sol, gpt-6-luna, gpt-6-astra, 그록 빌드: grok-4.7, grok-4.7-build-fast, grok-4.6, grok-4.5'), effort: S('추론 강도(코덱스 low~max, ultra, 그록 빌드 low~xhigh)') }, required: ['model'] },
+  { name: 'set_app_view', description: '열린 앱 화면을 지도 또는 보고서 보기로 전환한다. 키보드 R, M, G 단축키와 같은 동작이다', properties: { view: { type: 'string', enum: ['map', 'report'], description: '지도 보기 또는 보고서 보기' } }, required: ['view'] },
+  { name: 'set_chat_open', description: '열린 앱의 채팅 패널을 열거나 접는다. 열 때 입력창에 포커스한다', properties: { open: { type: 'boolean', description: 'true=열기, false=접기' } }, required: ['open'] },
+  { name: 'open_search', description: '열린 앱의 국가 및 무기체계 검색 상자를 연다. 선택 항목은 지도와 같은 화면 명령으로 적용된다', properties: { query: S('검색 상자에 미리 넣을 검색어(선택)') } },
+  { name: 'open_settings', description: '열린 HORUS 앱에서 설정 화면을 연다.', properties: { toggle: { type: 'boolean', description: 'true이면 설정 화면에서 다시 실행할 때 이전 화면으로 돌아간다.' } } },
   { name: 'get_run_status', description: '실행 상태와 오류를 조회한다', properties: { runId: S('생략하면 현재 실행') } },
   { name: 'cancel_run', description: '실행에 중지를 요청한다. 자신의 종료를 기다리지 않는다', properties: { runId: S('생략하면 현재 실행') } },
 ];
@@ -74,6 +78,22 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
   switch (name) {
     case 'get_app_context': return { request: ctx.appContext || null, current: await currentScreen() };
     case 'get_map_state': return currentScreen();
+    case 'set_app_view': {
+      const view = z.enum(['map', 'report']).parse(a.view);
+      return screenCommand({ type: name, view });
+    }
+    case 'set_chat_open': {
+      const open = z.boolean().parse(a.open);
+      return screenCommand({ type: name, open });
+    }
+    case 'open_search': {
+      const query = a.query == null ? undefined : z.string().parse(a.query);
+      return screenCommand({ type: name, ...(query ? { query } : {}) });
+    }
+    case 'open_settings': {
+      const toggle = a.toggle == null ? undefined : z.boolean().parse(a.toggle);
+      return screenCommand({ type: name, ...(toggle === undefined ? {} : { toggle }) });
+    }
     case 'list_conversations': return repo.all('SELECT * FROM conversations ORDER BY updated_at DESC');
     case 'search_conversations': {
       const query = z.string().min(1).parse(a.query);
@@ -120,7 +140,7 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
 }
 
 /* ───────── 화면 명령: 앱 서버의 화면 허브가 열린 탭에 바로 보내고 적용 결과를 돌려준다(DB 미사용) ───────── */
-/** 적용 결과(applied·failed·inactive·timeout). 실행이 중지되면 기다리지 않는다 */
+/** 적용 결과(applied, failed, inactive, timeout). 실행이 중지되면 기다리지 않는다 */
 export async function screenCommand(data: ScreenCommandData): Promise<ScreenResult> {
   return sendScreenCommand(data, executions.getStore()?.signal);
 }
@@ -146,7 +166,7 @@ export async function showReport(out: ChatOut, report: { reportId: string; conve
 }
 
 const CLEAR = /^(해제|없음|선택\s*해제|none|null|clear)$/i;
-/** 국가: 데이터 국가 이름·별칭 → ISO 3자리 코드 → 세계 지도 국가 이름 */
+/** 국가: 데이터 국가 이름, 별칭 → ISO 3자리 코드 → 세계 지도 국가 이름 */
 async function mapCountry(raw: string): Promise<string | null> {
   const known = resolveCountry(raw);
   if (known) return known;
@@ -168,7 +188,7 @@ export async function mapTarget(name: string, a: Record<string, any>, currentFla
   if (raw.system === null || (typeof raw.system === 'string' && isGeneral(raw.system))) target.system = null;
   else if (raw.system != null && String(raw.system).trim()) {
     const s = resolveSystem(String(raw.system));
-    if (!s) throw new Error(`무기체계 확인 필요: ${raw.system} (자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함·일반)`);
+    if (!s) throw new Error(`무기체계 확인 필요: ${raw.system} (자주포, IFV, 대공미사일, 다연장로켓, 호위함, 재래식 잠수함, 일반)`);
     target.system = s;
   }
   const flat = typeof raw.flat === 'string' ? (/^(2d|true|flat|평면)$/i.test(raw.flat) ? true : /^(3d|false|globe|지구본)$/i.test(raw.flat) ? false : undefined) : raw.flat;
@@ -197,12 +217,12 @@ function parseZoom(v: unknown): MapZoom | undefined {
   if (/^(reset|기본|초기화|원래대로)$/i.test(t)) return 'reset';
   const n = Number(t);
   if (Number.isFinite(n) && n >= 1 && n <= 10) return n;
-  throw new Error(`확대 값 확인 필요: ${t} (in·out·reset 또는 1~10)`);
+  throw new Error(`확대 값 확인 필요: ${t} (in, out, reset 또는 1~10)`);
 }
 /** 쉼표로 구분한 국가 목록. 생략이면 undefined, "해제"면 null */
 async function countryList(v: unknown): Promise<string[] | null | undefined> {
   if (v == null) return undefined;
-  const items = Array.isArray(v) ? v.map(String) : String(v).split(/[,，、·;\n]+/);
+  const items = Array.isArray(v) ? v.map(String) : String(v).split(/[,，、, ;\n]+/);
   const names = items.map(x => x.trim()).filter(Boolean);
   if (!names.length || (names.length === 1 && CLEAR.test(names[0]))) return null;
   const ids: string[] = [];
@@ -214,7 +234,7 @@ export async function mapTool(name: string, a: Record<string, any>, out: ChatOut
   const ctx = executions.getStore();
   let target: Awaited<ReturnType<typeof mapTarget>>;
   try {
-    await ctx?.repo.data(); // 국가·체계 이름 해석은 적재된 조달 데이터를 쓴다
+    await ctx?.repo.data(); // 국가, 체계 이름 해석은 적재된 조달 데이터를 쓴다
     target = await mapTarget(name, a, async () => {
       if (!ctx) return undefined;
       const current = await currentScreen();
@@ -225,7 +245,7 @@ export async function mapTool(name: string, a: Record<string, any>, out: ChatOut
     if (canQueue(ctx)) { out.actions.push({ type: 'toggle_map_mode' }); return QUEUED; }
     return screenFail('inactive', '화면이 열려 있지 않음: 지금 화면의 2D/3D를 알 수 없어 바꾸지 못했다. 사용자에게 한 줄로 알린다');
   }
-  if (!Object.keys(target).length) return screenFail('failed', '바꿀 항목이 없습니다. country·system·flat·zoom·hide·only·highlight·hatch·bars·legend·resetDisplay 중 하나 이상을 지정한다');
+  if (!Object.keys(target).length) return screenFail('failed', '바꿀 항목이 없습니다. country, system, flat, zoom, hide, only, highlight, hatch, bars, legend, resetDisplay 중 하나 이상을 지정한다');
   if (ctx) {
     const result = await screenCommand({ type: 'set_map_state', ...target });
     if (result.status !== 'inactive' || !canQueue(ctx)) return result;

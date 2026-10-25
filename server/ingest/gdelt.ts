@@ -1,7 +1,7 @@
 /**
- * GDELT 1.0 일별 이벤트 파일 → pair_events(source='gdelt', 월별 국가 쌍 적대 이벤트 수·평균 Goldstein). 인증키 불필요.
- * 하루 파일이 5~7MB라 달마다 표본일(기본 1·8·15·22일)만 받아 그 달 일수로 환산한다. 이미 적재된 달은 건너뛴다(--force로 다시).
- * 적대 이벤트: CAMEO 근본 코드 13(위협)·15(무력 시위)·16(관계 축소·제재)·17(강압)·18(공격)·19(교전)·20(대량 폭력).
+ * GDELT 1.0 일별 이벤트 파일 → pair_events(source='gdelt', 월별 국가 쌍 적대 이벤트 수, 평균 Goldstein). 인증키 불필요.
+ * 하루 파일이 5~7MB라 달마다 표본일(기본 1, 8, 15, 22일)만 받아 그 달 일수로 환산한다. 이미 적재된 달은 건너뛴다(--force로 다시).
+ * 적대 이벤트: CAMEO 근본 코드 13(위협), 15(무력 시위), 16(관계 축소, 제재), 17(강압), 18(공격), 19(교전), 20(대량 폭력).
  * CLI: npm run ingest:gdelt -- [--dry-run] [--months 12] [--to 2026-09] [--days 1,8,15,22] [--force] [--file 일별.zip]
  */
 import { unzipSync, strFromU8 } from 'fflate';
@@ -74,6 +74,6 @@ export async function ingestGdelt(opts: IngestOptions = {}) {
     opts.log?.(`${month}: 표본 ${tallies.length}/${sampleDays.length}일`);
     if (tallies.length) rows.push(...monthRows(month, tallies));
   }
-  notes.push(`대상 달 ${months.join(', ') || '없음'}, 표본일 ${sampleDays.join('·')}일`);
+  notes.push(`대상 달 ${months.join(', ') || '없음'}, 표본일 ${sampleDays.join(', ')}일`);
   return load(opts, GDELT_SOURCE, { pair_events: rows }, notes);
 }

@@ -14,7 +14,7 @@ const S = (description: string) => ({ type: 'string' as const, description });
 export const SOURCE_DEFS: ToolDef[] = [
   { name: 'search_sources', description: '인증키 없이 GOV.UK 공개 검색과 보존 출처에서 자료 후보를 찾는다. 검색 결과는 원문 검증이 아니다. 다른 국가의 자료는 기본 웹 도구로 보완한다', properties: { query: S('검색어. 공개 검색은 영문 권장'), country: S('대상 국가'), system: S('대상 무기체계'), limit: { type: 'integer' } }, required: ['query'] },
   { name: 'collect_source', description: '인증키가 필요 없는 공개 HTML, 텍스트, JSON, XML 또는 PDF 원문을 읽고 원본과 추출문을 보존한다. 로그인과 접근 제한은 우회하지 않는다', properties: { url: S('공개 원문 주소'), title: S('출처 제목'), publishedAt: S('실제 확인한 발행일. 미확인은 생략') }, required: ['url'] },
-  { name: 'read_source', description: '보존한 출처의 식별자 또는 수집 도구가 반환한 파일 경로로 원문을 다시 읽는다', properties: { sourceId: S('조달 데이터의 출처 식별자'), filePath: S('현재 대화의 수집 파일 경로'), offset: { type: 'integer' }, length: { type: 'integer' } } },
+  { name: 'read_source', description: '\uCD9C\uCC98 ID \uB610\uB294 filePath \uC911 \uD558\uB098\uB97C \uC9C0\uC815\uD574 \uC6D0\uBB38\uC744 \uC77D\uB294\uB2E4. \uBCF4\uC874\uD55C \uCD9C\uCC98\uC758 \uC2DD\uBCC4\uC790 \uB610\uB294 \uC218\uC9D1 \uB3C4\uAD6C\uAC00 \uBC18\uD658\uD55C \uD30C\uC77C \uACBD\uB85C\uB85C \uC6D0\uBB38\uC744 \uB2E4\uC2DC \uC77D\uB294\uB2E4', properties: { sourceId: S('조달 데이터의 출처 식별자'), filePath: S('현재 대화의 수집 파일 경로'), offset: { type: 'integer' }, length: { type: 'integer' } } },
 ];
 export function publicAddress(address: string) {
   if (isIP(address) === 6) return /^[23][0-9a-f]{0,3}:/i.test(address) && !address.toLowerCase().startsWith('2001:db8:');
@@ -138,7 +138,7 @@ export async function sourceTool(name: string, a: Record<string, any>): Promise<
       const source = new TextDecoder('utf-8', { fatal: true }).decode(response.bytes);
       if (response.mime === 'text/html' && /<iframe\b[^>]*(?:id=["']content_press["']|docViewer\/iframe_skin)/i.test(source)) {
         const attachments = documentAttachments(source, response.url);
-        return { status: 'needs_attachment', error: '본문은 별도 문서 뷰어에 있습니다. 현재 HTML의 메뉴·제목은 원문 근거로 쓰지 마세요.', attachments, originalPath: raw.name,
+        return { status: 'needs_attachment', error: '본문은 별도 문서 뷰어에 있습니다. 현재 HTML의 메뉴, 제목은 원문 근거로 쓰지 마세요.', attachments, originalPath: raw.name,
           nextStep: '첨부 PDF를 collect_source로 수집하세요. 접근 실패 시 기본 웹 도구나 Firecrawl로 원문을 읽고 save_source로 보존하세요.' };
       }
       text = response.mime === 'text/html' ? htmlText(source) : source;

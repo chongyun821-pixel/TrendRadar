@@ -3,6 +3,7 @@ import type { Forecast, Seed, SystemKey } from '../shared/types';
 import { SYSTEM_KEYS } from '../shared/types';
 import { esc } from './md';
 import { SYSTEM_COLOR } from './map-style';
+import { countryName } from '../shared/country-name';
 
 /** Only forecasts with a dated opportunity can enter a deadline ranking. */
 export function rankByWindow(forecasts: Forecast[], limit: number): Forecast[] {
@@ -26,11 +27,11 @@ export function rankCountriesByRevenue(forecasts: Forecast[], data: Seed) {
     const revenue = rows.reduce((sum, f) => sum + (f.krw ? (f.krw[0] + f.krw[1]) / 2 : 0), 0);
     return { country, rows, revenue };
   }).filter(entry => entry.rows.length).sort((a, b) => b.revenue - a.revenue
-    || (data.countries[a.country]?.ko ?? a.country).localeCompare(data.countries[b.country]?.ko ?? b.country, 'ko'));
+    || countryName(a.country, data).localeCompare(countryName(b.country, data), 'ko'));
 }
 
 /** TOP 5 opportunities within the next three calendar years, allocated over their stated windows. */
-export function revenueMix(forecasts: Forecast[], data: Seed, asOfYear = new Date().getFullYear()): { slices: RevenueSlice[]; unknown: number } {
+export function revenueMix(forecasts: Forecast[], data: Seed, asOfYear = data.meta.baseYear): { slices: RevenueSlice[]; unknown: number } {
   let unknown = 0;
   const endYear = asOfYear + 2;
   const slices = SYSTEM_KEYS.filter(system => data.systems[system]?.hanwha.length).map(system => {
@@ -46,7 +47,7 @@ export function revenueMix(forecasts: Forecast[], data: Seed, asOfYear = new Dat
 }
 
 /** Allocate each known TOP 5 midpoint over its inclusive forecast window for 25 years. */
-export function annualRevenue(forecasts: Forecast[], data: Seed, asOfYear = new Date().getFullYear()): AnnualRevenue {
+export function annualRevenue(forecasts: Forecast[], data: Seed, asOfYear = data.meta.baseYear): AnnualRevenue {
   const groups = SYSTEM_KEYS.filter(system => data.systems[system]?.hanwha.length).map(system => ({
     system,
     rows: rankByWindow(forecasts.filter(f => f.system === system), 5).filter(f => f.window && f.krw),
@@ -100,7 +101,7 @@ function renderRevenueChart(forecasts: Forecast[], data: Seed): string {
 
 function row(f: Forecast, rank: number, label: string): string {
   const planned = f.status === 'plan';
-  return `<tr><td class="rank-number">${rank}</td><th scope="row"><button type="button" class="rank-link" data-report-country="${esc(f.country)}" data-report-system="${esc(f.system)}" aria-label="${esc(f.countryKo)} ${esc(f.systemKo)} 상세 보고서 열기">${esc(label)}</button></th><td>${esc(fmtKrwRange(f.krw))}</td><td>${esc(fmtQtyRange(f.qty, f.unit))}</td><td>${f.window![0]}~${f.window![1]}년 <span class="rank-pred${planned ? ' rank-pred-plan' : ''}">${planned ? '공개 계획' : '예측'}</span><small>신뢰도 ${f.confidence}</small></td></tr>`;
+  return `<tr><td class="rank-number">${rank}</td><th scope="row"><button type="button" class="rank-link" data-report-country="${esc(f.country)}" data-report-system="${esc(f.system)}" aria-label="${esc(f.countryKo)} ${esc(f.systemKo)} 지도에서 보기">${esc(label)}</button></th><td>${esc(fmtKrwRange(f.krw))}</td><td>${esc(fmtQtyRange(f.qty, f.unit))}</td><td>${f.window![0]}~${f.window![1]}년 <span class="rank-pred${planned ? ' rank-pred-plan' : ''}">${planned ? '공개 계획' : '예측'}</span><small>신뢰도 ${f.confidence}</small></td></tr>`;
 }
 
 function table(rows: Forecast[], heading: string, label: (f: Forecast) => string): string {
@@ -116,7 +117,7 @@ export function renderRankingReport(data: Seed): string {
   }).join('');
   const countries = rankCountriesByRevenue(forecasts, data);
   const countryCard = ({ country, rows }: (typeof countries)[number]) => {
-    const name = data.countries[country]?.ko ?? country;
+    const name = countryName(country, data);
     return `<article class="rank-card"><div class="rank-card-head"><h3>${esc(name)}</h3><span>TOP 3</span></div>${table(rows, '무기', f => f.systemKo)}</article>`;
   };
   const byCountry = countries.slice(0, 6).map(countryCard).join('');

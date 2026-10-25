@@ -8,7 +8,7 @@ const colors = new Map<string, Rgb>([['POL', [1, 1, 1]], ['ROU', [0.5, 0.5, 0.5]
 const hatched = new Set(['ROU', 'CHN']);
 
 describe('지도 표시 조정', () => {
-  it('숨김·특정 국가만 표시는 색·빗금·막대에서 빠진다', () => {
+  it('숨김, 특정 국가만 표시는 색, 빗금, 막대에서 빠진다', () => {
     const hide = displayStyle({ ...DEFAULT_DISPLAY, hidden: ['CHN'] }, colors, hatched, base);
     expect([...hide.colors.keys()]).toEqual(['POL', 'ROU']);
     expect([...hide.hatched]).toEqual(['ROU']);
@@ -31,12 +31,12 @@ describe('지도 표시 조정', () => {
     expect(d).toEqual({ ...DEFAULT_DISPLAY, legend: false });
     expect(displaySummary({ ...DEFAULT_DISPLAY, hidden: ['CHN'], hatch: false }, id => id)).toBe('CHN 숨김, 빗금 끔');
   });
-  it('set_map_state가 확대·국가 목록·표시 켜고 끄기를 해석한다', async () => {
+  it('set_map_state가 확대, 국가 목록, 표시 켜고 끄기를 해석한다', async () => {
     const t = await mapTarget('set_map_state', { zoom: '확대', hide: '중국, 러시아', only: '해제', highlight: 'POL', hatch: false, bars: 'false', resetDisplay: true });
     expect(t).toEqual({ zoom: 'in', display: { reset: true, hidden: ['CHN', 'RUS'], only: null, highlight: ['POL'], hatch: false, bars: false } });
     expect((await mapTarget('set_map_state', { zoom: 7 })).zoom).toBe(7);
     await expect(mapTarget('set_map_state', { zoom: '20' })).rejects.toThrow('확대 값');
-    await expect(mapTarget('set_map_state', { hide: '없는나라' })).rejects.toThrow('국가 확인 필요');
+    await expect(mapTarget('set_map_state', { hide: '없는국가' })).rejects.toThrow('국가 확인 필요');
     const props = SCREEN_DEFS.find(d => d.name === 'set_map_state')!.properties;
     for (const key of ['zoom', 'hide', 'only', 'highlight', 'hatch', 'bars', 'legend', 'resetDisplay']) expect(props).toHaveProperty(key);
   });

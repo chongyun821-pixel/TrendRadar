@@ -19,5 +19,14 @@ const catalog = src.features.map(f => {
     aliases: [...new Set([id, p.ISO_A3, a2, p.NAME, p.NAME_LONG, p.ADMIN, p.FORMAL_EN, p.NAME_KO, p.NAME_EN, p.NAME_SORT, ...(names[id] || [])].filter(n => n && n !== '-99'))],
   };
 });
+// Natural Earth 1:110m에 경계가 없는 소국. 지도와 지구본에는 경계 대신 점으로 표시한다(위치: 국가 중심 좌표).
+const shapeless = [
+  { id: 'SGP', a2: 'SG', ko: '싱가포르', en: 'Singapore', lat: 1.352083, lon: 103.819836, aliases: ['Republic of Singapore'] },
+  { id: 'BHR', a2: 'BH', ko: '바레인', en: 'Bahrain', lat: 26.0275, lon: 50.55, aliases: ['Kingdom of Bahrain'] },
+];
+for (const e of shapeless) if (!catalog.some(c => c.id === e.id)) catalog.push({
+  id: e.id, ko: e.ko, en: e.en, flag: [...e.a2].map(c => String.fromCodePoint(127397 + c.charCodeAt(0))).join(''),
+  lat: e.lat, lon: e.lon, aliases: [...new Set([e.id, e.a2, e.en, ...e.aliases, e.ko])],
+});
 writeFileSync('shared/country-catalog.json', JSON.stringify(catalog));
 console.log(`countries: ${out.length}`);

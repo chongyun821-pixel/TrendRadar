@@ -1,4 +1,4 @@
-/** CLI 출력(JSONL) 해석: 그록 빌드 streaming-json · 코덱스 exec --json. 순수 함수 */
+/** CLI 출력(JSONL) 해석: 그록 빌드 streaming-json ,  코덱스 exec --json. 순수 함수 */
 
 export const isAuthError = (s: string) => /not (logged|signed) in|log ?in required|please (log|sign) ?in|grok login|codex login|unauthori[sz]ed|\b401\b|authenticat|credential|refresh token|token (has )?expired/i.test(s);
 

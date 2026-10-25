@@ -9,6 +9,7 @@ import { resolveCountry, resolveSystem } from '../shared/data';
 import type { ProgramRecord, Seed } from '../shared/types';
 import { SYSTEM_KEYS, SIGNAL_STAGES, PROJECT_STAGES } from '../shared/types';
 import { baseYearOf, recentLabel } from '../shared/base-year';
+import { koreanizeHanwhaDeep } from '../shared/hanwha';
 import { execution } from './execution';
 import { PROJECT_ROOT, now, hash } from './store';
 import type { ToolDef } from './agent';
@@ -22,19 +23,19 @@ import { procurementCoverage } from '../shared/completeness';
 
 const str = (description: string) => ({ type: 'string' as const, description });
 export const RESEARCH_DEFS: ToolDef[] = [
-  { name: 'research_procurement', description: '조사 준비: 최신 SQL record/version·양식·누락·작업 폴더·기존 자료 반환', properties: { country: str('국가명/ISO3'), system: str('무기체계') }, required: ['country', 'system'] },
-  { name: 'save_source', description: '기본 웹 도구로 읽은 원문·검색 요약 또는 수집 실패를 운영 SQL·파일 저장소에 보존', properties: { url: str('원문 URL'), content: str('도구로 실제 읽은 전체 내용'), title: str('제목'), publishedAt: str('발행일 ISO 또는 빈 문자열'), kind: str('original 또는 search'), status: str('ok 또는 failed'), error: str('실패 이유') }, required: ['url', 'content', 'kind'] },
+  { name: 'research_procurement', description: '조사 준비: 최신 SQL record/version, 양식, 누락, 작업 폴더, 기존 자료 반환', properties: { country: str('국가명/ISO3'), system: str('무기체계') }, required: ['country', 'system'] },
+  { name: 'save_source', description: '기본 웹 도구로 읽은 원문, 검색 요약 또는 수집 실패를 운영 SQL, 파일 저장소에 보존', properties: { url: str('원문 URL'), content: str('도구로 실제 읽은 전체 내용'), title: str('제목'), publishedAt: str('발행일 ISO 또는 빈 문자열'), kind: str('original 또는 search'), status: { type: 'string', enum: ['ok', 'failed'], description: '수집 상태' }, error: str('실패 이유') }, required: ['url', 'content', 'kind'] },
   { name: 'workspace_list', description: '현재 대화의 파일 전체 목록', properties: {} },
   { name: 'publish_artifact', description: '기존 문서 도구로 작성하고 검수한 워드 또는 파워포인트 완성 파일의 사본과 다운로드를 보존한다', properties: { path: str('대화 작업 폴더 안의 완성된 .docx 또는 .pptx 경로'), preparationId: str('prepare_report가 반환한 작성 자료 ID'), review: str('실제 검수 결과 JSON: content, layout(boolean), notes?') }, required: ['path'] },
   { name: 'source_read', description: 'SQL 출처 ID로 보존 원문 재조회. 대화 삭제 후에도 조회 가능. 큰 파일은 offset/length로 이어 읽기', properties: { sourceId: str('출처 ID'), offset: { type: 'integer' }, length: { type: 'integer' } }, required: ['sourceId'] },
   { name: 'workspace_read', description: '대화 작업 파일 읽기. 큰 파일은 offset/length로 이어 읽기', properties: { path: str('상대경로'), offset: { type: 'integer' }, length: { type: 'integer' } }, required: ['path'] },
-  { name: 'workspace_write', description: '조사 메모·분석 파일 작성·수정. 원문과 첨부는 수정 불가', properties: { path: str('notes/ 또는 analysis/ 상대경로'), content: str('파일 전체 내용') }, required: ['path', 'content'] },
-  { name: 'submit_research', description: '조사 양식 검사 후 근거·변경 이력·예측을 원자적으로 저장. 충돌 시 반영하지 않음', properties: { payload: str('research_procurement 양식에 따른 JSON') }, required: ['payload'] },
-  { name: 'update_assumptions', description: '단가·수명·환율 가정 변경. 모든 예측 재계산. 출처와 추정 표시 유지', properties: { payload: str('JSON: expectedRevision, systems?(부분 아닌 체계 메타 전체), fx?, reason, evidence[{path,sourceId,quote}], sources') }, required: ['payload'] },
-  { name: 'research_history', description: '기존 조사·변경 전후·예측 이력 조회', properties: { country: str('국가명/ISO3'), system: str('체계') } },
-  { name: 'conversation_read', description: '저장된 전체 대화·보고서에서 검색·재조회', properties: { query: str('포함 문자열, 생략하면 전체'), offset: { type: 'integer' }, limit: { type: 'integer' } } },
-  { name: 'firecrawl_search', description: '지피티·네모트론용 Firecrawl MCP 웹 검색. 요약은 원문과 구분해 저장', properties: { query: str('검색어') }, required: ['query'] },
-  { name: 'firecrawl_scrape', description: '지피티·네모트론용 Firecrawl MCP 원문 HTML/PDF 읽기 및 보존', properties: { url: str('원문 URL') }, required: ['url'] },
+  { name: 'workspace_write', description: '조사 메모, 분석 파일 작성, 수정. 원문과 첨부는 수정 불가', properties: { path: str('notes/ 또는 analysis/ 상대경로'), content: str('파일 전체 내용') }, required: ['path', 'content'] },
+  { name: 'submit_research', description: '조사 양식 검사 후 근거, 변경 이력, 예측을 원자적으로 저장. 충돌 시 반영하지 않음', properties: { payload: str('research_procurement 양식에 따른 JSON') }, required: ['payload'] },
+  { name: 'update_assumptions', description: '단가, 수명, 환율 가정 변경. 모든 예측 재계산. 출처와 추정 표시 유지', properties: { payload: str('JSON: expectedRevision, systems?(부분 아닌 체계 메타 전체), fx?, reason, evidence[{path,sourceId,quote}], sources') }, required: ['payload'] },
+  { name: 'research_history', description: '기존 조사, 변경 전후, 예측 이력 조회', properties: { country: str('국가명/ISO3'), system: str('체계') } },
+  { name: 'conversation_read', description: '현재 대화의 메시지, 보고서에서 검색하거나 구간을 다시 읽는다', properties: { query: str('포함 문자열, 생략하면 전체'), offset: { type: 'integer' }, limit: { type: 'integer' } } },
+  { name: 'firecrawl_search', description: '지피티, 네모트론용 Firecrawl MCP 웹 검색. 요약은 원문과 구분해 저장', properties: { query: str('검색어') }, required: ['query'] },
+  { name: 'firecrawl_scrape', description: '지피티, 네모트론용 Firecrawl MCP 원문 HTML/PDF 읽기 및 보존', properties: { url: str('원문 URL') }, required: ['url'] },
 ];
 
 const refs = z.array(z.string());
@@ -50,9 +51,9 @@ export const recordSchema = z.object({
   mro: z.array(z.object({ year, text: z.string(), lifeExt: count, est, src: refs })).optional(),
   signals: z.array(z.object({ year, text: z.string(), src: refs })).optional(), ratio: range.refine(r => r[1] <= 1).optional(), ratioEst: z.boolean().optional(),
   projects: z.array(z.object({ id: z.string().min(1), buyer: z.string(), supplier: z.string(), stage: z.enum(PROJECT_STAGES), text: z.string(), model: z.string().optional(), qty: count.optional(), amount: count.optional(), currency: z.string().optional(),
-    decisionYear: year.optional(), contractYear: year.optional(), deliveryStart: year.optional(), deliveryEnd: year.optional(), covers: z.number().min(0).max(1).optional(), reserve: z.string().optional(), asOf: z.string().optional(), est, src: refs })
+    decisionYear: year.optional(), contractYear: year.optional(), deliveryStart: year.optional(), deliveryEnd: year.optional(), covers: z.number().min(0).max(1).optional(), reserve: z.string().optional(), asOf: z.string().optional(), est, src: refs }).strict()
     .refine(p => p.deliveryStart == null || p.deliveryEnd == null || p.deliveryStart <= p.deliveryEnd, '인도 시작이 인도 완료보다 늦음')
-    .refine(p => !['selected', 'contract', 'delivery', 'completed'].includes(p.stage) || p.supplier.trim().length > 0, '선정·계약 이후 사업은 공급자(supplier)가 필요')).optional(),
+    .refine(p => !['selected', 'contract', 'delivery', 'completed'].includes(p.stage) || p.supplier.trim().length > 0, '선정, 계약 이후 사업은 공급자(supplier)가 필요')).optional(),
   analysis: z.object({ facts: refs, estimates: refs, conflicts: refs, unknowns: refs, opportunity: z.string().optional() }).optional(),
 }).strict();
 const publishedDate = z.union([z.string().date(), z.string().datetime({ offset: true })]);
@@ -61,7 +62,7 @@ const evidenceSchema = z.array(z.object({ path: z.string(), sourceId: z.string()
 const countrySchema = z.object({ ko: z.string().min(1), flag: z.string(), lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180) });
 /** 조사 결과의 signals 추출 형식(템플릿 'signals 추출'). 행마다 원문 인용이 있어야 하며 signals 표에 upsert된다 */
 export const signalRowSchema = z.object({
-  id: z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/), stage: z.enum(SIGNAL_STAGES),
+  id: z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/), stage: z.preprocess(v => v === 'review' ? 'consideration' : v === 'selection' ? 'selected' : v, z.enum(SIGNAL_STAGES)),
   model: z.string().optional(), maker: z.string().optional(), supplier: z.string().optional(), quantity: count.optional(), value_usd_m: count.optional(), expected_year: year.optional(),
   published_at: publishedDate.nullable().optional(), sourceType: z.enum(['official', 'specialist', 'news']), sourceId: z.string().min(1), quote: z.string().min(1), note: z.string().max(500).optional(),
 }).strict();
@@ -94,7 +95,7 @@ async function sourcesChecked(sources: Record<string, z.infer<typeof sourceSchem
     if (!texts[e.sourceId]?.includes(e.quote)) throw new Error(`${e.path}: 저장 원문에 인용문이 없음`);
   }
 }
-/** 공급국 표기 → ISO3. 한국은 그룹사 판정(supplier='KOR')에 쓰이므로 한·영 표기를 모두 받는다 */
+/** 공급국 표기 → ISO3. 한국은 그룹사 판정(supplier='KOR')에 쓰이므로 한, 영 표기를 모두 받는다 */
 const KOREA = /^(kor|korea|south korea|republic of korea|rok|대한민국|한국)$/i;
 export const supplierId = (s?: string) => s == null ? undefined : KOREA.test(s.trim()) ? 'KOR' : resolveCountry(s) ?? (/^[A-Z]{3}$/.test(s.trim()) ? s.trim() : s);
 const signalEvidence = (rows: z.infer<typeof signalRowSchema>[] = []) => rows.map((r, i) => ({ path: `signalRows.${i}`, sourceId: r.sourceId, quote: r.quote }));
@@ -113,7 +114,9 @@ function sourceIds(rec: ProgramRecord): string[] {
 }
 export async function submitResearch(raw: unknown, options: { dryRun?: boolean; idempotent?: boolean } = {}) {
   const ctx = await execution(), repo = ctx.repo;
-  const p = submissionSchema.parse(raw), rec = p.record;
+  const parsed = submissionSchema.parse(raw);
+  // 한화 계열사 회사 이름은 국문으로 저장한다(연구 제출 전체와 예측 저장). 원문 인용, 출처 제목, ID, 형식명은 그대로 둔다
+  const p = koreanizeHanwhaDeep(parsed), rec = p.record;
   await sourcesChecked(p.sources, [...p.evidence, ...signalEvidence(p.signalRows)]);
   const projects = rec.projects || [];
   if (new Set(projects.map(x => x.id)).size !== projects.length) throw new Error('중복 사업 ID');
@@ -124,7 +127,7 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     await sourcesChecked(p.sources, [...p.evidence, ...signalEvidence(p.signalRows)]);
     const old = await repo.one('SELECT * FROM records WHERE country=? AND system=?', rec.country, rec.system);
     const collision = await repo.one('SELECT country,system FROM records WHERE id=?', rec.id);
-    if (collision && (collision.country !== rec.country || collision.system !== rec.system)) throw new Error('다른 국가·체계에서 쓰는 record ID');
+    if (collision && (collision.country !== rec.country || collision.system !== rec.system)) throw new Error('다른 국가, 체계에서 쓰는 record ID');
     if ((old?.version || 0) !== p.expectedVersion) {
       const previous = options.idempotent && await repo.one('SELECT data FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', rec.id);
       if (old?.version === p.expectedVersion + 1 && old.data === JSON.stringify(rec) && previous?.data === JSON.stringify(p)) return { ok: true, unchanged: true, version: old.version };
@@ -134,19 +137,11 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     const before = old ? JSON.parse(old.data) : null;
     const oldProjects = before?.projects || [];
     const cancelled = projects.filter(x => x.stage === 'cancelled' && oldProjects.some((p: any) => p.id === x.id && p.stage !== 'cancelled'));
-    if (cancelled.length && ((before?.awarded && JSON.stringify(before.awarded) === JSON.stringify(rec.awarded)) || (before?.plan && JSON.stringify(before.plan) === JSON.stringify(rec.plan)))) throw new Error('취소 사업의 awarded/plan 계산 입력을 재검토·정정하세요');
+    if (cancelled.length && ((before?.awarded && JSON.stringify(before.awarded) === JSON.stringify(rec.awarded)) || (before?.plan && JSON.stringify(before.plan) === JSON.stringify(rec.plan)))) throw new Error('취소 사업의 awarded/plan 계산 입력을 재검토, 정정하세요');
     const changed = [...new Set([...Object.keys(before || {}), ...Object.keys(rec)])].filter(k => JSON.stringify(before?.[k]) !== JSON.stringify((rec as any)[k]));
     if (!changed.length) {
-      // 기록은 그대로이고 signals 추출 행만 있으면 출처를 검사해 signals 표만 갱신한다
-      if (p.signalRows?.length) {
-        const known = (await repo.data()).sources;
-        for (const [id, s] of Object.entries(p.sources)) if (known[id] && (known[id].u !== s.u || (known[id].hash && known[id].hash !== s.hash))) throw new Error('기존 출처 ID 덮어쓰기 금지. 새 버전 ID 사용');
-        for (const r of p.signalRows) if (!known[r.sourceId] && !p.sources[r.sourceId]) throw new Error(`signalRows: 없는 출처 ${r.sourceId}`);
-        if (options.dryRun) return { ok: true, unchanged: true, valid: true, signalRows: p.signalRows.length, version: old.version, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true };
-        for (const [id, s] of Object.entries(p.sources)) await repo.run('INSERT INTO sources VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data', id, JSON.stringify(s));
-        return { ok: true, unchanged: true, version: old.version, signals: await applySignalRows(repo, rec, p.signalRows, { ...known, ...p.sources }, now()) };
-      }
-      return { ok: true, unchanged: true, version: old.version, ...(options.dryRun ? { valid: true, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true } : {}) };
+      if (options.dryRun) return { ok: true, unchanged: true, valid: true, version: old.version, rulesVersion: p.rulesVersion || 'normalization-v1', semanticReviewRequired: true };
+      if (!p.signalRows?.length) return { ok: true, unchanged: true, version: old.version };
     }
     for (const field of changed.filter(k => !['id','country','system','src'].includes(k))) if (!p.evidence.some(e => e.path === field || e.path.startsWith(`${field}.`))) throw new Error(`${field}: 변경 근거 누락`);
     const data = await repo.data();
@@ -172,9 +167,9 @@ export async function submitResearch(raw: unknown, options: { dryRun?: boolean; 
     await repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', rec.id, ctx.runId, before ? JSON.stringify(before) : null, JSON.stringify(rec), p.reason, JSON.stringify(p.evidence), date);
     await repo.run('INSERT INTO research VALUES(?,?,?,?,?,?)', randomUUID(), ctx.runId, rec.id, p.rulesVersion ? `research-v1/${p.rulesVersion}` : 'v1', JSON.stringify(p), date);
     const signals = p.signalRows?.length ? await applySignalRows(repo, rec, p.signalRows, allSources, date) : 0;
-    // 판단 점수(항목별 점수·근거 ID)를 예측과 함께 보존해 리포트에서 인용한다
+    // 종합 점수(항목별 점수, 근거 ID)를 예측과 함께 보존해 리포트에서 인용한다
     const score = await scoreCase(repo, { ...snapshot, records: [...data.records.filter(r => r.id !== rec.id), rec] }, rec.country, rec.system);
-    await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision() + 1, JSON.stringify({ before: previousForecast, after: forecast, score }), date);
+    await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision() + 1, JSON.stringify(koreanizeHanwhaDeep({ before: previousForecast, after: forecast, score })), date);
     await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
     const meta = { ...data.meta, collected: date };
     await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(meta));
@@ -228,12 +223,12 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
         const row = await repo.one('SELECT * FROM records WHERE country=? AND system=?', country, system);
         const catalog = catalogCountry(country);
         const countryMeta = !(await repo.data()).countries[country] && catalog ? catalogMetadata(catalog) : undefined;
-        result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, baseYear: baseYearOf(await repo.data()), recentWindow: recentLabel(baseYearOf(await repo.data())), templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유·사업·출처·국가 좌표'] };
+        result = { country, system, record: row ? JSON.parse(row.data) : { id: `${country}_${system}`, country, system, batches: [], src: [] }, expectedVersion: row?.version || 0, expectedRevision: await repo.revision(), assumptions: (await repo.data()).systems[system], meta: (await repo.data()).meta, baseYear: baseYearOf(await repo.data()), recentWindow: recentLabel(baseYearOf(await repo.data())), templateVersion: 'v1', template: readFileSync(join(PROJECT_ROOT, 'templates/research-v1.md'), 'utf8'), rulesVersion: 'normalization-v1', rules: readFileSync(join(PROJECT_ROOT, 'templates/normalization-v1.md'), 'utf8'), sourceSearchCoverage: '인증키 없는 GOV.UK 공개 검색과 기존 보존 출처. 다른 국가의 자료는 기존 웹 도구로 보완한다.', workspace: repo.workspace(id), files: repo.files(id), lastResearch: await repo.one('SELECT * FROM research WHERE record_id=? ORDER BY rowid DESC LIMIT 1', row?.id || ''), missing: row ? ['발행일 미확인 출처', '추정 표시 필드', 'analysis.unknowns를 검토하세요'] : ['보유, 사업, 출처, 국가 좌표'] };
         if (countryMeta) result = { ...result as Record<string, unknown>, countryMeta };
         const inventoryHistory = await repo.all('SELECT * FROM inventory WHERE country=? AND system=?', country, system);
         result = { ...result as Record<string, unknown>, coverage: procurementCoverage(row ? JSON.parse(row.data) : undefined, await repo.data(), system),
-          inventoryHistory, inventoryHistoryWarning: '수집 표의 수량·연도는 과거 인도 기록일 수 있다. 현재 운용·퇴역 여부와 배치별 연도를 원문으로 대조하며 현재 보유 수량으로 자동 합산하지 않는다.',
-          displayFields: '현재 주력은 batches.model·status, 교체 시기는 batches.introYear+설계 수명 또는 plan.start/end에서 계산한다. 사업 설명(projects·analysis)만 저장하면 지도 필드는 비어 있다. 확인된 장비는 수량이 미공개여도 qty:null로 저장하며 미확인 연도는 introYear:null로 보존한다.' };
+          inventoryHistory, inventoryHistoryWarning: '수집 표의 수량, 연도는 과거 인도 기록일 수 있다. 현재 운용, 퇴역 여부와 배치별 연도를 원문으로 대조하며 현재 보유 수량으로 자동 합산하지 않는다.',
+          displayFields: '현재 주력은 batches.model, status, 교체 시기는 batches.introYear+설계 수명 또는 plan.start/end에서 계산한다. 사업 설명(projects, analysis)만 저장하면 지도 필드는 비어 있다. 확인된 장비는 수량이 미공개여도 qty:null로 저장하며 미확인 연도는 introYear:null로 보존한다.' };
         break;
       }
       case 'save_source': {
@@ -263,14 +258,14 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
         break;
       }
       case 'workspace_write': {
-        if (!/^(notes|analysis)\//.test(a.path) || a.path.split(/[\\/]/).some((p: string) => p === '..' || p.startsWith('.'))) throw new Error('notes/·analysis/ 안의 일반 파일만 작성 가능');
+        if (!/^(notes|analysis)\//.test(a.path) || a.path.split(/[\\/]/).some((p: string) => p === '..' || p.startsWith('.'))) throw new Error('notes/, analysis/ 안의 일반 파일만 작성 가능');
         const path = repo.path(id, a.path);
         const { mkdirSync, writeFileSync } = await import('node:fs');
         const { dirname } = await import('node:path');
         const content = z.string().parse(a.content);
         const old = await repo.one('SELECT * FROM artifacts WHERE path=?', repo.storedPath(path));
         if (old) {
-          if (!['note','analysis'].includes(old.kind)) throw new Error('원문·첨부·보고서는 이 도구로 수정할 수 없습니다');
+          if (!['note','analysis'].includes(old.kind)) throw new Error('원문, 첨부, 보고서는 이 도구로 수정할 수 없습니다');
           mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, content);
           await repo.syncFile(path);
           await repo.run('UPDATE artifacts SET hash=?,run_id=?,collected_at=? WHERE id=?', hash(content), ctx.runId, now(), old.id);
@@ -294,7 +289,7 @@ export async function researchTool(name: string, a: Record<string, any>): Promis
           await repo.run("UPDATE metadata SET value=? WHERE key='meta'", JSON.stringify(next.meta));
           await repo.run("UPDATE metadata SET value=CAST(value AS INTEGER)+1 WHERE key='revision'");
           await repo.run('INSERT INTO changes(record_id,run_id,before_data,after_data,reason,evidence,created_at) VALUES(?,?,?,?,?,?,?)', '@assumptions', ctx.runId, JSON.stringify({ systems: data.systems, fx: data.meta.fx }), JSON.stringify({ systems: next.systems, fx: next.meta.fx }), p.reason, JSON.stringify(p.evidence), now());
-          for (const rec of data.records) await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision(), JSON.stringify({ before: computeForecast(rec, data), after: computeForecast(rec, next) }), now());
+          for (const rec of data.records) await repo.run('INSERT INTO forecasts(record_id,run_id,data_version,data,computed_at) VALUES(?,?,?,?,?)', rec.id, ctx.runId, await repo.revision(), JSON.stringify(koreanizeHanwhaDeep({ before: computeForecast(rec, data), after: computeForecast(rec, next) })), now());
           return { ok: true, revision: await repo.revision(), recalculated: data.records.length };
         }, ctx.signal); break;
       }

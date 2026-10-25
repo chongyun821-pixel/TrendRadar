@@ -1,4 +1,4 @@
-// 테스트용 가짜 그록 빌드·코덱스 CLI. 받은 인자를 답으로 돌려주고, 마지막 사용자 메시지에 「멈춤」이 있으면
+// 테스트용 가짜 그록 빌드, 코덱스 CLI. 받은 인자를 답으로 돌려주고, 마지막 사용자 메시지에 「멈춤」이 있으면
 // (마지막 사용자 줄 기준) SIGTERM을 무시하는 손자 프로세스를 띄운 채 끝나지 않는다(프로세스 트리 중지 검증용).
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';

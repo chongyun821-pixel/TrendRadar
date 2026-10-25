@@ -5,7 +5,7 @@ import { Repository, hash } from './store';
 import { SupabaseFiles, type SupabaseConfig } from './supabase';
 import { computeForecast } from '../shared/forecast';
 
-export const DATA_TABLES = ['schema_migrations','metadata','countries','systems','sources','records','conversations','messages','context_summaries','runs','events','artifacts','research','changes','forecasts','reports','app_contexts','app_commands','system_links','export_tiers','export_controls','neighbors','inventory','budgets','signals','consumption','supplier_capacity','domestic_capability','weights','pair_events','ingest_runs'] as const;
+export const DATA_TABLES = ['schema_migrations','metadata','countries','systems','sources','records','conversations','messages','context_summaries','runs','events','artifacts','research','changes','forecasts','reports','app_contexts','app_commands','system_links','export_tiers','export_controls','neighbors','inventory','budgets','signals','consumption','supplier_capacity','domestic_capability','weights','pair_events','ingest_runs','weapon_dictionary'] as const;
 const ORDERED = new Set(['messages','runs','artifacts','research']);
 export interface SnapshotTable { name: string; columns: string[]; rows: Record<string, any>[]; order: number[] }
 export interface SnapshotFile { path: string; hash: string; bytes: number }
@@ -21,8 +21,26 @@ function portable(row: Record<string, any>) {
   if (typeof result.path === 'string') result.path = portablePath(result.path);
   return result;
 }
+const DICTIONARY_ARRAYS = new Set(['aliases', 'operators', 'variants', 'est']);
+const DICTIONARY_JSON = new Set(['specs', 'sources']);
+/** SQLite stores the dictionary's array and JSONB values as JSON text. Snapshots use native JSON values for PostgreSQL restore. */
+export function portableTableRow(name: string, row: Record<string, any>) {
+  const result = portable(row);
+  if (name !== 'weapon_dictionary') return result;
+  for (const [column, value] of Object.entries(result)) {
+    if ((DICTIONARY_ARRAYS.has(column) || DICTIONARY_JSON.has(column)) && typeof value === 'string') {
+      try { result[column] = JSON.parse(value); } catch { throw new Error(`Invalid weapon_dictionary JSON in ${column}`); }
+    }
+  }
+  return result;
+}
+function stable(value: any): any {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort((a, b) => a.localeCompare(b)).map(key => [key, stable(value[key])]));
+  return value;
+}
 function canonical(rows: Record<string, any>[]) {
-  return rows.map(portable).map(row => JSON.stringify(Object.fromEntries(Object.entries(row).sort(([a],[b]) => a.localeCompare(b))))).sort();
+  return rows.map(portable).map(row => JSON.stringify(stable(row))).sort();
 }
 export function snapshotHash(snapshot: Snapshot) {
   return hash(JSON.stringify({ tables: snapshot.tables.map(t => ({ name: t.name, rows: canonical(t.rows), order: ORDERED.has(t.name) ? t.rows.map(r => r.id) : [] })), files: snapshot.files }));
@@ -37,7 +55,7 @@ export function localSnapshot(database: string, storage: string): Snapshot {
       const columns = db.prepare(`PRAGMA table_info("${name}")`).all().map(r => String(r.name));
       if (!columns.length) continue;
       const original = db.prepare(`SELECT rowid AS __row_order,* FROM "${name}" ORDER BY rowid`).all();
-      tables.push({ name, columns, order: original.map(r => Number(r.__row_order)), rows: original.map(row => { const { __row_order, ...rest } = row; return portable(rest); }) });
+      tables.push({ name, columns, order: original.map(r => Number(r.__row_order)), rows: original.map(row => { const { __row_order, ...rest } = row; return portableTableRow(name, rest); }) });
     }
     db.exec('COMMIT');
   } finally { db.close(); }
@@ -77,7 +95,7 @@ export async function importSnapshot(target: Repository, snapshot: Snapshot) {
       if (columns.some(c => !/^[a-z_]+$/.test(c))) throw new Error('잘못된 백업 열 이름');
       for (let start = 0; start < table.rows.length; start += 200) {
         const batch = table.rows.slice(start, start + 200);
-        const values = batch.flatMap((row, offset) => [...table.columns.map(c => row[c]), ...(ORDERED.has(table.name) ? [table.order[start + offset]] : [])]);
+        const values = batch.flatMap((input, offset) => { const row = portableTableRow(table.name, input); return [...table.columns.map(c => row[c]), ...(ORDERED.has(table.name) ? [table.order[start + offset]] : [])]; });
         const placeholders = batch.map(() => `(${columns.map(() => '?').join(',')})`).join(',');
         await target.run(`INSERT INTO "${table.name}"(${columns.map(c => `"${c}"`).join(',')}) VALUES${placeholders}`, ...values);
       }
@@ -101,7 +119,7 @@ export async function importSnapshot(target: Repository, snapshot: Snapshot) {
 async function verifyTables(target: Repository, snapshot: Snapshot) {
   for (const table of snapshot.tables) {
     const rows = (await target.all(`SELECT ${table.columns.map(c => `"${c}"`).join(',')} FROM "${table.name}"`)).filter(r => table.name !== 'metadata' || !r.key.startsWith('_migration_'));
-    if (JSON.stringify(canonical(rows)) !== JSON.stringify(canonical(table.rows))) throw new Error(`이전 데이터 불일치: ${table.name}`);
+    if (JSON.stringify(canonical(rows.map(row => portableTableRow(table.name, row)))) !== JSON.stringify(canonical(table.rows.map(row => portableTableRow(table.name, row))))) throw new Error(`이전 데이터 불일치: ${table.name}`);
     if (ORDERED.has(table.name)) {
       const ordered = await target.all(`SELECT id FROM "${table.name}" ORDER BY rowid`);
       if (JSON.stringify(ordered.map(r => r.id)) !== JSON.stringify(table.rows.map(r => r.id))) throw new Error(`이전 순서 불일치: ${table.name}`);
@@ -135,7 +153,7 @@ export async function exportSnapshot(repo: Repository, folder: string) {
     const tables: SnapshotTable[] = [];
     for (const name of DATA_TABLES) {
       const columns = (await repo.all('SELECT column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name=? ORDER BY ordinal_position', name)).map(r => r.column_name).filter(c => c !== 'row_order');
-      const rows = (await repo.all(`SELECT * FROM "${name}"${ORDERED.has(name) ? ' ORDER BY rowid' : ''}`)).filter(r => name !== 'metadata' || !r.key.startsWith('_migration_')).map(portable);
+      const rows = (await repo.all(`SELECT * FROM "${name}"${ORDERED.has(name) ? ' ORDER BY rowid' : ''}`)).filter(r => name !== 'metadata' || !r.key.startsWith('_migration_')).map(row => portableTableRow(name, row));
       tables.push({ name, columns, rows, order: rows.map((_,i) => i+1) });
     }
     const files = (await repo.all('SELECT path,hash,bytes FROM workspace_files ORDER BY path')).map(f => ({ path: portablePath(f.path), hash: f.hash, bytes: Number(f.bytes) })).sort((a,b) => a.path.localeCompare(b.path));

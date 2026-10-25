@@ -3,12 +3,12 @@ import { repository } from '../server/store';
 import { app } from '../server/app';
 import { uploadedFiles, uploadedName } from '../src/chat-api';
 
-/** 예전 ＋ 메뉴 목록 기준(기록·추출 텍스트만 숨김) */
+/** 예전 ＋ 메뉴 목록 기준(기록, 추출 텍스트만 숨김) */
 const previous = (files: { kind: string }[]) => files.filter(f => f.kind !== 'tool-log' && f.kind !== 'extracted');
 const byKind = (files: { kind: string }[]) => files.reduce<Record<string, number>>((n, f) => ({ ...n, [f.kind]: (n[f.kind] || 0) + 1 }), {});
 
 describe('대화 자료 목록은 사용자가 올린 파일만', () => {
-  it('업로드 원본만 보이고 추출본·수집 원문·보고서·생성 문서·기록은 숨긴다(자료와 작업 폴더는 그대로)', async () => {
+  it('업로드 원본만 보이고 추출본, 수집 원문, 보고서, 생성 문서, 기록은 숨긴다(자료와 작업 폴더는 그대로)', async () => {
     const repo = repository(), c = await repo.createConversation();
     const form = new FormData();
     form.append('files', new File(['첨부 원문'], '계약서.txt', { type: 'text/plain' }));

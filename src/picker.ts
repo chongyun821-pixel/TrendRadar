@@ -1,4 +1,4 @@
-/** 입력창 위 인라인 선택기: 위·아래 화살표, Enter 선택, Tab 완성(명령 후보), Delete 삭제, ←·Backspace(빈 입력) 이전 단계, Esc 닫기. 마우스도 지원 */
+/** 입력창 위 인라인 선택기: 위, 아래 화살표, Enter 선택, Tab 완성(명령 후보), Delete 삭제, ←, Backspace(빈 입력) 이전 단계, Esc 닫기. 마우스도 지원 */
 import type { PickItem } from './slash';
 
 export interface PickerHandlers { pick(item: PickItem): void; remove?(item: PickItem): void; back?(): void; hover?(item: PickItem): void; tab?(item: PickItem): void }

@@ -5,10 +5,12 @@ import * as path from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { chatOpenRouter, NEMOTRON_SUPER, FREE_MODELS_ROUTER } from '../server/openrouter';
-import { repository, now } from '../server/store';
+import { defaultModel } from '../server/models';
+import { repository, now, storeFingerprint } from '../server/store';
+import { appUrl } from '../server/screen-hub';
 import { executions } from '../server/execution';
 import { parseActionBlock, TOOL_DEFS, openaiTools, responsesTools } from '../server/agent';
-import { grokArgs, codexArgs, buildPrompt, isNodeRuntime, GROK_ENV, grokConfig } from '../server/cli';
+import { grokArgs, codexArgs, buildPrompt, isNodeRuntime, GROK_ENV, grokConfig, procurementMcp } from '../server/cli';
 import { parseGrokStream, parseCodexJsonl, isAuthError } from '../server/cli-output';
 import { removeGrokSessionDirs, leftoverSessions, readRegistry, writeRegistry, grokGroupName } from '../server/grok-sessions';
 import { app } from '../server/app';
@@ -23,7 +25,7 @@ describe('공유 도구 정의', () => {
     const names = TOOL_DEFS.map(t => t.name);
     expect(responsesTools().map(f => f.name)).toEqual(names);
     expect(openaiTools().map(t => t.function.name)).toEqual(names);
-    // 화면 도구가 먼저이고, 예전 지도 도구(set_mode·focus_country·toggle_map_mode)는 모델에게 보이지 않는다
+    // 화면 도구가 먼저이고, 예전 지도 도구(set_mode, focus_country, toggle_map_mode)는 모델에게 보이지 않는다
     expect(names.slice(0, 3)).toEqual(['set_map_state', 'get_app_context', 'write_report']);
     expect(names).toEqual(expect.arrayContaining(['get_forecast', 'search_programs', 'get_lifespan', 'search_mro']));
     for (const legacy of ['set_mode', 'toggle_map_mode', 'focus_country', 'get_map_state']) expect(names).not.toContain(legacy);
@@ -39,7 +41,7 @@ describe('네모트론 (OpenRouter)', () => {
     const r = await chatOpenRouter(user('안녕'), {});
     expect(r.nokey).toBe(true); expect(r.reply).toContain('키 없음');
   });
-  it('tools 경로: tool_calls → 화면 동작·보고서 → 최종 답', async () => {
+  it('tools 경로: tool_calls → 화면 동작, 보고서 → 최종 답', async () => {
     const calls: any[] = [];
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
       calls.push({ url, headers: init.headers, body: JSON.parse(init.body) });
@@ -207,8 +209,8 @@ describe('액션 블록 파서', () => {
   });
 });
 
-describe('CLI 모델 (그록 빌드·코덱스)', () => {
-  it('그록 인자: 기본 문서·셸 도구 실행·MCP 허용, 계획·서브에이전트 끔', () => {
+describe('CLI 모델 (그록 빌드, 코덱스)', () => {
+  it('그록 인자: 기본 문서, 셸 도구 실행, MCP 허용, 계획, 서브에이전트 끔', () => {
     const a = grokArgs({ promptFile: 'p.txt', sid: '11111111-1111-4111-8111-111111111111', cwd: 'C:\\w\\.runtime\\grok' });
     const v = (f: string) => a[a.indexOf(f) + 1];
     expect(v('-m')).toBe('grok-4.7'); expect(v('--reasoning-effort')).toBe('xhigh'); expect(v('-s')).toBe('11111111-1111-4111-8111-111111111111');
@@ -220,40 +222,70 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
     expect(a).toContain('XSearch'); expect(a).toContain('WebFetch');
     expect(a).not.toContain('--disable-web-search');
   });
-  it('그록 환경 변수: 메모리·Claude/Cursor 호환 스캔 끔', () => {
+  it('그록 환경 변수: 메모리, Claude/Cursor 호환 스캔 끔', () => {
     expect(GROK_ENV.GROK_MEMORY).toBe('0');
     expect(GROK_ENV.GROK_CLAUDE_MCPS_ENABLED).toBe('false'); expect(GROK_ENV.GROK_CURSOR_RULES_ENABLED).toBe('false');
   });
-  it('코덱스 인자: ephemeral·read-only·기본 gpt-6-luna·high·호출별 MCP 설정', () => {
-    const a = codexArgs({ cwd: 'C:\\w\\.runtime\\codex', mcp: { command: 'C:\\Program Files\\nodejs\\node.exe', args: ['C:\\w\\tsx.mjs', 'C:\\w\\mcp\\server.ts'], env: { RADAR_RUN_ID: 'r' } } });
+  it('코덱스 인자: ephemeral, read-only, 기본 gpt-6-luna, high, 공유 MCP 서버 설정', () => {
+    const a = codexArgs({ cwd: 'C:\\w\\.runtime\\codex', mcp: { url: 'http://127.0.0.1:62357/mcp', headers: {} } });
     expect(a.slice(0, 5)).toEqual(['exec', '--ephemeral', '--skip-git-repo-check', '--sandbox', 'workspace-write']);
-    expect(a).toContain('web_search="live"'); expect(a).toContain('mcp_servers.procurement.default_tools_approval_mode="approve"'); expect(a).not.toContain('--ignore-user-config');
+    expect(a).toContain('web_search="live"'); expect(a).toContain('mcp_servers.procurement_radar.default_tools_approval_mode="approve"'); expect(a).not.toContain('--ignore-user-config');
+    for (const setting of [
+      'plugins."browser@openai-bundled".enabled=false',
+      'plugins."computer-use@openai-bundled".enabled=false',
+      'plugins."unified-computer-use@openai-bundled".enabled=false',
+      'plugins."codex-app-tools@openai-bundled".enabled=false',
+      'plugins."code-review@openai-bundled".enabled=false',
+      'features.browser_use=false',
+      'features.browser_use_external=false',
+      'features.in_app_browser=false',
+      'features.computer_use=false',
+    ]) {
+      expect(a.slice(0, -1)).toContain('-c');
+      expect(a).toContain(setting);
+    }
+    expect(a.some(x => x.startsWith('mcp_servers.cua_repl'))).toBe(false);
     const off = a.flatMap((x, i) => x === '--disable' ? [a[i + 1]] : []);
     expect(off).toEqual(['multi_agent']);
     expect(off).not.toContain('web_search');
     expect(a).toContain('approval_policy="never"');
     expect(a[a.indexOf('-m') + 1]).toBe('gpt-6-luna');
     expect(a).toContain('model_reasoning_effort="high"');
-    expect(a).toContain('mcp_servers.procurement.command="C:\\\\Program Files\\\\nodejs\\\\node.exe"');
-    expect(a.find(x => x.startsWith('mcp_servers.procurement.args='))).toBe('mcp_servers.procurement.args=["C:\\\\w\\\\tsx.mjs","C:\\\\w\\\\mcp\\\\server.ts"]');
-    expect(a).toContain('mcp_servers.procurement.env={ "RADAR_RUN_ID" = "r" }');
-    expect(a).toContain('mcp_servers.procurement_radar.enabled=false');
+    expect(a).toContain('mcp_servers.procurement_radar.url="http://127.0.0.1:62357/mcp"');
+    expect(a).toContain('mcp_servers.procurement_radar.default_tools_approval_mode="approve"');
+    expect(a.some(x => x.startsWith('mcp_servers.procurement.'))).toBe(false);
     expect(a.at(-1)).toBe('-');
   });
-  it('실행 중인 HTTP MCP: 코덱스는 url·http_headers, 그록 빌드는 url·headers로 대화·실행 ID를 넘기고 procurement_radar는 끈다', () => {
+  it('공유 HTTP MCP: 코덱스와 그록 빌드가 procurement_radar 이름과 실행 헤더를 사용한다', () => {
     const http = { url: 'http://127.0.0.1:62357/mcp', headers: { 'X-Radar-Conversation-Id': 'c1', 'X-Radar-Run-Id': 'r1' } };
     const a = codexArgs({ cwd: '/w', mcp: http });
-    expect(a).toContain('mcp_servers.procurement.url="http://127.0.0.1:62357/mcp"');
-    expect(a).toContain('mcp_servers.procurement.http_headers={ "X-Radar-Conversation-Id" = "c1", "X-Radar-Run-Id" = "r1" }');
-    expect(a.some(x => x.startsWith('mcp_servers.procurement.command='))).toBe(false);
+    expect(a).toContain('mcp_servers.procurement_radar.url="http://127.0.0.1:62357/mcp"');
+    expect(a).toContain('mcp_servers.procurement_radar.http_headers={ "X-Radar-Conversation-Id" = "c1", "X-Radar-Run-Id" = "r1" }');
+    expect(a.some(x => x.startsWith('mcp_servers.procurement_radar.command='))).toBe(false);
+    expect(a).toContain('mcp_servers.procurement_radar.default_tools_approval_mode="approve"');
     const g = grokConfig(http);
-    expect(g).toContain('[mcp_servers.procurement]\nurl = "http://127.0.0.1:62357/mcp"\nheaders = { "X-Radar-Conversation-Id" = "c1", "X-Radar-Run-Id" = "r1" }\nenabled = true');
-    expect(g).toMatch(/\[mcp_servers\.procurement_radar\]\nurl = ".*"\nenabled = false/);
-    expect(grokConfig({ command: 'node', args: ['t', 'm'], env: { A: 'b' } })).toContain('command = "node"\nargs = ["t","m"]\nenv = { "A" = "b" }');
+    expect(g).toContain('[mcp_servers.procurement_radar]\nurl = "http://127.0.0.1:62357/mcp"\nheaders = { "X-Radar-Conversation-Id" = "c1", "X-Radar-Run-Id" = "r1" }\nenabled = true');
+    expect(g.match(/\[mcp_servers\.procurement_radar\]/g)).toHaveLength(1);
+    expect(grokConfig({ url: 'http://127.0.0.1:62357/mcp', headers: {} })).not.toContain('headers =');
   });
-  it('프롬프트: MCP 화면 도구 우선(액션 블록 안내 없음)·이전 대화', () => {
+  it('procurementMcp는 실행 ID를 붙여 공유 HTTP MCP에 연결하며 외부 요청용 헤더 없는 연결도 허용한다', async () => {
+    const previousAppUrl = process.env.RADAR_APP_URL;
+    process.env.RADAR_APP_URL = appUrl();
+    vi.stubGlobal('fetch', vi.fn(async () => ok({ name: 'procurement-mcp', store: storeFingerprint(), app: appUrl() })));
+    try {
+      const external = await procurementMcp('C:\\w');
+      expect(external).toEqual({ url: 'http://127.0.0.1:62357/mcp', headers: {} });
+      const context = { conversationId: randomUUID(), runId: randomUUID(), signal: new AbortController().signal } as any;
+      const inApp = await executions.run(context, () => procurementMcp('C:\\w'));
+      expect(inApp).toEqual({ url: 'http://127.0.0.1:62357/mcp', headers: { 'X-Radar-Conversation-Id': context.conversationId, 'X-Radar-Run-Id': context.runId } });
+    } finally {
+      if (previousAppUrl === undefined) delete process.env.RADAR_APP_URL;
+      else process.env.RADAR_APP_URL = previousAppUrl;
+    }
+  });
+  it('프롬프트: MCP 화면 도구 우선(액션 블록 안내 없음), 이전 대화', () => {
     const p = buildPrompt({ messages: [{ role: 'user', text: '안녕' }, { role: 'model', text: '네' }, { role: 'user', text: '폴란드 자주포' }], state: { mode: 'sph' } });
-    expect(p).toContain('procurement MCP'); expect(p).not.toContain('"actions"'); expect(p).toContain('set_map_state(country="폴란드", system="자주포")');
+    expect(p).toContain('procurement_radar'); expect(p).not.toContain('"actions"'); expect(p).toContain('set_map_state(country="폴란드", system="자주포")');
     expect(p.indexOf('화면 맞추기')).toBeLessThan(p.indexOf('research_procurement')); expect(p).toContain('도우미: 네'); expect(p.trim().endsWith('사용자: 폴란드 자주포')).toBe(true);
     expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'codex')).toContain('Documents 플러그인의 documents 스킬');
     expect(buildPrompt({ messages: [{ role: 'user', text: '자유 양식 보고서' }] }, 'grok')).toContain('Grok Build 기본 docx 스킬');
@@ -320,6 +352,14 @@ describe('CLI 모델 (그록 빌드·코덱스)', () => {
 });
 
 describe('모델 API', () => {
+  it('Codex CLI가 사용 가능하면 OpenAI 키보다 기본 모델로 우선한다', () => {
+    expect(defaultModel({ OPENAI_API_KEY: 'key' } as any, [
+      { id: 'gpt', available: true }, { id: 'codex', available: true },
+    ])).toBe('codex');
+    expect(defaultModel({ OPENAI_API_KEY: 'key' } as any, [
+      { id: 'codex', available: false }, { id: 'gpt', available: true },
+    ])).toBe('gpt');
+  });
   it('GET /api/models: 4개, 키에 따른 기본 모델, LOCAL_CLI=0 이면 로컬 모델 숨김', async () => {
     const j = await (await app.request('/api/models', {}, { LOCAL_CLI: '0', OPENAI_API_KEY: 'k' })).json();
     expect(j.default).toBe('gpt');

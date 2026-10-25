@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { mkdtempSync, readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,6 +9,7 @@ import * as models from '../server/models';
 import { app } from '../server/app';
 import type { ChatIn } from '../server/agent';
 import type { Env } from '../server/env';
+import { setMcpEnsureForTests } from '../server/cli';
 
 const FAKE = resolve('tests/fixtures/fake-cli.mjs');
 const runtime = mkdtempSync(join(tmpdir(), 'radar-cli-runtime-'));
@@ -21,7 +22,8 @@ async function waitFor<T>(f: () => Promise<T> | T, ok: (v: T) => boolean, ms = 8
   for (;;) { const v = await f(); if (ok(v)) return v; if (Date.now() > end) throw new Error(`시간 초과: ${JSON.stringify(v)}`); await new Promise(r => setTimeout(r, 25)); }
 }
 const grace = runSettings.stopGraceMs;
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); runSettings.stopGraceMs = grace; });
+beforeEach(() => setMcpEnsureForTests(async () => {}));
+afterEach(() => { setMcpEnsureForTests(); vi.restoreAllMocks(); vi.unstubAllGlobals(); runSettings.stopGraceMs = grace; });
 
 describe('CLI 프로세스 트리 중지', () => {
   it('중지하면 SIGTERM을 무시하고 출력 파이프를 붙잡은 손자 프로세스까지 종료하고 바로 끝난다', async () => {
@@ -128,7 +130,7 @@ describe('대화별 모델 선택이 실제 호출까지 전달된다', { timeou
   const argsOf = (text: string): string[] => JSON.parse(text.replace(/^ARGS /, ''));
   const value = (args: string[], flag: string) => args[args.indexOf(flag) + 1];
 
-  it('같은 대화에서 그록 빌드 → 코덱스 → 지피티로 바꾸면 다음 요청의 CLI 인자·API 모델이 바뀐다', async () => {
+  it('같은 대화에서 그록 빌드 → 코덱스 → 지피티로 바꾸면 다음 요청의 CLI 인자, API 모델이 바뀐다', async () => {
     const c = await repository().createConversation();
     const grok = await chat(c.id, { model: 'grok', options: { model: 'grok-4.6', effort: 'low' } }, cliEnv);
     const g = argsOf(grok.text);
@@ -157,7 +159,7 @@ describe('대화별 모델 선택이 실제 호출까지 전달된다', { timeou
     expect(runs.map(r => r.model)).toEqual(['grok', 'codex', 'grok', 'gpt']);
   });
 
-  it('코덱스 기본값은 gpt-6-luna·high이고, 우선순위는 채팅 선택 > CODEX_* 환경 변수 > 기본값', async () => {
+  it('코덱스 기본값은 gpt-6-luna, high이고, 우선순위는 채팅 선택 > CODEX_* 환경 변수 > 기본값', async () => {
     const c = await repository().createConversation();
     const plain = argsOf((await chat(c.id, { model: 'codex' }, cliEnv)).text);
     expect([value(plain, '-m'), plain.find(a => a.startsWith('model_reasoning_effort='))]).toEqual(['gpt-6-luna', 'model_reasoning_effort="high"']);

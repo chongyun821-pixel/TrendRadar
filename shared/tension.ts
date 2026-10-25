@@ -8,8 +8,8 @@ export const ALLIANCE_DISCOUNT = 0.3;
 /** 해상 인접 기준 거리(km). 1:110m 경계의 꼭짓점 간 거리라 실제 해안선보다 다소 길게 잡는다 */
 export const SEA_NEIGHBOR_KM = 400;
 /**
- * 근거가 하나도 없는 쌍(UCDP·GDELT·분쟁 목록·구매 신호·국방비 증가율 모두 없음)의 긴장도 추정 규칙.
- * 같은 산출에서 근거가 있는 쌍의 긴장도 중앙값을 쓴다(두 나라 중 한쪽이 들어간 쌍 우선, 없으면 전체). 근거 있는 쌍이 하나도 없으면 DEFAULT.
+ * 근거가 하나도 없는 쌍(UCDP, GDELT, 분쟁 목록, 구매 신호, 국방비 증가율 모두 없음)의 긴장도 추정 규칙.
+ * 같은 산출에서 근거가 있는 쌍의 긴장도 중앙값을 쓴다(두 국가 중 한쪽이 들어간 쌍 우선, 없으면 전체). 근거 있는 쌍이 하나도 없으면 DEFAULT.
  * 같은 동맹이면 30% 감산하고, 신뢰도는 CONFIDENCE(정적 분쟁 목록 0.4보다 낮음)로 둔다.
  */
 export const TENSION_ESTIMATE = { DEFAULT: 10, CONFIDENCE: 0.2 } as const;
@@ -22,7 +22,7 @@ export function geoFeatures(geojson: { features: { properties: Record<string, an
 const pointKey = (p: number[]) => `${p[0].toFixed(4)},${p[1].toFixed(4)}`;
 /** 내륙국(해상 인접에서 제외). 카스피해 연안국도 해양 경계가 없는 것으로 본다 */
 export const LANDLOCKED = new Set(['AFG','AND','ARM','AUT','AZE','BLR','BOL','BWA','BFA','BDI','CAF','TCD','CZE','SWZ','ETH','HUN','KAZ','KOS','KGZ','LAO','LSO','LIE','LUX','MWI','MLI','MDA','MNG','NPL','NER','MKD','PRY','RWA','SMR','SRB','SVK','SSD','TJK','TKM','UGA','UZB','VAT','ZMB','ZWE','CHE']);
-/** 육상 국경: 두 나라 경계가 꼭짓점 2개 이상을 공유하면 인접으로 본다(Natural Earth는 공통 경계를 같은 좌표로 저장, 삼국 접점 하나만 닿는 쌍은 제외) */
+/** 육상 국경: 두 국가 경계가 꼭짓점 2개 이상을 공유하면 인접으로 본다(Natural Earth는 공통 경계를 같은 좌표로 저장, 삼국 접점 하나만 닿는 쌍은 제외) */
 export function landNeighbors(features: GeoFeature[]): [string, string][] {
   const owners = new Map<string, Set<string>>();
   for (const f of features) for (const poly of f.polygons) for (const ring of poly) for (const p of ring) {
@@ -45,7 +45,7 @@ export function seaNeighbors(features: GeoFeature[], km = SEA_NEIGHBOR_KM, land:
   for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
     const a = pts[i], b = pts[j];
     if (a.id === b.id || landSet.has([a.id, b.id].sort().join('|'))) continue;
-    // 경계 상자로 먼저 거른다. 날짜변경선에 걸친 나라(러시아·미국·피지 등)는 상자가 경도 전체를 덮어 통과한다
+    // 경계 상자로 먼저 거른다. 날짜변경선에 걸친 국가(러시아, 미국, 피지 등)는 상자가 경도 전체를 덮어 통과한다
     const lonPad = pad / Math.max(0.2, Math.cos(Math.min(80, Math.max(Math.abs(a.box[1]), Math.abs(a.box[3]))) * Math.PI / 180));
     if (a.box[1] - pad > b.box[3] || b.box[1] - pad > a.box[3] || a.box[0] - lonPad > b.box[2] || b.box[0] - lonPad > a.box[2]) continue;
     let min = Infinity;
@@ -87,7 +87,7 @@ const monthsBack = (base: string, n: number) => { const [y, m] = base.split('-')
  */
 export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
   const { country: a, neighbor: b } = p;
-  // 충돌·구매는 '최근 3년'(기준 연도 포함 4개년, base-3..base), 적대 이벤트는 asOf까지 12개월
+  // 충돌과 구매는 '최근 3년'(기준 연도 포함 4개년, base-3..base), 적대 이벤트는 asOf까지 12개월
   const ucdp = p.events.filter(e => e.source.startsWith('ucdp') && pairOf(e, a, b) && isRecent(Number(e.period), p.base));
   const fatal = ucdp.reduce((s, e) => s + (e.fatalities || 0), 0);
   const conflict = clamp01(Math.log10(1 + fatal) / 3); // 1,000명 이상이면 최대
@@ -97,7 +97,7 @@ export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
   const gold = n ? gd.reduce((s, e) => s + (e.goldstein || 0) * (e.events || 0), 0) / n : 0;
   const events = gd.length ? clamp01(0.6 * Math.log10(1 + n) / Math.log10(5001) + 0.4 * clamp01(-gold / 10)) : 0;
   const ga = growth3y(p.budgets.filter(x => x.country === a), p.base), gb = growth3y(p.budgets.filter(x => x.country === b), p.base);
-  const buys = p.signals.filter(s => (s.country === a || s.country === b) && ['selection', 'contract', 'delivery'].includes(s.stage) && isRecent(Number(String(s.published_at || '').slice(0, 4)) || s.expected_year || 0, p.base));
+  const buys = p.signals.filter(s => (s.country === a || s.country === b) && ['selected', 'contract', 'delivery'].includes(s.stage) && isRecent(Number(String(s.published_at || '').slice(0, 4)) || s.expected_year || 0, p.base));
   const growth = [ga.value, gb.value].filter((v): v is number => v != null);
   const arms = clamp01(0.5 * clamp01((growth.length ? growth.reduce((s, v) => s + v, 0) / growth.length : 0) / 10) + 0.5 * Math.min(1, buys.length / 5));
   const dispute = p.disputes.find(d => (d.a === a && d.b === b) || (d.a === b && d.b === a));
@@ -117,7 +117,7 @@ export function computeTension(p: PairInputs, asOf = `${p.base}-12`) {
       territory: { weight: W.territory, raw: territory, points: r1(W.territory * territory), dispute: dispute?.name ?? null, evidence: dispute?.url ? [dispute.url] : [] },
       alliance: alliance ? { name: alliance.name, discount: ALLIANCE_DISCOUNT, before: r1(before) } : null,
     },
-    /** 근거가 된 자료(충돌·이벤트·구매 신호·국방비)의 최소 신뢰도. 영토 분쟁 정적 목록(위키백과 기준)은 0.4. 근거가 없으면 null(estimateMissingTension이 추정한다) */
+    /** 근거가 된 자료(충돌, 이벤트, 구매 신호, 국방비)의 최소 신뢰도. 영토 분쟁 정적 목록(위키백과 기준)은 0.4. 근거가 없으면 null(estimateMissingTension이 추정한다) */
     confidence: hasEvidence ? Math.min(...[...ucdp, ...gd, ...buys, ...ga.rows, ...gb.rows].map(e => e.confidence ?? 1), dispute ? 0.4 : 1, 1) : null,
     hasEvidence,
   };
@@ -134,7 +134,7 @@ export function estimateMissingTension<T extends { country: string; neighbor: st
     const baseline = pool.length ? median(pool.map(k => k.tension)) : TENSION_ESTIMATE.DEFAULT;
     const alliance = r.components.alliance;
     const tension = r1(baseline * (alliance ? 1 - ALLIANCE_DISCOUNT : 1));
-    const rule = near.length ? '두 나라가 들어간 근거 있는 쌍의 중앙값' : pool.length ? '근거 있는 전체 쌍의 중앙값' : '기본값';
+    const rule = near.length ? '두 국가가 들어간 근거 있는 쌍의 중앙값' : pool.length ? '근거 있는 전체 쌍의 중앙값' : '기본값';
     return { ...r, tension, confidence: TENSION_ESTIMATE.CONFIDENCE, components: { ...r.components, ...(alliance ? { alliance: { ...alliance, before: r1(baseline) } } : {}), estimated: { rule, baseline: r1(baseline), pairs: pool.length } } };
   });
 }

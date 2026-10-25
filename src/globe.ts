@@ -5,8 +5,9 @@ import earcut from 'earcut';
 export const R = 100;
 const D2R = Math.PI / 180;
 
-export interface CountryFeature { id: string; ko: string; en: string; p: number[][][][] }
-interface CountryGeo { id: string; ko: string; idx: number; polys: { rings: number[][][]; bbox: [number, number, number, number] }[] }
+/** point: 지도 경계가 없어 중심 좌표의 작은 원(점)으로 그리는 국가 */
+export interface CountryFeature { id: string; ko: string; en: string; p: number[][][][]; point?: boolean }
+interface CountryGeo { id: string; ko: string; idx: number; point: boolean; polys: { rings: number[][][]; bbox: [number, number, number, number] }[] }
 export interface Spike { id: string; lat: number; lon: number; color: string; size: number }
 export interface GlobeEvents { onHover(id: string | null, x: number, y: number): void; onClick(id: string | null): void }
 
@@ -26,7 +27,7 @@ vec3 morphPos(vec2 ll, float h){
 vec3 morphNormal(vec2 ll){ float Rt; return uMorph > 0.998 ? vec3(0.0, 0.0, 1.0) : mDir(ll, Rt); }
 `;
 
-/** 셰이더와 같은 변환(JS). 막대·카메라 위치 계산용 */
+/** 셰이더와 같은 변환(JS). 막대, 카메라 위치 계산용 */
 export function morphPosJS(lon: number, lat: number, h: number, m: number, out = new THREE.Vector3()) {
   if (m > 0.998) return out.set(lon * D2R * R, lat * D2R * R, R + h);
   const k = Math.max(1 - m, 0);
@@ -77,7 +78,7 @@ export class Globe {
   private spikeMesh: THREE.InstancedMesh; private spikes: (Spike & { h: number; h0: number; h1: number; r: number })[] = []; private spikeT = 1;
   private hoverId: string | null = null; private selId: string | null = null;
   private pointer = { x: 0, y: 0, dirty: false, inside: false }; private down = { x: 0, y: 0, t: 0 };
-  private raycaster = new THREE.Raycaster(); private atmo: THREE.Mesh; private stars: THREE.Points;
+  private raycaster = new THREE.Raycaster(); private atmo: THREE.Mesh; private stars: THREE.Points; private sky: THREE.Mesh | null = null; private starLines: THREE.LineSegments | null = null;
   private idle = true; private lastT = performance.now(); private lastCamKey = '';
   flat = false;
   private pendingZoom: 'in' | 'out' | 'reset' | number | null = null;
@@ -109,6 +110,7 @@ export class Globe {
     }
     this.atmo = this.buildAtmosphere();
     this.stars = this.buildStars();
+    void this.loadStarMap();
     this.spikeMesh = this.buildSpikes();
     this.setBaseColors(null);
     this.flyToLL(42, 60, 330, false);
@@ -131,9 +133,9 @@ export class Globe {
 
   // ---------- 생성 ----------
   private buildCountries(features: CountryFeature[]) {
-    const ll: number[] = [], ci: number[] = [], bl: number[] = [];
+    const ll: number[] = [], ci: number[] = [], lift: number[] = [], bl: number[] = [];
     features.forEach((f, idx) => {
-      const g: CountryGeo = { id: f.id, ko: f.ko, idx, polys: [] };
+      const g: CountryGeo = { id: f.id, ko: f.ko, idx, point: !!f.point, polys: [] };
       for (const poly of f.p) {
         const flatc: number[] = [], holes: number[] = [];
         poly.forEach((ring, ri) => { if (ri) holes.push(flatc.length / 2); for (const p of ring) flatc.push(p[0], p[1]); });
@@ -143,7 +145,7 @@ export class Globe {
           const p = (k: number) => [flatc[tris[k] * 2], flatc[tris[k] * 2 + 1]];
           subdivide([p(i), p(i + 1), p(i + 2)], 2.5, out);
         }
-        for (let i = 0; i < out.length; i += 2) { ll.push(out[i], out[i + 1]); ci.push(idx); }
+        for (let i = 0; i < out.length; i += 2) { ll.push(out[i], out[i + 1]); ci.push(idx); lift.push(f.point ? 0.38 : 0.25); } // 점 국가는 겹치는 이웃 경계 위에 그린다
         let x0 = 999, y0 = 999, x1 = -999, y1 = -999;
         for (const ring of poly) {
           for (let i = 0; i < ring.length; i++) {
@@ -164,11 +166,12 @@ export class Globe {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('lonlat', new THREE.Float32BufferAttribute(ll, 2));
     geo.setAttribute('cidx', new THREE.Float32BufferAttribute(ci, 1));
+    geo.setAttribute('lift', new THREE.Float32BufferAttribute(lift, 1));
     geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array((ll.length / 2) * 3), 3));
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
       vertexShader: MORPH_GLSL + /* glsl */ `
-        attribute vec2 lonlat; attribute float cidx;
+        attribute vec2 lonlat; attribute float cidx; attribute float lift;
         uniform sampler2D uPrev; uniform sampler2D uNext; uniform float uMix; uniform float uN; uniform float uHover; uniform float uSel; uniform vec3 uLight;
         varying vec3 vCol; varying float vShade; varying float vHatch; varying vec2 vLonLat;
         void main(){
@@ -182,19 +185,19 @@ export class Globe {
           vCol = c;
           vec3 n = morphNormal(lonlat);
           vShade = mix(0.5 + 0.6 * max(dot(n, uLight), 0.0), 1.0, uMorph);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, 0.25), 1.0);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, lift), 1.0);
         }`,
       fragmentShader: /* glsl */ `
         varying vec3 vCol; varying float vShade; varying float vHatch; varying vec2 vLonLat;
         void main(){
-          // 경위도에 고정해 지구 회전·이동·확대 및 평면 전환에도 표면과 함께 움직인다.
+          // 경위도에 고정해 지구 회전, 이동, 확대 및 평면 전환에도 표면과 함께 움직인다.
           float phase = (vLonLat.x + vLonLat.y) / 2.0;
           float footprint = fwidth(phase);
           float aa = clamp(footprint, 0.01, 0.25);
           float stripe = 1.0 - smoothstep(0.16 - aa, 0.16 + aa, abs(fract(phase) - 0.5));
           // 멀리서 해상도보다 촘촘해진 선은 평균색으로 섞어 깜빡임을 줄인다.
           stripe = mix(stripe, 0.32, smoothstep(0.3, 0.7, footprint));
-          vec3 hatched = mix(vec3(0.22, 0.26, 0.31), vCol, 0.12 + 0.78 * stripe);
+          vec3 hatched = mix(vec3(0.22, 0.26, 0.31), vCol, 0.12 + 0.45 * stripe);
           gl_FragColor = vec4(mix(vCol, hatched, vHatch) * vShade, 1.0);
         }`,
       side: THREE.DoubleSide,
@@ -278,14 +281,77 @@ export class Globe {
     this.scene.add(s); return s;
   }
 
+  private async loadStarMap() {
+    try {
+      const response = await fetch('/starmap.json');
+      if (!response.ok) throw new Error(`Star map request failed: ${response.status}`);
+      const data = await response.json() as { stars: number[][]; lines: number[][][] };
+      if (!Array.isArray(data.stars) || !Array.isArray(data.lines)) return;
+      const radius = 2800;
+      const positions: number[] = [], colors: number[] = [], sizes: number[] = [];
+      const color = new THREE.Color();
+      for (const [ra, dec, magnitude, bv] of data.stars) {
+        const lon = ra * D2R, lat = dec * D2R, cosLat = Math.cos(lat);
+        positions.push(radius * cosLat * Math.sin(lon), radius * Math.sin(lat), radius * cosLat * Math.cos(lon));
+        const warmth = THREE.MathUtils.clamp((bv + 0.3) / 2.1, 0, 1);
+        color.setRGB(0.68 + warmth * 0.32, 0.78 + warmth * 0.13, 1 - warmth * 0.72);
+        colors.push(color.r, color.g, color.b);
+        sizes.push(THREE.MathUtils.clamp(5.2 - magnitude * 0.62, 1.1, 5.2));
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('starColor', new THREE.Float32BufferAttribute(colors, 3));
+      geometry.setAttribute('starSize', new THREE.Float32BufferAttribute(sizes, 1));
+      const material = new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+        uniforms: { uOpacity: { value: 0.9 } },
+        vertexShader: `attribute vec3 starColor; attribute float starSize; varying vec3 vColor; void main(){ vColor = starColor; gl_PointSize = starSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+        fragmentShader: `uniform float uOpacity; varying vec3 vColor; void main(){ float d = length(gl_PointCoord - vec2(0.5)); float a = 1.0 - smoothstep(0.22, 0.5, d); if (a <= 0.0) discard; gl_FragColor = vec4(vColor, a * uOpacity); }`,
+      });
+      const points = new THREE.Points(geometry, material); points.frustumCulled = false; points.renderOrder = -1;
+      const linePositions: number[] = [];
+      for (const line of data.lines) for (let i = 1; i < line.length; i++) {
+        for (const point of [line[i - 1], line[i]]) {
+          const lon = point[0] * D2R, lat = point[1] * D2R, cosLat = Math.cos(lat);
+          linePositions.push(radius * cosLat * Math.sin(lon), radius * Math.sin(lat), radius * cosLat * Math.cos(lon));
+        }
+      }
+      const lineGeometry = new THREE.BufferGeometry();
+      lineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+      const lines = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color: 0x849dbb, transparent: true, opacity: 0.07, depthWrite: false }));
+      lines.frustumCulled = false; lines.renderOrder = -1;
+      this.scene.remove(this.stars); this.stars.geometry.dispose(); (this.stars.material as THREE.Material).dispose();
+      this.stars = points; this.starLines = lines; this.scene.add(points, lines);
+      try {
+        const texture = await new THREE.TextureLoader().loadAsync('/sky-4k.jpg');
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.generateMipmaps = false;
+        texture.minFilter = THREE.LinearFilter;
+        // SphereGeometry has u=0 at -X and advances toward +Z. For our RA basis, RA=2πu-π/2;
+        // texture u=.75-u puts RA 0h at the image center and makes increasing RA run leftward.
+        texture.repeat.x = -1;
+        texture.offset.x = 0.75;
+        const skyGeometry = new THREE.SphereGeometry(radius, 128, 64);
+        const skyMaterial = new THREE.MeshBasicMaterial({ map: texture, side: THREE.BackSide, transparent: true, opacity: 1, depthWrite: false, fog: false, toneMapped: false });
+        this.sky = new THREE.Mesh(skyGeometry, skyMaterial);
+        this.sky.frustumCulled = false;
+        this.sky.renderOrder = -2;
+        this.scene.add(this.sky);
+        this.stars.visible = false;
+      } catch { /* Keep point stars visible when the sky texture is unavailable. */ }
+    } catch { /* Keep the fallback stars when the local chart is unavailable. */ }
+  }
+
   private buildSpikes() {
     const g = new THREE.CylinderGeometry(1, 1, 1, 14, 1, false); g.translate(0, 0.5, 0);
     const m = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: true }), 2048);
     m.count = 0; m.frustumCulled = false; m.renderOrder = 3; this.scene.add(m); return m;
   }
 
-  // ---------- 색·막대 ----------
-  /** RGB는 채움색, alpha는 단색(0)·한 방향 빗금(255)이다. null이면 기본 지도. */
+  // ---------- 색, 막대 ----------
+  /** RGB는 채움색, alpha는 단색(0), 한 방향 빗금(255)이다. null이면 기본 지도. */
   setBaseColors(colors: Map<string, [number, number, number]> | null, dimOthers = false, hatched: ReadonlySet<string> = new Set()) {
     const N = this.countries.length;
     // 현재 보이는 색을 prev로
@@ -303,7 +369,7 @@ export class Globe {
 
   setSpikes(list: Spike[]) {
     const old = new Map(this.spikes.map(s => [s.id, s.h]));
-    const next = list.map(s => ({ ...s, h0: old.get(s.id) ?? 0, h1: 3 + 64 * s.size, h: old.get(s.id) ?? 0, r: 0.65 }));
+    const next = list.map(s => ({ ...s, h0: old.get(s.id) ?? 0, h1: (3 + 64 * s.size) * 2 / 3, h: old.get(s.id) ?? 0, r: 0.65 }));
     // 사라지는 막대는 줄어들며 퇴장
     for (const s of this.spikes) if (!list.find(x => x.id === s.id)) next.push({ ...s, h0: s.h, h1: 0 });
     this.spikes = next.slice(0, 256); this.spikeT = 0;
@@ -320,8 +386,8 @@ export class Globe {
       morphPosJS(s.lon, s.lat, 0.3, this.morph, pos); morphNormalJS(s.lon, s.lat, this.morph, nrm);
       q.setFromUnitVectors(up, nrm);
       const presence = s.h1 > 0 ? Math.min(1, s.h / s.h1) : s.h / Math.max(0.001, s.h0);
-      const radius = ((1 - this.morph) * s.r + this.morph * (1 + 6 * s.size)) * presence;
-      sc.set(radius, Math.max(0.001, s.h * (1 - this.morph) + 0.12 * this.morph * presence), radius);
+      const radius = ((1 - this.morph) * s.r + this.morph * 0.5 * (1 + 6 * s.size)) * presence;
+      sc.set(radius, Math.max(0.001, s.h * (1 - this.morph) + 0.09 * this.morph * presence), radius);
       for (const offset of offsets) {
         const wrapped = pos.clone(); wrapped.x += offset * 2 * Math.PI * R;
         mtx.compose(wrapped, q, sc); this.spikeMesh.setMatrixAt(instance, mtx); this.spikeMesh.setColorAt(instance, col.set(s.color)); instance++;
@@ -351,7 +417,8 @@ export class Globe {
     return Math.abs(lat) <= 90 ? [((lon + 180) % 360 + 360) % 360 - 180, lat] : null;
   }
   countryAt(lon: number, lat: number): string | null {
-    for (const c of this.countries) for (const p of c.polys) {
+    // 점 국가는 이웃 경계와 겹쳐도 위에 그려지므로 먼저 고른다
+    for (const point of [true, false]) for (const c of this.countries) if (c.point === point) for (const p of c.polys) {
       const [x0, y0, x1, y1] = p.bbox;
       if (lon < x0 || lon > x1 || lat < y0 || lat > y1) continue;
       if (pip([lon, lat], p.rings[0]) && !p.rings.slice(1).some(h => pip([lon, lat], h))) return c.id;
@@ -408,7 +475,7 @@ export class Globe {
     this.flyToLL(la, lo, Math.min(Math.max(cur.dist, 110), this.flat ? 170 : 230));
     this.setSelected(id);
   }
-  /** 확대·축소. 숫자는 1(가장 멀리)~10(가장 가까이) 단계, reset은 기본 거리. 2D/3D 전환 중이면 전환이 끝난 뒤 적용한다 */
+  /** 확대, 축소. 숫자는 1(가장 멀리)~10(가장 가까이) 단계, reset은 기본 거리. 2D/3D 전환 중이면 전환이 끝난 뒤 적용한다 */
   zoom(z: 'in' | 'out' | 'reset' | number) {
     if (this.morphT < 1) { this.pendingZoom = z; return; }
     this.idle = false;
@@ -509,7 +576,12 @@ export class Globe {
     (this.uniforms.uLight.value as THREE.Vector3).copy(this.camera.position).normalize().add(new THREE.Vector3(0, 0.25, 0)).normalize();
     (this.atmo.material as THREE.ShaderMaterial).uniforms.uFade.value = Math.max(0, 1 - this.morph * 2.5);
     this.atmo.visible = this.morph < 0.4;
-    (this.stars.material as THREE.PointsMaterial).opacity = 0.9 * (1 - this.morph * 0.85);
+    const skyFade = 1 - this.morph * 0.85;
+    const starMaterial = this.stars.material;
+    if (starMaterial instanceof THREE.ShaderMaterial) starMaterial.uniforms.uOpacity.value = 0.9 * skyFade;
+    else (starMaterial as THREE.PointsMaterial).opacity = 0.9 * skyFade;
+    if (this.starLines) (this.starLines.material as THREE.LineBasicMaterial).opacity = 0.07 * skyFade;
+    if (this.sky) (this.sky.material as THREE.MeshBasicMaterial).opacity = skyFade;
     this.updateSpikes(dt);
     const camKey = this.camera.position.x.toFixed(2) + ',' + this.camera.position.y.toFixed(2) + ',' + this.camera.position.z.toFixed(2) + ',' + this.morph.toFixed(3);
     const camMoved = camKey !== this.lastCamKey; this.lastCamKey = camKey;

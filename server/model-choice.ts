@@ -8,7 +8,7 @@ export const modelChoiceSchema = z.object({ provider: id, model: id.optional(), 
   .transform(v => (checkChoice(v) as { ok: true; choice: ModelChoice }).choice);
 export const modelOptionsSchema = z.object({ model: id.optional(), effort: id.optional() }).strict();
 
-/** /api/chat 본문의 model(제공자)과 options(CLI 모델·추론 강도)를 검증한다. 모델이 없으면 그대로 둔다 */
+/** /api/chat 본문의 model(제공자)과 options(CLI 모델, 추론 강도)를 검증한다. 모델이 없으면 그대로 둔다 */
 export function parseModelChoice(provider: unknown, options: unknown): ModelChoice | undefined {
   if (provider == null || provider === '') { if (options) throw new Error('모델 선택 오류: 모델 없이 세부 선택'); return undefined; }
   const opts = modelOptionsSchema.safeParse(options ?? {});

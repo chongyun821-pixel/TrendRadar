@@ -1,81 +1,27 @@
-# 조달 정보 도구 사용 안내
+# MCP tools
 
-앱과 조달 정보 MCP 서버는 같은 도구 정의와 실행 기능을 사용한다. 새 인증키를 발급하지 않고 사용할 수 있는 기본 수집과 양식 정의를 제공한다. 기존 모델 인증과 기본 웹 도구 및 연결된 MCP 설정은 그대로 사용한다.
+HORUS starts or reuses one shared Streamable HTTP MCP server at `http://127.0.0.1:62357/mcp`. App launched CLI clients use that HTTP endpoint and pass `X-Radar-Conversation-Id` and `X-Radar-Run-Id` on each request. The HTTP server ignores conversation and run ID environment variables; IDs are request scoped. External clients may omit the headers and use an external conversation.
 
-## 조사와 데이터 반영
+The server also supports direct stdio mode with `npx tsx mcp/server.ts`. Stdio mode may use `RADAR_CONVERSATION_ID` and `RADAR_RUN_ID`. `RADAR_MCP_HTTP=0` is ignored by the app CLI, which always ensures and uses the shared HTTP server; it does not switch the app CLI to stdio. The app does not fall back to stdio when its shared HTTP MCP is unavailable.
 
-1. `research_procurement(country, system)`으로 기존 기록과 버전, 조사 양식과 정제 기준을 확인한다.
-2. `search_sources(query, country?, system?)`로 공개 검색 후보를 찾는다. 기본 구현은 GOV.UK와 기존 출처를 검색하므로 다른 국가의 검색은 기본 웹 도구로 보완한다. 후보의 국가와 체계가 요청에 맞는지는 원문에서 확인한다.
-3. `collect_source(url)`로 공개 원문을 수집하거나 기본 도구로 읽은 내용을 `save_source`로 보존한다. `collect_source`는 원본 바이트와 추출문을 모두 보존한다. 반환한 `filePath`는 `read_source`로 다시 읽고, 원문에 실제 있는 인용문을 제출한다. 발행일을 확인하지 못하면 미확인으로 남긴다.
-4. `normalize_procurement_data(payload)`에 조사 제출 JSON을 전달한다. `record`는 부분 자료도 가능하다. 명칭과 수량 및 사업 단계를 정리하고 기존 기록과 병합하되 상충 값은 반환하여 검토하게 한다. `payload`가 반환되지 않으면 오류나 상충을 해결한다. 배열 전체를 바꿔야 하면 `replaceFields`에 `batches`, `projects`, `signals`, `mro` 중 해당 이름을 명시한다.
-5. 반환한 정제 결과의 `payload`를 JSON 문자열로 만들어 `validate_research(payload)`에 전달한다. 검증은 운영 기록을 바꾸지 않는다. 인용문과 주장의 의미를 검토한 뒤 `apply_research(payload)`로 반영한다. 적용 시 근거와 버전 및 실행 상태를 다시 검사한다. 자료와 변경 이력 및 예측은 함께 저장한다.
+The map catalog currently contains 179 country and region entries.
 
-변환 전 입력과 변환 내역은 대화 작업 폴더의 정제 기록에 보존한다. 취소된 계획이나 계약을 없앨 때는 `removeFields`에 `plan`이나 `awarded`를 명시하고 해당 필드의 변경 근거를 제출한다. 기본 규칙은 `templates/normalization-v1.md`에 있다. 업체별 별칭 사전과 복잡한 계약 관계 추론, 자동 통화 환산은 후속 고도화 대상이다. 계약량과 인도량을 합산하지 않으며 알 수 없는 값을 0으로 채우지 않는다.
+## Registered tools
 
-`query_procurement`는 저장된 기록과 구조화된 예측을 조회한다. `calculate_forecast`는 계산 결과를 제공하고 `get_country_analysis`는 기존 6절 분석도 함께 제공한다. `search_programs`, `get_forecast`, `forecast`, `write_report` 등 기존 이름도 유지한다. `write_report`는 기존 국가 보고서를 대화에 표시하는 기능이다.
+The MCP registry exposes 54 tools from the shared app definitions and one compatibility alias, `forecast`. Internal Firecrawl tools are excluded from MCP.
 
-## 국가 추가
+### Screen and app context
 
-`find_country(country)`는 지도 국가·지역 목록에서 한국어·영문 이름 또는 코드를 찾아 등록 여부와 조사된 체계를 조회한다. 부분 이름은 후보만 반환한다. `add_country(country)`는 정확히 일치하는 국가를 Supabase의 `countries`에 등록하고 변경 이력과 데이터 버전을 함께 갱신한다. 이름·국기·위치는 저장소의 Natural Earth 자료에서 가져온다. 기존 국가는 정보와 조사 기록을 보존하며 재요청해도 중복 생성하지 않는다. 현재 목록은 지도와 같은 177개 국가·지역이며 `npm run data:countries`로 지도와 국가 목록을 함께 재생성한다.
+`set_map_state`, `get_app_context`, `write_report`, `list_conversations`, `search_conversations`, `read_conversation`, `switch_conversation`, `create_conversation`, `delete_conversation`, `set_chat_model`, `set_app_view`, `set_chat_open`, `open_search`, `open_settings`, `get_run_status`, `cancel_run`.
 
-사용자가 “독일을 추가해줘”라고 요청하면 조회·등록 후 운영 DB의 전체 무기체계에서 부족한 보유·도입·사업 자료를 조사한다. 특정 체계를 지정했으면 그 범위를 따르고, 명시적으로 국가명만 등록하라고 한 경우에는 조사를 생략한다. 신규 국가도 `research_procurement`와 정제 단계에서 국가 이름·코드 및 메타데이터를 해석한다. 등록과 조사 반영은 공통 API의 데이터 버전을 갱신하므로 앱이 변경을 불러온다.
+### Country and procurement
 
-`get_country_data_status(country, system?)`는 record 존재가 아니라 현재 운용 장비·교체 시기·수량·원문 근거를 검사하고 체계별 `missing`을 반환한다. `add_country`의 `researchRequired`도 이 검사에 따른다. `research_procurement`는 같은 국가·체계의 `inventoryHistory`와 지도 표시 필드 안내를 반환한다. 과거 인도량을 현재 보유량으로 자동 합산하지 않는다. 사업 설명만 저장하면 `partial`이며, 마지막 완결성 검사에서 누락을 확인하고 미공개·접근 실패와 남은 조사를 구분한다.
+`find_country`, `add_country`, `get_country_data_status`, `save_equipment`, `save_program`, `lookup_weapon`, `query_procurement`, `calculate_forecast`, `get_country_analysis`, `get_forecast`, `forecast` (compatibility alias for `get_forecast`), `list_forecasts`, `search_programs`, `get_inventory`, `get_lifespan`, `search_mro`, `get_score_breakdown`.
 
-`batches`의 `qty`·`introYear`와 `plan.qty`·`awarded.qty`는 미확인이면 `null`이다. `primary`와 `status: in_service|retired|planned`로 주력과 운용 상태를 기록한다. 수량이 없어도 도입 연도나 공개 계획으로 시기를 추정하며, 수량·금액은 `null`로 반환한다. 퇴역·도입 예정 장비를 현역 교체 수요로 계산하지 않는다. 첨부 문서 뷰어만 있는 정부 페이지는 `collect_source`가 `needs_attachment`와 원문 첨부 주소를 돌려준다. 메뉴 HTML 대신 첨부 원문을 읽는다.
+### Research, sources, workspace, reports
 
-단일 장비 보유 자료는 `save_equipment(country, system, model, filePath, quote, introYear?, qty?, primary?, status?, introYearEstimated?, note?, title?)`로 반영할 수 있다. 서버가 현재 대화의 원문 파일·해시·인용문을 검사하고 실제 출처 메타데이터로 정제·사전 검증·반영·이력 저장·예측 계산을 수행한다. 미확인 연도와 수량은 생략한다. 기존에 확인된 값을 미확인으로 지우지 않으며, 기존 수량과 충돌하면 전체 조사 양식에서 비교·정정한다. 복합 정제 양식 오류 시에는 `repair`에 실제 보존 원문 메타데이터와 수정 예시가 반환된다. 이미 반영을 요청받았으면 같은 요청 안에서 양식을 고쳐 진행한다.
+`research_procurement`, `save_source`, `workspace_list`, `publish_artifact`, `source_read`, `workspace_read`, `workspace_write`, `submit_research`, `update_assumptions`, `research_history`, `conversation_read`, `search_sources`, `collect_source`, `read_source`, `normalize_procurement_data`, `validate_research`, `apply_research`, `get_report_template`, `prepare_report`.
 
-진행 중·선정 전 조달 사업은 `save_program(country, system, id, stage, text, filePath, quote, supplier?, model?, qty?, amount?, currency?, decisionYear?, contractYear?, deliveryStart?, deliveryEnd?, coversPct?, reserve?, estimated?, evidence?, title?)`로 record의 `projects`에 사업 ID별로 저장·갱신한다. `save_equipment`와 같이 현재 대화의 보존 원문·해시·인용문을 검사하고 정제(`replaceFields:["projects"]`)·사전 검증·반영·이력·예측 계산을 거친다. `evidence`는 추가 근거 JSON 배열 문자열이다. 단계는 선정 전(`consideration`·`plan`·`tender`)과 공급자 확정(`selected`·`contract`·`delivery`·`completed`), `cancelled`로 나눈다. 공급자 확정 단계는 공급자가 필수다.
+### Public data ingestion
 
-공급자가 정해진 사업이 기존 전력을 대체하면(`covers`, 기본 100%) 교체 수요를 채운 것으로 본다. 이때 예측 상태는 `next`(후속 주기), 교체 창은 인도 시작·완료 연도 + 설계 수명(추정), 판단 점수는 이 사업이 충족한 도입 신호를 0점으로, 노후도는 후속 주기의 임박도로 계산하고 이유(예: `진행 중 사업(계약 체결): … 2029~2034 인도 예정`)를 표시한다. 계획(`plan`)보다 우선한다. `covers`가 1 미만이면 남은 비율만 계획·노후 교체 수요로 남는다. 선정 전 경쟁은 `공급자 미정, 사업 기회 유지`로 표시하고 사업 기회로 남는다. 별개의 전력 증강 사업은 `coversPct:0`으로 기존 교체 예측에 영향을 주지 않는다. `calculate_forecast`·`score_case`·`search_programs`·`write_report`와 지도 툴팁이 같은 사업 현황(`program`)을 보여준다.
-
-## 화면 맥락과 제어
-
-앱은 화면별 식별자를 만들고 메시지 전송 시 무기체계 필터, 선택 국가, 2D/3D 지도 상태, 활성 자료 화면, 보고서 식별자와 기준일 및 데이터 버전을 보존한다. 현재 앱에 없는 필터를 임의로 생성하지 않는다. 열린 국가 보고서는 서버의 보존 정보와 대조한다. 이 화면 맥락은 모든 모델(그록 빌드·코덱스·지피티·네모트론)의 지시문에 요청마다 JSON으로 들어가고, 보고서가 열려 있으면 원문 위치(작업 폴더 `reports/<보고서 ID>.md`)도 함께 알린다.
-
-지도 툴팁의 보고서 칩과 국가 보고서 제안 버튼은 채팅 요청을 보내지 않는다. `POST /api/conversations/{대화 ID}/reports`(`{country, system?}`)로 보고서를 대화에 저장(`run_id` 없음, 같은 데이터 판의 같은 보고서는 재사용)해 채팅 목록에 바로 표시하고, 상태 줄에 기존 `.chip` 모양의 첨부로 쌓는다(누르면 뺀다). 다음 메시지의 `/api/chat` 본문 `reportIds`로 전달되며, 서버는 이 대화의 보고서인지 확인한 뒤 모델 입력의 마지막 사용자 메시지에 보고서 본문을 붙인다. 화면의 사용자 메시지에는 `첨부: … 보고서`만 남고, 이후 요청에는 보고서 파일 위치만 전한다.
-
-`get_app_context()`의 `request`는 요청 당시 상태, `current`는 앱 서버 메모리에 있는 가장 최근에 사용한 탭의 지금 상태(`state`, `hidden`, `observedAt`, 열린 탭 수 `screens`)다. 열린 화면이 없거나 앱 서버가 꺼져 있으면 `available: false`를 반환한다. “이 나라”와 “이 보고서”는 요청 당시 활성 화면으로 해석하고 사용자가 직접 지정한 대상을 우선한다.
-
-`set_map_state(country?, system?, flat?, zoom?, hide?, only?, highlight?, hatch?, bars?, legend?, resetDisplay?)`는 지도 화면을 한 번에 맞춘다. 국가는 한국어 이름·ISO 코드·별칭(예: 폴란드, POL, UK), 체계는 자주포·IFV·대공미사일·다연장로켓·호위함·재래식 잠수함 또는 일반, `flat`은 true=2D·false=3D다. 국가 선택 해제는 `"해제"`다. `zoom`은 `in`·`out`·`reset` 또는 1(가장 멀리)~10(가장 가까이) 단계이며 국가와 함께 주면 이동한 뒤 적용한다. `hide`(숨길 국가)·`only`(이 국가들만 표시)·`highlight`(강조, 나머지는 어둡게)는 쉼표로 구분한 국가 목록으로 현재 목록을 바꾸고 `"해제"`로 비운다. `hatch`·`bars`·`legend`는 빗금·예상 금액 막대·범례 표시를 켜고 끈다. `resetDisplay=true`는 이 표시 조정을 모두 기본으로 되돌린다. 현재 표시 조정은 `get_app_context`의 `display`로 보인다. 폴란드 다연장로켓은 `set_map_state(country="폴란드", system="다연장로켓")` 한 번이다. 예전 `payload` JSON과 `set_mode`·`focus_country`·`toggle_map_mode`·`get_map_state` 이름은 호환용으로만 받고 모델 도구 목록(OpenAI·OpenRouter·MCP)에는 내보내지 않는다. 챗봇의 화면 명령은 사용자가 그사이 화면을 바꿨어도 적용된다(버전·충돌 개념 없음).
-
-화면 도구(`set_map_state`, `write_report`, `switch_conversation`, `set_chat_model`)는 DB를 거치지 않는다. 도구가 앱 서버(`RADAR_APP_URL`, 기본 `http://127.0.0.1:62356`)의 `POST /api/screen/command`로 명령을 보내면 앱 서버가 SSE(`GET /api/screen/events`)로 연결된 브라우저 탭 하나에 밀어 넣고, 탭이 적용 결과를 `POST /api/screen/results/{명령 ID}`로 돌려주면 그 결과를 동기 응답한다. 결과는 `applied`(완료, 탭이 백그라운드면 `hidden: true`와 안내 포함), `failed`(적용 실패), `inactive`(화면이 열려 있지 않음: 연결된 탭이나 앱 서버가 없으면 기다리지 않고 바로 반환), `timeout`(기본 6초(`RADAR_SCREEN_TIMEOUT_MS`) 안에 결과가 없음, 다시 보내거나 쌓아 두지 않음) 중 하나다. `ok:false` 결과의 `message`는 사용자에게 알릴 문장이다. 탭이 여러 개면 **가장 최근에 사용한 탭** 하나로 보낸다: 보이는 탭을 먼저 고르고, 그중 마지막으로 포커스·클릭·키 입력·화면 표시가 있었던 탭이다. 앱 화면 없이 호출하면(독립 API 호출) 답과 함께 적용할 동작으로 남고 `queued`를 돌려준다. `/api/screen/*`는 루프백 접속, 로컬 `Host`, 로컬 `Origin`(또는 없음)만 받는다. 예전 `app_contexts`·`app_commands` 테이블과 `get_app_command`는 쓰지 않는다(테이블은 기존 DB 호환을 위해 스키마에 남겨 둔다).
-
-`write_report(country, system?)`는 기존 6절 국가 보고서를 저장하고, 해당 국가와 무기체계를 선택해 채팅 패널에 표시한다. 실행이 끝나기 전에도 보고서를 열 수 있다. 결과의 `shown`은 `status=applied`일 때만 true다. 화면이 다른 대화를 보고 있으면 보고서의 대화로 전환해 표시한다.
-
-대화는 `list_conversations`, `search_conversations`, `read_conversation`으로 조회하고 `create_conversation`, `switch_conversation`, `delete_conversation`으로 관리한다. 새 대화 생성만으로 화면이 전환되지는 않는다. 진행 중 대화는 중지 후 삭제하고 원문과 보고서는 보존한다. `set_chat_model`은 다음 요청의 모델을 선택한다. 코덱스·그록 빌드는 `cliModel`과 `effort`로 세부 모델과 추론 강도도 지정할 수 있고, 허용 목록 밖의 값은 거절한다. `get_run_status`와 `cancel_run`은 실행 조회와 중지를 담당하며 중지 도구는 자신의 실행 종료를 기다리지 않는다.
-
-앱에서 시작한 코덱스와 그록 빌드는 실행 중인 HTTP MCP(`npm run mcp:http`, 기본 `http://127.0.0.1:62357/mcp`, `RADAR_MCP_URL`)에 붙는다. 대화·실행 식별자는 실행마다 `X-Radar-Conversation-Id`·`X-Radar-Run-Id` 헤더로 보내고(코덱스 `-c mcp_servers.procurement.http_headers`, 그록 빌드 작업 폴더 `.grok/config.toml`의 `headers`), MCP는 이 값을 원문·보고서·산출물 저장 대상과 요청 당시 화면 맥락에만 쓴다. HTTP MCP가 응답하지 않거나 다른 DB·작업 폴더 또는 다른 앱 서버를 가리키면(`/health`의 `store`·`app` 비교) 예전처럼 stdio MCP를 띄운다. `RADAR_MCP_HTTP=0`이면 항상 stdio다. 앱이 띄우는 CLI에는 MCP가 `procurement` 하나만 보이도록 `procurement_radar`를 끈다. 헤더 없이 붙는 독립 MCP 연결(외부 코덱스 등)은 별도 대화(`externalConversation`)에 저장하며, 화면 명령은 같은 앱 서버의 가장 최근 탭으로 간다.
-
-## 보고서 작성과 완성 파일 보존
-
-`get_report_template(format?, templateId?)`은 워드 기본 국가 보고서, 워드 자유 양식, 파워포인트 요약 양식을 제공한다. 현재 양식은 목차와 배치 및 서식과 검수 항목을 담은 버전별 정의이며 회사 양식 원본 파일은 추후 추가한다.
-
-`prepare_report(country?, system?, templateId?, basis?)`는 대상과 계산 가정, 데이터와 규칙 및 양식 버전을 고정한 작성 자료를 파일로 보존한다. 국가와 체계를 생략하면 요청 당시 활성 화면을 사용한다. `system: general`은 해당 국가의 전체 체계다. 열린 보고서에서 기본 기준은 `viewed`이며 보존한 본문을 사용한다. `basis: latest`를 명시하면 현재 데이터로 별도 준비한다.
-
-코덱스와 그록의 기존 문서 작성 도구로 편집 가능한 워드나 파워포인트를 작성하고 내용과 렌더링 결과를 검수한다. 완성 파일을 대화 작업 폴더의 `reports/`에 저장하고 아래처럼 등록한다.
-
-```json
-{
-  "path": "reports/국가분석.docx",
-  "preparationId": "prepare_report가 반환한 id",
-  "review": "{\"content\":true,\"layout\":true,\"notes\":\"실제로 수행한 검수 내용\"}"
-}
-```
-
-`publish_artifact`는 `.docx`와 `.pptx`의 파일 구조를 검사하고 다운로드용 사본과 해시값, 작성 자료 식별자 및 검수 기록을 보존한다. 파일 구조 검사가 실제 내용과 레이아웃 검수를 대신하지 않는다. 기존 `publish_artifact(path)` 호출도 호환되지만 새 작성 자료를 연결하면 검수 결과도 함께 제출해야 한다.
-
-## 판단 점수
-
-`get_score_breakdown(country, system)`은 통과 조건(수출 불가·독자 양산), 항목별 점수(비중 × 원점수 × 출처 신뢰도), 고객 등급 계수와 근거 ID(`표:키`), 보고서용 근거 표 마크다운을 반환한다. 지도는 `GET /api/scores?system=`으로 같은 점수를 받아 제외 국가를 회색으로 표시한다. 정보 카드의 판단 점수 행은 `GET /api/scores/{국가}?system=`(읽기 전용, `get_score_breakdown`과 같은 계산)으로 한 국가·체계의 항목별 점수를 받아 펼친다. `prepare_report`의 `evidenceTables`는 케이스별 근거 표 자료다. 수집 방법은 [데이터 수집 실행 안내](data-collection.md)를 따른다.
-
-## 공개 자료 수집
-
-`list_ingest_sources`로 출처(sipri-embargoes, itar, sipri-transfers, sipri-milex, worldbank, ucdp, gdelt, oryx, tiers, tension)와 마지막 실행을 보고, `run_ingest(source, dryRun?, countries?, since?, year?, months?, side?, asOf?, wait?)`로 실행한다. 기본은 미리보기(`dryRun=true`)이며 사용자가 반영을 요청할 때만 `dryRun=false`로 적재한다. 응답은 행 수와 표본 3행뿐이다. 오래 걸리면 `status: running`과 id를 돌려주므로 `get_ingest_run(id, wait?, cancel?)`으로 확인하거나 중지한다. 같은 출처는 동시에 하나만 실행된다. 자세한 동작은 [데이터 수집 실행 안내](data-collection.md#채팅에서-실행)를 따른다.
-
-## API와 검증
-
-새 도구는 `POST /api/tools/{도구 이름}`에서도 사용한다. 요청 본문은 `{"conversationId":"대화 ID","args":{...},"appContext":{...}}` 형식이며 화면 맥락은 필요할 때 전달한다. 응답의 `result`에 도구 결과, `conversationId`와 `runId`에 실행 식별자를 반환한다. 기존 조회 API의 평면 인자는 호환된다.
-
-`npm test`는 격리된 자료와 가상 외부 응답을 사용한다. `npm run mcp:check`는 실제 stdio와 HTTP 전송을 확인한다. `npm run context:check`는 별도 격리 서버에서 요청 시점 상태, 보고서 선택, 지도 명령과 적용 응답, 사용자 변경 뒤 명령, 대화 전환 및 모바일 화면을 확인한다. `npm run screen:check`는 SSE 화면 제어(연속·동시 명령, 결과 재전송, 백그라운드 탭, 최근 탭 선택, 실행 중 보고서, HTTP MCP 지도 제어, 브라우저 없음 `inactive`, `app_commands` 미사용)를 확인한다. 검증을 위해 운영 대화나 자료를 수정하지 않는다.
+`list_ingest_sources`, `run_ingest`, `get_ingest_run`.

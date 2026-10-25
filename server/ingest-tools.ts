@@ -1,4 +1,4 @@
-/** 채팅 도구: 공개 자료 수집(SIPRI·World Bank·UCDP·GDELT·Oryx)과 등급·긴장도 산출 실행 */
+/** 채팅 도구: 공개 자료 수집(SIPRI, World Bank, UCDP, GDELT, Oryx)과 등급, 긴장도 산출 실행 */
 import { z } from 'zod';
 import { execution } from './execution';
 import { resolveCountry } from '../shared/data';
@@ -13,11 +13,11 @@ export const DEFAULT_WAIT = 40, MAX_WAIT = 50;
 const IDS = INGEST_SOURCES.map(s => s.id) as [string, ...string[]];
 
 export const INGEST_DEFS: ToolDef[] = [
-  { name: 'list_ingest_sources', description: '공개 자료 수집 출처(SIPRI·World Bank·UCDP·GDELT·Oryx)와 등급·긴장도 산출 작업의 채우는 표, 마지막 실행, 저장 행 수를 본다', properties: {} },
-  { name: 'run_ingest', description: '공개 자료 수집 또는 등급(tiers)·긴장도(tension) 산출을 실행한다. 기본은 미리보기(dryRun=true)로 행 수와 표본만 보여주고, dryRun=false면 DB에 반영하고 변경 기록을 남긴다. 오래 걸리면 id를 돌려주므로 get_ingest_run으로 확인한다',
+  { name: 'list_ingest_sources', description: '공개 자료 수집 출처(SIPRI, World Bank, UCDP, GDELT, Oryx)와 등급, 긴장도 산출 작업의 채우는 표, 마지막 실행, 저장 행 수를 본다', properties: {} },
+  { name: 'run_ingest', description: '공개 자료 수집 또는 등급(tiers), 긴장도(tension) 산출을 실행한다. 기본은 미리보기(dryRun=true)로 행 수와 표본만 보여주고, dryRun=false면 DB에 반영하고 변경 기록을 남긴다. 오래 걸리면 id를 돌려주므로 get_ingest_run으로 확인한다',
     properties: {
-      source: S(`수집 출처: ${IDS.join(', ')}`), dryRun: B('true(기본)면 적재하지 않고 미리보기만. 사용자가 반영·적재를 요청했을 때만 false'),
-      countries: S('국가 한정(쉼표 구분 국가 ID나 이름, 예: POL,ROU). 생략 시 전체'), since: I('시작 연도(sipri-transfers·sipri-milex·worldbank·ucdp)'),
+      source: S(`수집 출처: ${IDS.join(', ')}`), dryRun: B('true(기본)면 적재하지 않고 미리보기만. 사용자가 반영, 적재를 요청했을 때만 false'),
+      countries: S('국가 한정(쉼표 구분 국가 ID나 이름, 예: POL,ROU). 생략 시 전체'), since: I('시작 연도(sipri-transfers, sipri-milex, worldbank, ucdp)'),
       year: I('수집 범위의 끝 연도(기본 올해). 판단 기준 연도는 meta.baseYear로 고정'), months: I('GDELT 최근 개월 수(1~24, 기본 12)'), side: S('Oryx 진영: RUS 또는 UKR(생략 시 둘 다)'),
       asOf: S('긴장도 기준 월 YYYY-MM'), wait: I(`응답 대기 초(0~${MAX_WAIT}, 기본 ${DEFAULT_WAIT}). 넘으면 실행 중 상태를 돌려준다`),
     }, required: ['source'] },
@@ -44,8 +44,8 @@ const clean = (a: Record<string, any>) => Object.fromEntries(Object.entries(a).f
 const issue = (e: z.ZodError) => e.issues.map(i => `${i.path.join('.') || '인자'}: ${i.message}`).join('; ');
 
 const FALLBACK_STEPS = {
-  apply: '기본 웹 도구(없으면 firecrawl_scrape·collect_source)로 url을 읽어 출처를 보존하고 normalize_procurement_data→validate_research→apply_research로 반영(사용자 요청 시만)',
-  source: '기본 웹 도구(없으면 firecrawl_scrape·collect_source)로 url을 읽어 save_source로 보존하고 값·URL·신뢰도를 답변(이 표 적재 도구 없음)',
+  apply: '기본 웹 도구(없으면 firecrawl_scrape, collect_source)로 url을 읽어 출처를 보존하고 normalize_procurement_data→validate_research→apply_research로 반영(사용자 요청 시만)',
+  source: '기본 웹 도구(없으면 firecrawl_scrape, collect_source)로 url을 읽어 save_source로 보존하고 값, URL, 신뢰도를 답변(이 표 적재 도구 없음)',
   derived: '웹 수집 대상 아님. after의 선행 수집을 성공시킨 뒤 다시 실행',
 } as const;
 /** 실패 시 대체 수집 안내(작게): 원문 쪽 주소, 뽑을 내용, 다음 행동 */
@@ -82,7 +82,7 @@ export async function ingestTool(name: string, args: Record<string, any>) {
           lastWrite: lw ? { id: lw.id, endedAt: lw.endedAt, written: lw.summary?.written ?? null } : null,
         });
       }
-      return { sources: out, note: '등급(tiers)·긴장도(tension)는 after에 적힌 수집을 먼저 반영한 뒤 실행한다' };
+      return { sources: out, note: '등급(tiers), 긴장도(tension)는 after에 적힌 수집을 먼저 반영한 뒤 실행한다' };
     }
     case 'run_ingest': {
       const parsed = runSchema.safeParse(clean(args));

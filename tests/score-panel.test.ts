@@ -13,15 +13,15 @@ const breakdown = (over: Partial<ScoreBreakdown> = {}): ScoreBreakdown => ({
   ...over,
 });
 
-describe('판단 점수 행·항목별 점수 패널', () => {
-  it('판단 점수 행은 누를 수 있는 행이고 국가·체계를 담는다', () => {
+describe('종합 점수 행, 항목별 점수 패널', () => {
+  it('종합 점수 행은 누를 수 있는 행이고 국가, 체계를 담는다', () => {
     const html = scoreRowHtml('ROU', 'sph', '42/100', false);
     expect(html).toContain('class="score-row"');
     expect(html).toContain('data-score-country="ROU"');
     expect(html).toContain('data-score-system="sph"');
     expect(html).toContain('role="button"');
     expect(html).toContain('aria-expanded="false"');
-    expect(html).toContain('<th>판단 점수</th><td>42/100');
+    expect(html).toContain('<th>종합 점수</th><td>42/100');
     expect(scoreRowHtml('ROU', 'sph', '42/100', true)).toContain('class="score-row open"');
   });
   it('7개 항목을 순서대로 점수/비중, 비율 막대, 자료 없음, 추정 표시와 함께 보여 준다', () => {
@@ -44,7 +44,7 @@ describe('판단 점수 행·항목별 점수 패널', () => {
     expect(html).not.toContain('독자 개발');
     expect(html).toContain(`최종 ${b.score.toFixed(1)}/100`);
   });
-  it('등급·독자 개발 계수와 제외 사유를 보여 주고 모든 글자를 이스케이프한다', () => {
+  it('등급, 독자 개발 계수와 제외 사유를 보여 주고 모든 글자를 이스케이프한다', () => {
     const b = breakdown({ tier: 2, tierFactor: 0.7, domestic: 'development', domesticFactor: 0.8 });
     const html = scorePanelHtml({ status: 'ok', data: b }, '#fff');
     expect(html).toContain('조건부 수출 가능 ×0.7');
@@ -59,7 +59,7 @@ describe('판단 점수 행·항목별 점수 패널', () => {
     expect(g).not.toContain('<script>');
     expect(g).toContain('최종 0 (제외)');
   });
-  it('불러오는 중·실패 상태 줄', () => {
+  it('불러오는 중, 실패 상태 줄', () => {
     expect(scorePanelHtml({ status: 'loading' }, '#fff')).toContain('불러오는 중');
     expect(scorePanelHtml({ status: 'error', message: '실패 <x>' }, '#fff')).toContain('<p class="score-status error">실패 &lt;x&gt;</p>');
   });

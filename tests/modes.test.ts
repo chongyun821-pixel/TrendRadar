@@ -23,21 +23,21 @@ async function insertLaserRows(repo: Repository) {
   await repo.run("INSERT INTO export_tiers(country,system,tier,tier_reasons,tier_checked_at,source_id,confidence,collected_at) VALUES ('GBR','laser',2,'{}',?,'tiers',1,?)", at, at);
 }
 
-describe('모드 정리: IFV 표기와 레이저대공무기 삭제 (마이그레이션 004·008)', () => {
+describe('모드 정리: IFV 표기와 레이저대공무기 삭제 (마이그레이션 004, 008)', () => {
   it('장갑차 ID ifv는 유지하고 표기만 IFV로 바뀐다', () => {
     expect(seed.systems.ifv.ko).toBe('IFV');
     expect(resolveSystem('IFV')).toBe('ifv');
     expect(resolveSystem('장갑차')).toBe('ifv');
     expect(seed.records.filter(r => r.system === 'ifv').length).toBeGreaterThan(0);
   });
-  it('레이저대공무기 체계·기록·별칭이 없고, 그 이름이 대공미사일로 풀리지 않는다', () => {
+  it('레이저대공무기 체계, 기록, 별칭이 없고, 그 이름이 대공미사일로 풀리지 않는다', () => {
     expect(SYSTEM_KEYS).not.toContain('laser');
     expect(Object.keys(seed.systems)).not.toContain('laser');
     expect(seed.records.some(r => (r.system as string) === 'laser')).toBe(false);
     for (const name of ['laser', '레이저대공무기', '레이저 대공무기 모드', '천광', 'DragonFire']) expect(resolveSystem(name), name).toBeNull();
     expect(resolveSystem('대공미사일')).toBe('sam');
   });
-  it('도구 설명·화면 맥락·조사 양식이 laser를 받지 않는다', () => {
+  it('도구 설명, 화면 맥락, 조사 양식이 laser를 받지 않는다', () => {
     const setMap = TOOL_DEFS.find(t => t.name === 'set_map_state')!;
     expect(setMap.properties.system.description).toContain('IFV');
     expect(setMap.properties.system.description).not.toContain('레이저');

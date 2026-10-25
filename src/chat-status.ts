@@ -19,7 +19,7 @@ export function toolActivity(name: string): string {
   if (/conversation|chat_model|run_status|cancel_run/.test(tool)) return '대화와 작업 상태 확인 중';
   if (/workspace_read|workspace_list/.test(tool)) return '보관 자료 확인 중';
   if (/workspace_write|file_change/.test(tool)) return '작업 파일 정리 중';
-  if (/query_procurement|get_country_analysis|search_programs|get_inventory|search_mro|research_history/.test(tool)) return '조달 자료 조회 중';
+  if (/query_procurement|get_country_analysis|search_programs|get_inventory|lookup_weapon|search_mro|research_history/.test(tool)) return '조달 자료 조회 중';
   return '작업 진행 중';
 }
 

@@ -1,4 +1,4 @@
-/** 데이터 수집 테이블(마이그레이션 004)의 읽기·쓰기. SQLite와 Supabase에서 같은 SQL과 같은 값 형식을 쓴다. */
+/** 데이터 수집 테이블(마이그레이션 004)의 읽기, 쓰기. SQLite와 Supabase에서 같은 SQL과 같은 값 형식을 쓴다. */
 import type { Repository } from './store';
 import type { BudgetRow, CapacityRow, ConsumptionRow, DomesticRow, ExportControlRow, ExportTierRow, InventoryRow, NeighborRow, PairEventRow, SignalRow, SystemKey, SystemLinkRow, WeightRow } from '../shared/types';
 import { SYSTEM_KEYS } from '../shared/types';

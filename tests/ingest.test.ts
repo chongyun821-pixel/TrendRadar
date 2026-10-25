@@ -57,7 +57,7 @@ const wb = (points: [string, string, number | null][]) => JSON.stringify([{ page
 const gdeltLine = (a1: string, a2: string, root: string, goldstein: number) => { const f = Array(58).fill(''); f[0] = '1'; f[1] = '20260915'; f[7] = a1; f[17] = a2; f[28] = root; f[30] = String(goldstein); return f.join('\t'); };
 
 describe('수집 공통', () => {
-  it('인자·CSV·국가명 매칭', () => {
+  it('인자, CSV, 국가명 매칭', () => {
     expect(parseArgs(['--dry-run', '--year', '2025', '--file=/x.csv'])).toEqual({ 'dry-run': true, year: '2025', file: '/x.csv' });
     expect(parseCsv('a,"b,""c"""\n1,2\r\n')).toEqual([['a', 'b,"c"'], ['1', '2']]);
     expect(['South Korea', 'Korea, South', 'Russia (Soviet Union)', 'Türkiye', 'Viet Nam', 'Singapore', '폴란드', 'NOR', 'Houthi rebels (Yemen)*', 'NATO**', 'Atlantis'].map(countryId))
@@ -84,7 +84,7 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect(await selectRows(repo, 'pair_events')).toEqual([]);
   });
 
-  it('SIPRI 이전: POST 본문 → signals(계약·인도)·inventory(누적 추정), 출처·신뢰도·수집일 기록', async () => {
+  it('SIPRI 이전: POST 본문 → signals(계약, 인도), inventory(누적 추정), 출처, 신뢰도, 수집일 기록', async () => {
     const calls: string[] = []; let body: any;
     const csv = readFileSync(fixture('sipri-transfers.csv'), 'utf8');
     const fetch = mockFetch({ [SIPRI_TRANSFERS_URL]: init => { body = JSON.parse(String(init?.body)); return JSON.stringify({ bytes: Buffer.from(csv, 'latin1').toString('base64') }); } }, calls);
@@ -105,7 +105,7 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect((await selectRows(repo, 'signals')).length).toBe(5);
   });
 
-  it('SIPRI 국방비(XLSX)와 World Bank: 실질 증가율·GDP 비율, 기존 값 보존', async () => {
+  it('SIPRI 국방비(XLSX)와 World Bank: 실질 증가율, GDP 비율, 기존 값 보존', async () => {
     await ingestSipriMilex({ fetch: mockFetch({ 'https://www.sipri.org/': () => new Response(Buffer.from(milexBook())) }), now: NOW, repo, year: 2025 });
     const pol = await selectRows(repo, 'budgets', { country: 'POL' });
     expect(pol.find(b => b.year === 2025)).toMatchObject({ usd_m: 46760.1, gdp_pct: 4.5, yoy_pct: 21.2, source_id: 'sipri_milex' });
@@ -127,7 +127,7 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect((await selectRows(repo, 'budgets', { country: 'POL', year: 2025 }))[0].gdp_usd_m).toBe(1039000);
   });
 
-  it('금수·ITAR → export_controls(비국가 대상·비구속은 partial)', async () => {
+  it('금수, ITAR → export_controls(비국가 대상, 비구속은 partial)', async () => {
     await ingestSipriEmbargoes({ file: fixture('sipri-embargoes.html'), now: NOW, repo });
     await ingestItar({ fetch: mockFetch({ 'https://www.law.cornell.edu/': () => readFileSync(fixture('itar-126-1.html'), 'utf8') }), now: NOW, repo });
     const rows = await selectRows(repo, 'export_controls');
@@ -140,7 +140,7 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect(rows.find(r => r.country === 'PRK' && r.regime === 'UN')).toMatchObject({ started: '2006-10-14', source_id: 'sipri_embargoes', url: 'https://www.sipri.org/databases/embargoes/un_arms_embargoes/north-korea' });
   });
 
-  it('UCDP·GDELT·Oryx → pair_events·consumption', async () => {
+  it('UCDP, GDELT, Oryx → pair_events, consumption', async () => {
     await ingestUcdp({ fetch: mockFetch({ 'https://ucdp.uu.se/': () => new Response(Buffer.from(zipSync({ 'BattleDeaths_v26_1.csv': strToU8(readFileSync(fixture('ucdp-brd.csv'), 'utf8')) }))) }), now: NOW, repo, year: 2026 });
     const ucdp = await selectRows(repo, 'pair_events', { source: ['ucdp', 'ucdp_intl'] });
     expect(ucdp.map(e => `${e.source}:${e.country}-${e.counterpart}:${e.period}:${e.fatalities}`)).toEqual([
@@ -162,7 +162,7 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect(losses[0]).toMatchObject({ user_country: 'RUS', target_country: 'UKR', kind: 'loss', conflict: 'russia-ukraine-2022', source_id: 'oryx_ukraine', confidence: 0.7, period: '2022-02~2026-10' });
   });
 
-  it('등급·긴장도 작업 후 판단 점수(통과 조건·근거 ID)', async () => {
+  it('등급, 긴장도 작업 후 종합 점수(통과 조건, 근거 ID)', async () => {
     const tiers = await ingestTiers({ now: NOW, repo, year: 2026 });
     expect(tiers.notes.join()).toContain('국가');
     const tier = async (country: string, system = '*') => (await selectRows(repo, 'export_tiers', { country, system }))[0];
@@ -170,13 +170,14 @@ describe('수집 스크립트(가짜 네트워크, SQLite)', () => {
     expect((await tier('RUS')).tier).toBe(3); // 한국 수출통제(수기 목록)
     expect((await tier('POL')).tier).toBe(1);
     expect((await tier('POL')).tier_reasons.reasons[0].evidence).toContain('signals:sipri:POL:south-korea:k-9-thunder-155mm:2022');
-    // 이집트·중국은 수기 지정으로 수출 불가(사유와 근거 ID 포함)
+    // 이집트, 중국은 수기 지정으로 수출 불가(사유와 근거 ID 포함)
     for (const c of ['EGY', 'CHN']) {
       const t = await tier(c);
       expect(t.tier).toBe(3);
       const manual = t.tier_reasons.reasons.find(r => r.code === 'embargo:MANUAL');
       expect(manual).toMatchObject({ tier: 3, evidence: [`export_controls:MANUAL:${c}`] });
-      expect(manual!.text).toContain('수출 불가');
+      expect(manual!.text).toContain('수기 지정');
+      expect(manual!.text).not.toContain(':');
     }
     expect((await tier('IND')).tier_reasons.reasons.map(r => r.code)).toContain('conflict-party');
     expect((await tier('FRA')).tier).toBe(2); // 한국산 이력 없음

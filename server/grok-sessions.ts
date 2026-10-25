@@ -1,4 +1,4 @@
-/** 앱이 만든 그록 빌드 세션 기록·정리(파일 시스템 주입, 순수 로직) */
+/** 앱이 만든 그록 빌드 세션 기록, 정리(파일 시스템 주입, 순수 로직) */
 
 export type FsLike = Pick<typeof import('node:fs'), 'existsSync' | 'readdirSync' | 'rmSync' | 'readFileSync' | 'writeFileSync' | 'mkdirSync'>;
 export type PathLike = Pick<typeof import('node:path'), 'join'>;

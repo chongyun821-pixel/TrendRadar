@@ -13,8 +13,9 @@ export async function listModels(env: Env) {
   const loc = await localAvailability(env);
   return MODELS.map(m => ({ id: m.id, name: m.name, available: m.local ? loc[m.id as 'grok' | 'codex'] : true }));
 }
-/** 기본 모델: OpenAI 키가 있으면 지피티, 없으면 쓸 수 있는(로컬 CLI 설치 또는 키 설정) 첫 모델 */
+/** 기본 모델: 사용 가능한 Codex CLI를 우선하고, 없으면 기존 키와 사용 가능 여부로 선택 */
 export function defaultModel(env: Env, models: { id: ModelId; available: boolean }[]): ModelId {
+  if (models.some(m => m.id === 'codex' && m.available)) return 'codex';
   if (env.OPENAI_API_KEY?.trim()) return 'gpt';
   const ready = (id: ModelId) => id === 'gpt' ? false : id === 'nemotron' ? !!env.OPENROUTER_API_KEY?.trim() : true;
   return models.find(m => m.available && ready(m.id))?.id || DEFAULT_MODEL;

@@ -17,7 +17,7 @@ describe('chat (지피티, OpenAI Responses)', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok({ error: { code: 'insufficient_quota' } }, 429)));
     expect((await chatOpenAI(user('안녕'), { OPENAI_API_KEY: 'fake' })).error).toBe('OpenAI 사용 한도나 결제 확인 필요');
   });
-  it('도구 호출 → 화면 동작·보고서 → 최종 답 (헤더·모델·추론 항목 반환·5xx 재시도)', async () => {
+  it('도구 호출 → 화면 동작, 보고서 → 최종 답 (헤더, 모델, 추론 항목 반환, 5xx 재시도)', async () => {
     const calls: any[] = [];
     let n = 0;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {

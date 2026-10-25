@@ -7,13 +7,13 @@ import { execution } from './execution';
 import { PROJECT_ROOT, hash, now } from './store';
 import { resolveCountry, resolveSystem, isGeneral } from '../shared/data';
 import { computeForecast } from '../shared/forecast';
-import { writeReport } from '../shared/tools';
+import { writeReport, REPORT_WRITING_RULE } from '../shared/tools';
 import type { ToolDef } from './agent';
 
 const S = (description: string) => ({ type: 'string' as const, description });
 export const REPORT_DEFS: ToolDef[] = [
-  { name: 'get_report_template', description: '기본 워드와 파워포인트 양식 정의, 버전 및 검수 기준을 조회한다', properties: { templateId: S('생략하면 전체 양식'), format: S('docx 또는 pptx') } },
-  { name: 'prepare_report', description: '요청 대상과 데이터, 예측 및 양식 버전을 고정한 문서 작성 자료를 보존한다', properties: { country: S('국가명. 생략하면 요청 당시 활성 화면의 국가'), system: S('무기체계. 전체는 general'), templateId: S('기본 word-country-v1'), purpose: S('독자와 작성 목적'), basis: S('latest 또는 viewed. 생략하면 열린 보고서 기준') } },
+  { name: 'get_report_template', description: `기본 워드와 파워포인트 양식 정의, 버전 및 검수 기준을 조회한다. ${REPORT_WRITING_RULE}`, properties: { templateId: S('생략하면 전체 양식'), format: S('docx 또는 pptx') } },
+  { name: 'prepare_report', description: `요청 대상과 데이터, 예측 및 양식 버전을 고정한 문서 작성 자료를 보존한다. ${REPORT_WRITING_RULE}`, properties: { country: S('국가명. 생략하면 요청 당시 활성 화면의 국가'), system: S('무기체계. 전체는 general'), templateId: S('기본 word-country-v1'), purpose: S('독자와 작성 목적'), basis: { type: 'string', enum: ['latest', 'viewed'], description: '최신 데이터 또는 열어 본 보고서 기준' } } },
 ];
 export function reportTemplates() { return JSON.parse(readFileSync(join(PROJECT_ROOT, 'templates/report-templates-v1.json'), 'utf8')); }
 export async function reportTool(name: string, a: Record<string, any>): Promise<unknown> {
@@ -45,7 +45,7 @@ export async function reportTool(name: string, a: Record<string, any>): Promise<
     if (!records.length) throw new Error('대상 국가와 체계의 자료가 없습니다');
     const sourceIds = new Set(records.flatMap(r => [...r.src, ...r.batches.flatMap(b => b.src), ...(r.awarded?.src || []), ...(r.plan?.src || []), ...(r.mro || []).flatMap(m => m.src), ...(r.signals || []).flatMap(s => s.src), ...(r.projects || []).flatMap(p => p.src), ...snapshot.data.systems[r.system].costSrc, ...(snapshot.data.systems[r.system].lifeSrc || [])]));
     packet = { basis, country, system: system || null, revision: snapshot.revision, basisDate: snapshot.data.meta.collected, records, forecasts: records.map(r => computeForecast(r, snapshot.data)), assumptions: snapshot.data.systems, meta: snapshot.data.meta, sources: Object.fromEntries(Object.entries(snapshot.data.sources).filter(([id]) => sourceIds.has(id))), analysis: writeReport({ country, system: system || undefined }, snapshot.data) };
-    // 케이스별 근거 표(양식 evidenceTable). 판단 점수는 예측이다
+    // 케이스별 근거 표(양식 evidenceTable). 종합 점수는 예측이다
     const cases = await Promise.all(records.map(r => scoreCase(ctx.repo, snapshot.data, r.country, r.system)));
     packet = { ...packet, evidenceTables: cases.map(evidenceTable), evidenceMarkdown: cases.map(evidenceTableMarkdown) };
   }

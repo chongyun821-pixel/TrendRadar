@@ -23,7 +23,7 @@ function data(records: ProgramRecord[]): Seed {
   } };
 }
 
-describe('자체 자료 유무에 따른 원색·빗금', () => {
+describe('자체 자료 유무에 따른 원색, 빗금', () => {
   it('각 체계의 자료 있는 국가는 자체 시기에 맞는 단색이며 자료 일부도 빗금을 치지 않는다', () => {
     for (const system of SYSTEM_KEYS) {
       const a = record('AAA', system), c = record('CCC', system);
@@ -34,7 +34,7 @@ describe('자체 자료 유무에 따른 원색·빗금', () => {
     }
     expect(new Set(Object.values(SYSTEM_COLOR)).size).toBe(SYSTEM_KEYS.length);
   });
-  it('자료 있는 육상 인접국이 없으면 빗금·순위 없이 바탕색으로 표시한다', () => {
+  it('자료 있는 육상 인접국이 없으면 빗금, 순위 없이 바탕색으로 표시한다', () => {
     const styles = mapCountryStyles(data([]), 'sph', geography);
     expect([...styles.values()].every(s => !s.hatched && s.coverage === 'missing' && s.referenceRank === null)).toBe(true);
     expect(styles.get('ISL')).toMatchObject({ rgb: MISSING_RGB, neighbors: [], neighborAmount: null, referenceScore: 0, remaining: null });
@@ -42,7 +42,7 @@ describe('자체 자료 유무에 따른 원색·빗금', () => {
     expect(single.get('BBB')).toMatchObject({ hatched: true, rgb: hexRgb(SYSTEM_COLOR.sph) }); // DB 미등록도 직접 이웃이면 후보
     expect(single.get('ISL')).toMatchObject({ hatched: false, rgb: MISSING_RGB, referenceRank: null });
   });
-  it('빈 레코드는 자료 없음, 사업 설명·출처·일부 장비가 있으면 자료 일부로 구분한다', () => {
+  it('빈 레코드는 자료 없음, 사업 설명, 출처, 일부 장비가 있으면 자료 일부로 구분한다', () => {
     const empty = { ...record('BBB'), batches: [], plan: undefined, src: [] };
     const narrative = { ...empty, country: 'CCC', projects: [{ id: 'p', buyer: 'CCC', supplier: 'X', stage: 'plan' as const, text: '사업 검토', src: [] }] };
     const styles = mapCountryStyles(data([record('AAA'), empty, narrative]), 'sph', geography);
@@ -51,8 +51,8 @@ describe('자체 자료 유무에 따른 원색·빗금', () => {
   });
 });
 
-describe('지도 단계·금액 크기·일반 지도 대표 무기', () => {
-  it('3년·10년 경계에서 100/50/20%로 구분하고 미확인은 별도로 유지한다', () => {
+describe('지도 단계, 금액 크기, 일반 지도 대표 무기', () => {
+  it('3년, 10년 경계에서 100/50/20%로 구분하고 미확인은 별도로 유지한다', () => {
     expect([-1, 0, 3, 4, 10, 11, 100, null].map(urgencyIntensity)).toEqual([1, 1, 1, 0.5, 0.5, 0.2, 0.2, 0.35]);
     expect([3, 10, 11, null].map(timingLabel)).toEqual(['3년 이내', '10년 이내', '10년 이후', '시기 미확인']);
     const records = ['AAA', 'BBB', 'CCC'].map(country => record(country));
@@ -74,7 +74,7 @@ describe('지도 단계·금액 크기·일반 지도 대표 무기', () => {
     expect(scaled.get('AAA')).toBeCloseTo(sizes.get('AAA')!);
     expect(scaled.get('BBB')).toBeCloseTo(sizes.get('BBB')!);
   });
-  it('같은 금액은 같은 크기이며 미확인·잘못된 금액을 크기값으로 만들지 않는다', () => {
+  it('같은 금액은 같은 크기이며 미확인, 잘못된 금액을 크기값으로 만들지 않는다', () => {
     const f = computeForecast(record('AAA'), data([]));
     expect(mapSizes([{ ...f, krw: null }]).has('AAA')).toBe(false);
     expect(mapSizes([{ ...f, krw: [NaN, 10] }]).has('AAA')).toBe(false);
@@ -82,7 +82,7 @@ describe('지도 단계·금액 크기·일반 지도 대표 무기', () => {
     const sizes = mapSizes([{ ...f, krw: [10, 20] }, { ...f, country: 'BBB', krw: [10, 20] }]);
     expect(sizes.get('AAA')).toBe(sizes.get('BBB'));
   });
-  it('일반 지도는 실제 점수가 가장 높은 무기를 고르고 제외·자료 없음·미확인 점수는 건너뛴다', () => {
+  it('일반 지도는 실제 점수가 가장 높은 무기를 고르고 제외, 자료 없음, 미확인 점수는 건너뛴다', () => {
     const fixture = data([record('AAA'), record('AAA', 'mrl'), record('BBB')]);
     const best = leadingWeapons(fixture, [
       { country: 'AAA', system: 'sph', score: 70, grey: false },
@@ -109,7 +109,7 @@ describe('같은 체계의 자료 있는 육상 인접국 참고 점수', () => 
     expect(styles.get('BBB')).toMatchObject({ neighbors: ['AAA'], hatched: true });
     expect(styles.get('DDD')).toMatchObject({ neighbors: [], referenceScore: 0, hatched: false, referenceRank: null });
   });
-  it('자료 일부·신뢰도 하도 세지만 중복 국경·자기 자신·자료 없는 국가는 세지 않는다', () => {
+  it('자료 일부, 신뢰도 하도 세지만 중복 국경, 자기 자신, 자료 없는 국가는 세지 않는다', () => {
     const partial = record('CCC'); partial.batches[0].qty = null; partial.plan!.qty = null;
     const borders: [string, string][] = [['AAA', 'BBB'], ['BBB', 'AAA'], ['AAA', 'BBB'], ['BBB', 'BBB'], ['CCC', 'BBB'], ['BBB', 'DDD'], ['AAA', 'DDD'], ['ZZZ', 'BBB']];
     const styles = mapCountryStyles(data([record('AAA'), partial]), 'sph', geography, borders);
@@ -149,7 +149,7 @@ describe('같은 체계의 자료 있는 육상 인접국 참고 점수', () => 
     expect(first.get('M05')).toMatchObject({ hatched: true, referenceRank: 6 });
     expect(first.get('AAA')?.referenceRank).toBeNull();
   });
-  it('자료가 바뀌면 후보·순위가 갱신되고 지도에 없는 빈 레코드는 순위에서 제외한다', () => {
+  it('자료가 바뀌면 후보, 순위가 갱신되고 지도에 없는 빈 레코드는 순위에서 제외한다', () => {
     const map = [square('AAA', -10), ...Array.from({ length: 6 }, (_, i) => square(`M0${i}`, i * 3))];
     const empty = { ...record('AAB'), batches: [], plan: undefined, src: [] };
     const before = mapCountryStyles(data([record('AAA'), empty]), 'sph', map, []);

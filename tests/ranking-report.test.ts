@@ -6,7 +6,7 @@ const item = (country: string, window: [number, number] | null, score = 0, statu
   ({ country, countryKo: country, systemKo: '자주포', window, score, status } as Forecast);
 
 describe('수주 도래 순위', () => {
-  it('시기 미확인을 제외하고 시작·종료 연도와 임박도 순으로 정렬한다', () => {
+  it('시기 미확인을 제외하고 시작, 종료 연도와 임박도 순으로 정렬한다', () => {
     const rows = [item('뒤', [2028, 2030]), item('미확인', null), item('동점 낮음', [2026, 2028], 40), item('먼 종료', [2026, 2032], 90), item('동점 높음', [2026, 2028], 80)];
     expect(rankByWindow(rows, 3).map(f => f.country)).toEqual(['동점 높음', '동점 낮음', '먼 종료']);
     expect(rows[0].country).toBe('뒤');

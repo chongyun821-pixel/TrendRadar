@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyCountry, classifyTier, type TierFacts } from '../shared/tiers';
+import { classifyCountry, classifyTier, cleanTierReason, type TierFacts } from '../shared/tiers';
 import { computeTension, geoFeatures, landNeighbors, rivals, seaNeighbors } from '../shared/tension';
 import type { ExportControlRow, PairEventRow } from '../shared/types';
 
@@ -7,18 +7,18 @@ const control = (country: string, regime: string, status: ExportControlRow['stat
 const facts = (o: Partial<TierFacts> = {}): TierFacts => ({ country: 'POL', controls: [], koreanDeliveries: 3, koreanEvidence: ['signals:a'], conflictParty: false, ...o });
 
 describe('고객 등급 규칙', () => {
-  it('제재·금수 없고 한국산 인도 이력이 있으면 수출 가능', () => {
+  it('제재, 금수 없고 한국산 인도 이력이 있으면 수출 가능', () => {
     const r = classifyTier(facts());
     expect(r.tier).toBe(1);
     expect(r.record.reasons[0]).toMatchObject({ code: 'clear', evidence: ['signals:a'] });
   });
-  it('UN·EU·한국 통제는 수출 불가, 해제된 금수는 무시', () => {
+  it('UN, EU, 한국 통제는 수출 불가, 해제된 금수는 무시', () => {
     expect(classifyTier(facts({ country: 'PRK', controls: [control('PRK', 'UN')] })).tier).toBe(3);
     expect(classifyTier(facts({ country: 'RUS', controls: [control('RUS', 'KR')] })).record.reasons[0].evidence).toEqual(['export_controls:KR:RUS']);
     expect(classifyTier(facts({ controls: [control('POL', 'EU', 'lifted')] })).tier).toBe(1);
-    expect(classifyTier(facts({ controls: [control('ROU', 'UN')] })).tier).toBe(1); // 다른 나라 행
+    expect(classifyTier(facts({ controls: [control('ROU', 'UN')] })).tier).toBe(1); // 다른 국가 행
     const partial = classifyTier(facts({ country: 'LBN', controls: [control('LBN', 'UN', 'partial')] }));
-    expect(partial.tier).toBe(2); // 비국가 대상·비구속 금수는 승인 필요
+    expect(partial.tier).toBe(2); // 비국가 대상, 비구속 금수는 승인 필요
     expect(partial.record.reasons[0].code).toBe('partial:UN');
   });
   it('ITAR (d)(2)는 미국산 부품이 있는 체계만 수출 불가, 나머지는 조건부 수출 가능', () => {
@@ -27,7 +27,7 @@ describe('고객 등급 규칙', () => {
     expect(rows.map(r => [r.system, r.tier])).toEqual([['*', 2], ['sph', 2], ['sam', 3], ['ssk', 2]]);
     expect(rows[3].record.approvals).toContain('ssk 체계의 미국산 부품 사용 여부 미확인');
   });
-  it('이력·협정 없음, 분쟁 당사국, 미국산 부품은 조건부 수출 가능과 승인 항목', () => {
+  it('이력, 협정 없음, 분쟁 당사국, 미국산 부품은 조건부 수출 가능과 승인 항목', () => {
     const r = classifyTier(facts({ koreanDeliveries: 0, conflictParty: true, conflictEvidence: ['pair_events:ucdp:A:B:2024'] }), { system: 'sam', usItar: true });
     expect(r.tier).toBe(2);
     expect(r.record.reasons.map(x => x.code)).toEqual(['no-history', 'conflict-party', 'us-components']);
@@ -52,7 +52,7 @@ describe('인접국과 긴장도', () => {
     expect(rivals([ev('IND', 'PAK', 900), ev('PAK', 'IND', 300), ev('IND', 'NPL', 10)], 3, 50)).toEqual([['IND', 'PAK']]);
     expect(rivals([ev('IND', 'PAK', 900, '2018-01')], 3, 50, '2021-01')).toEqual([]);
   });
-  it('긴장도는 충돌·이벤트·군비·영토 가중합이며 동맹이면 30% 감산', () => {
+  it('긴장도는 충돌, 이벤트, 군비, 영토 가중합이며 동맹이면 30% 감산', () => {
     const events: PairEventRow[] = [
       { source: 'ucdp', country: 'IND', counterpart: 'PAK', period: '2025', fatalities: 999, confidence: 1 },
       { source: 'gdelt', country: 'IND', counterpart: 'PAK', period: '2025-06', events: 5000, goldstein: -10, confidence: 0.4 },
@@ -75,7 +75,7 @@ describe('인접국과 긴장도', () => {
 });
 
 describe('등급 표기와 수기 지정', () => {
-  it('표기는 수출 가능·조건부 수출 가능·수출 불가', async () => {
+  it('표기는 수출 가능, 조건부 수출 가능, 수출 불가', async () => {
     const { TIER_KO, tierLabel } = await import('../shared/tiers');
     expect(TIER_KO).toEqual({ 1: '수출 가능', 2: '조건부 수출 가능', 3: '수출 불가' });
     expect(tierLabel(null)).toBe('미판정');
@@ -86,7 +86,17 @@ describe('등급 표기와 수기 지정', () => {
     expect(r.tier).toBe(3);
     expect(r.record.reasons[0].text).toContain('수기 지정');
   });
-  it('기준 목록에 EGY·CHN 수출 불가 지정과 사유가 있다', async () => {
+  it('MANUAL과 KR 제외 사유는 콜론을 하나만 포함한다', () => {
+    const manual = classifyTier(facts({ country: 'EGY', controls: [{ id: 'MANUAL:EGY', country: 'EGY', regime: 'MANUAL', name: '수기 지정 수출 불가: 사업 판단상 제외', status: 'active' }] }));
+    const kr = classifyTier(facts({ country: 'RUS', controls: [{ id: 'KR:RUS', country: 'RUS', regime: 'KR', name: '대러 수출통제(2022~)', status: 'active' }] }));
+    for (const result of [manual, kr]) {
+      const gateReason = `수출 불가: ${cleanTierReason(result.record.reasons.filter(reason => reason.tier === 3).map(reason => reason.text).join(', '))}`;
+      expect((gateReason.match(/:/g) || []).length).toBe(1);
+    }
+    expect(cleanTierReason(manual.record.reasons[0].text)).toBe('수기 지정, 사업 판단상 제외');
+    expect(kr.record.reasons[0].text).toBe('한국 수출통제 대상국, 대러 수출통제(2022~)');
+  });
+  it('기준 목록에 EGY, CHN 수출 불가 지정과 사유가 있다', async () => {
     const { readReference } = await import('../server/ingest/tiers');
     const manual = readReference().controls.filter(c => c.regime === 'MANUAL');
     expect(manual.map(c => c.country).sort()).toEqual(['CHN', 'EGY']);

@@ -10,7 +10,7 @@ export interface ArtifactDownload { id: string; name: string; url: string }
 export const WORD_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 export const POWERPOINT_MIME = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
-/** CLI의 기존 문서 도구가 완성한 파일을 검증·보존한다. 문서 내용이나 서식은 만들지 않는다. */
+/** CLI의 기존 문서 도구가 완성한 파일을 검증, 보존한다. 문서 내용이나 서식은 만들지 않는다. */
 export async function publishArtifact(path: string, ctx?: Execution, metadata: { preparationId?: string; review?: string } = {}): Promise<ArtifactDownload> {
   ctx ??= await execution();
   ctx.signal.throwIfAborted();

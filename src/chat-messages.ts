@@ -1,5 +1,6 @@
-/** 채팅 메시지 목록 그리기: 저장된 메시지·보고서·다운로드, 대기·전송 중인 사용자 메시지 */
+/** 채팅 메시지 목록 그리기: 저장된 메시지, 보고서, 다운로드, 대기, 전송 중인 사용자 메시지 */
 import { md } from './md';
+import { decorateWeaponTerms } from './weapon-tooltip';
 import type { Conversation, Message, QueuedMessage, ReportEntry } from './chat-api';
 
 export function createMessageList(list: HTMLElement) {
@@ -14,7 +15,7 @@ export function createMessageList(list: HTMLElement) {
     return div;
   }
   function addReport(entry: ReportEntry) {
-    const div = add('report', md(entry.markdown)); div.dataset.reportId = entry.id;
+    const div = add('report', md(entry.markdown)); div.dataset.reportId = entry.id; void decorateWeaponTerms(div);
     return div;
   }
   function renderMessage(message: Message) {
@@ -23,6 +24,7 @@ export function createMessageList(list: HTMLElement) {
       const div = add('report', md(report));
       const ref = message.reportRefs?.[index] || reportEntries.filter(r => r.markdown === report && (!message.created_at || r.createdAt <= message.created_at)).at(-1);
       if (ref) div.dataset.reportId = ref.id;
+      void decorateWeaponTerms(div);
     }
     if (message.text) add('bot', md(message.text), message.model);
     if (message.files?.length) {

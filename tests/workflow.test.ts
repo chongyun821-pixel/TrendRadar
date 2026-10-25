@@ -43,7 +43,7 @@ async function submission() {
   return { record: { country: '폴란드', system: '자주포', batches: [{ model: '새 장비', qty: '12문', introYear: '2028년', src: ['new-source'] }], src: ['new-source'] }, sources: { 'new-source': { ...saved, t: '가상 원문', u: 'https://example.org/evidence', y: 2026 } }, evidence: [{ path: 'batches', sourceId: 'new-source', quote: '신규 장비 12문을 2028년에 도입한다.' }], reason: '가상 도입 기록 추가', asOf: '2026-10-17' };
 }
 describe('화면 도구 set_map_state', () => {
-  it('일반 필드에 한국어 이름·ISO 코드·별칭을 받고, 브라우저 적용 결과를 기다려 바로 돌려준다', async () => {
+  it('일반 필드에 한국어 이름, ISO 코드, 별칭을 받고, 브라우저 적용 결과를 기다려 바로 돌려준다', async () => {
     const f = await fixture(), screen = fakeScreen(), before = (await f.repo.one('SELECT count(*) AS n FROM app_commands')).n;
     try { await executions.run(f.ctx, async () => {
       expect(await runTool('set_map_state', { country: '핀란드', system: '자주포', flat: true }, newOut())).toMatchObject({ ok: true, status: 'applied', screenId: screen.id });
@@ -58,7 +58,7 @@ describe('화면 도구 set_map_state', () => {
       expect((await f.repo.one('SELECT count(*) AS n FROM app_commands')).n).toBe(before);
     }); } finally { await f.repo.close(); }
   });
-  it('숨겨진 탭도 적용하고 hidden을 알리며, 적용 실패·시간 초과를 구분하고 시간 초과는 다시 적용하지 않는다', async () => {
+  it('숨겨진 탭도 적용하고 hidden을 알리며, 적용 실패, 시간 초과를 구분하고 시간 초과는 다시 적용하지 않는다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const hidden = fakeScreen();
@@ -188,11 +188,11 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       await expect(validateAppContext(f.repo, { ...state, report: { ...state.report, dataVersion: 999 } })).rejects.toThrow(/기준/);
     } finally { await f.repo.close(); }
   });
-  it('대화 전환·모델 변경·보고서 표시는 가장 최근에 사용한 탭으로 가고, 사용자가 화면을 바꿨어도 적용한다', async () => {
+  it('대화 전환, 모델 변경, 보고서 표시는 가장 최근에 사용한 탭으로 가고, 사용자가 화면을 바꿨어도 적용한다', async () => {
     const f = await fixture();
     try { await executions.run(f.ctx, async () => {
       const older = fakeScreen(), newer = fakeScreen();
-      updateScreen(newer.id, { state: { ...f.state, focus: 'CAN' } }); // 사용자가 화면을 바꿈(버전·충돌 개념 없음)
+      updateScreen(newer.id, { state: { ...f.state, focus: 'CAN' } }); // 사용자가 화면을 바꿈(버전, 충돌 개념 없음)
       const other = await f.repo.createConversation();
       expect(await runTool('switch_conversation', { conversationId: other.id }, newOut())).toMatchObject({ status: 'applied', screenId: newer.id });
       expect(newer.commands.at(-1)).toEqual({ type: 'switch_conversation', conversationId: other.id });

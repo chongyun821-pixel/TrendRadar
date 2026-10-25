@@ -1,6 +1,9 @@
 import type { Category, Forecast, ProgramRecord, Project, ProjectStage, ProgramView, Seed, SystemMeta, Batch, BatchCalc, Source, SystemKey, ScoreBreakdown, ScoreComponent, ScoreFactor, SignalRow, InventoryRow, BudgetRow, NeighborRow, ConsumptionRow, CapacityRow, DomesticRow, SystemLinkRow, ExportTierRow, SignalStage, TierReason } from './types';
 import { seed as defaultSeed } from './data';
 import { isRecent, recentRange } from './base-year';
+import { cleanTierReason } from './tiers';
+import { countryName } from './country-name';
+import { koreanizeHanwha } from './hanwha';
 
 export const DEFAULT_RATIO: [number, number] = [0.6, 1.0];
 /** 사업 규모(억 원) 로그 스케일 범위: 100억 ~ 50만억 */
@@ -18,7 +21,7 @@ export function categoryOf(remaining: number | null): Category {
   return 'blue';
 }
 
-/** 임박도 점수 0~100: 남은 기간이 짧을수록, 노후 비율·최근 신호가 많을수록 높다 */
+/** 임박도 점수 0~100: 남은 기간이 짧을수록, 노후 비율, 최근 신호가 많을수록 높다 */
 export function imminenceScore(remaining: number, agedShare = 0, signals = 0): number {
   const s = 100 * Math.exp(-Math.max(0, remaining) / 7) + 10 * agedShare + Math.min(15, 5 * signals);
   return Math.round(Math.max(0, Math.min(100, s)));
@@ -40,10 +43,10 @@ export function confidenceOf(nSources: number, latestYear: number, estCount: num
 }
 
 const r10 = (n: number) => Math.round(n);
-/** 현재 운용 배치(퇴역·도입 예정·0대 제외). 기준 연도 기본값은 meta.baseYear */
+/** 현재 운용 배치(퇴역, 도입 예정, 0대 제외). 기준 연도 기본값은 meta.baseYear */
 export const isCurrentBatch = (b: Batch, base = defaultSeed.meta.baseYear) => b.status !== 'retired' && b.status !== 'planned' && b.qty !== 0 && (b.introYear == null || b.introYear <= base);
 
-/** 설계 수명에 실제 출처(systems.lifeSrc)가 하나라도 있으면 추정이 아니다 */
+/** 설계 수명에 실제 출처(systems.lifeSrc)가 하국가도 있으면 추정이 아니다 */
 export const lifeSourced = (sys: SystemMeta, data: Seed) => !!sys.lifeSrc?.some(id => data.sources[id]);
 
 /* ───────── 진행 중 사업(projects) ───────── */
@@ -54,6 +57,7 @@ export const COMMITTED_STAGES: readonly ProjectStage[] = ['selected', 'contract'
 /** 선정 전 경쟁 단계. 사업 기회로 남는다 */
 export const OPEN_STAGES: readonly ProjectStage[] = ['consideration', 'plan', 'tender'];
 const projectYear = (p: Project) => p.contractYear ?? p.decisionYear ?? p.deliveryStart ?? p.deliveryEnd ?? 0;
+const hasProjectYear = (p: Project) => Number.isInteger(projectYear(p)) && projectYear(p) >= 1800 && projectYear(p) <= 2300;
 const coverOf = (p: Project) => Math.max(0, Math.min(1, p.covers ?? 1));
 
 /**
@@ -63,12 +67,12 @@ const coverOf = (p: Project) => Math.max(0, Math.min(1, p.covers ?? 1));
 export function programOf(rec: ProgramRecord, unit = '', base = defaultSeed.meta.baseYear): ProgramView | null {
   const live = (rec.projects ?? []).filter(p => p.stage !== 'cancelled');
   const byRecent = (a: Project, b: Project) => projectYear(b) - projectYear(a);
-  const committed = live.filter(p => COMMITTED_STAGES.includes(p.stage)).sort(byRecent);
+  const committed = live.filter(p => COMMITTED_STAGES.includes(p.stage) && hasProjectYear(p)).sort(byRecent);
   const p = committed[0] ?? live.filter(p => OPEN_STAGES.includes(p.stage)).sort(byRecent)[0];
   if (p) {
     const open = !COMMITTED_STAGES.includes(p.stage);
     const v: ProgramView = {
-      id: p.id, stage: p.stage, stageKo: PROJECT_STAGE_KO[p.stage], supplier: p.supplier || null, model: p.model ?? null, reserve: p.reserve ?? null,
+      id: p.id, stage: p.stage, stageKo: PROJECT_STAGE_KO[p.stage], supplier: p.supplier ? (/^[A-Z]{3}$/.test(p.supplier) ? countryName(p.supplier) : koreanizeHanwha(p.supplier)) : null, model: p.model ?? null, reserve: p.reserve ? (/^[A-Z]{3}$/.test(p.reserve) ? countryName(p.reserve) : koreanizeHanwha(p.reserve)) : null,
       qty: p.qty ?? null, amount: p.amount ?? null, currency: p.currency ?? null,
       decisionYear: p.decisionYear ?? null, contractYear: p.contractYear ?? null, deliveryStart: p.deliveryStart ?? null, deliveryEnd: p.deliveryEnd ?? null,
       covers: open ? 0 : Math.min(1, committed.reduce((s, x) => s + coverOf(x), 0)), open, reason: '', text: p.text, est: p.est ?? [], src: p.src,
@@ -91,7 +95,9 @@ export function programOf(rec: ProgramRecord, unit = '', base = defaultSeed.meta
 /** 근거 문구. 예: "진행 중 사업(계약 체결): Lockheed Martin M142 HIMARS 26대, 2026 계약, 2029~2034 인도 예정" */
 export function programReason(p: ProgramView, unit = '', base = defaultSeed.meta.baseYear) {
   const e = (f: string) => (p.est.includes(f) ? ' (추정)' : '');
-  const head = [p.supplier, p.model, p.qty != null ? `${p.qty.toLocaleString()}${unit}${e('qty')}` : null].filter(Boolean).join(' ');
+  const supplier = p.supplier ? (/^[A-Z]{3}$/.test(p.supplier) ? countryName(p.supplier) : koreanizeHanwha(p.supplier)) : p.supplier;
+  const reserve = p.reserve ? (/^[A-Z]{3}$/.test(p.reserve) ? countryName(p.reserve) : koreanizeHanwha(p.reserve)) : p.reserve;
+  const head = [supplier, p.model, p.qty != null ? `${p.qty.toLocaleString()}${unit}${e('qty')}` : null].filter(Boolean).join(' ');
   const parts: string[] = head ? [head] : [];
   if (p.stage === 'selected') {
     if (p.decisionYear != null) parts.push(`${p.decisionYear} 공급자 선정${e('decisionYear')}`);
@@ -101,9 +107,9 @@ export function programReason(p: ProgramView, unit = '', base = defaultSeed.meta
   if (ds != null && de != null) parts.push(`${ds}${e('deliveryStart')}~${de}${e('deliveryEnd')} 인도${future(de)}`);
   else if (ds != null) parts.push(`${ds}년 인도 시작${future(ds)}${e('deliveryStart')}`);
   else if (de != null) parts.push(`${de}년 인도 완료${future(de)}${e('deliveryEnd')}`);
-  if (p.reserve) parts.push(`예비 공급자 ${p.reserve}`);
+  if (reserve) parts.push(`예비 공급자 ${reserve}`);
   if (!parts.length) parts.push(p.text);
-  return `${p.open ? '선정 전 경쟁' : '진행 중 사업'}(${p.stageKo}): ${parts.join(', ')}`;
+  return `${p.open ? '선정 전 경쟁' : '진행 중 사업'}(${p.stageKo}), ${parts.join(', ')}`;
 }
 
 /** 공급자가 정해진 사업이 기존 전력 교체 수요를 모두 채워 다음 교체 시점이 '후속 주기'인 경우 */
@@ -117,7 +123,7 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
   const ratio = rec.ratio ?? DEFAULT_RATIO;
   const ratioEst = rec.ratio ? !!rec.ratioEst : true;
   const calc: string[] = [];
-  let estCount = 0; // 레코드 고유 추정 항목 수 (설계 수명·교체 비율 기본값은 별도)
+  let estCount = 0; // 레코드 고유 추정 항목 수 (설계 수명, 교체 비율 기본값은 별도)
   const lifeEst = !lifeSourced(sys, seed);
   const baseEst = (lifeEst ? 1 : 0) + (ratioEst ? 1 : 0) + (sys.unitCostEst ? 1 : 0);
 
@@ -127,7 +133,7 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
     return { model: b.model, introYear: b.introYear, qty: b.qty, life, ext, year: b.introYear == null ? null : replacementYear(b.introYear, life, ext), primary: b.primary, status: b.status, est: b.est ?? [] };
   });
   const program = programOf(rec, sys.unit, base);
-  // 공급자가 정해진 사업이라도 계약·선정·인도 연도가 하나도 없으면 후속 주기를 셀 수 없으므로 교체 계산에 쓰지 않는다(설명만 있는 사업)
+  // 공급자가 정해진 사업이라도 계약, 선정, 인도 연도가 하나도 없으면 후속 주기를 셀 수 없으므로 교체 계산에 쓰지 않는다(설명만 있는 사업)
   const hasYear = (p: ProgramView) => [p.deliveryStart, p.deliveryEnd, p.contractYear, p.decisionYear].some(y => y != null);
   const committed = program && !program.open && program.id !== 'awarded' && hasYear(program) ? program : null;
   if (committed) estCount += committed.est.length;
@@ -238,7 +244,7 @@ export function computeForecast(rec: ProgramRecord, seed: Seed = defaultSeed, ba
   const current = active.map(x => x.c).sort((a, b) => Number(!!b.primary) - Number(!!a.primary) || (b.qty ?? -1) - (a.qty ?? -1) || (b.introYear ?? 0) - (a.introYear ?? 0))[0] ?? null;
 
   return {
-    id: rec.id, country: rec.country, countryKo: c?.ko ?? rec.country, flag: c?.flag ?? '', system: rec.system, systemKo: sys.ko, unit: sys.unit,
+    id: rec.id, country: rec.country, countryKo: countryName(rec.country, seed), flag: c?.flag ?? '', system: rec.system, systemKo: sys.ko, unit: sys.unit,
     status, window, remaining, category, score, qty, krw, size: status === 'none' ? 0 : sizeNorm(krw),
     confidence, nSources: sources.length, latestSource: latest, estCount,
     current, batches, calc, sources, qtyEst, krwEst: qtyEst || sys.unitCostEst, lifeEst, program,
@@ -250,21 +256,38 @@ export function allForecasts(system?: SystemKey | null, seed: Seed = defaultSeed
 }
 
 export const CATEGORY_KO: Record<Category, string> = { red: '2년 이내', orange: '3~5년', yellow: '6~10년', blue: '10년 이후', gray: '데이터 부족' };
-export const fmtKrw = (n: number) => n >= 10000 ? `${(n / 10000).toFixed(n >= 100000 ? 0 : 1)}조` : `${n.toLocaleString()}억`;
-export const fmtKrwRange = (k: [number, number] | null) => k ? `${fmtKrw(k[0])}~${fmtKrw(k[1])} 원` : '금액 미확인';
+/** 억원 단위 금액을 화면과 보고서에서 공통으로 표기한다. */
+export function formatKrw(amountInEok: number): string {
+  if (amountInEok === 0) return '0억';
+  const sign = amountInEok < 0 ? '-' : '';
+  const amount = Math.abs(amountInEok);
+  if (amount >= 10000) {
+    const trillion = Math.round(amount / 1000) / 10;
+    return `${sign}${Number.isInteger(trillion) ? trillion : trillion.toFixed(1)}조`;
+  }
+  if (amount >= 100) {
+    const eok = Math.round(amount);
+    if (eok >= 10000) return `${sign}1조`;
+    return `${sign}${eok.toLocaleString('en-US')}억`;
+  }
+  const eok = Math.round(amount * 10) / 10;
+  return `${sign}${Number.isInteger(eok) ? eok : eok.toFixed(1)}억`;
+}
+export const fmtKrw = formatKrw;
+export const fmtKrwRange = (k: [number, number] | null) => k ? `${formatKrw(k[0])}~${formatKrw(k[1])} 원` : '금액 미확인';
 export const fmtQtyRange = (q: [number, number] | null, unit: string) => q ? `${q[0].toLocaleString()}~${q[1].toLocaleString()}${unit}` : '수량 미확인';
 
-/* ───────── 수출 판단 점수 (요구서 6장) ───────── */
+/* ───────── 수출 종합 점수 (요구서 6장) ───────── */
 
-/** weights 테이블이 비었거나 일부만 있을 때 쓰는 요구서 기본값. tier·domestic 계수도 같은 표에서 조정한다. */
+/** weights 테이블이 비었거나 일부만 있을 때 쓰는 요구서 기본값. tier, domestic 계수도 같은 표에서 조정한다. */
 export const DEFAULT_WEIGHTS: Record<string, number> = { intent: 20, aging: 20, fiscal: 15, neighbor: 15, consumption: 10, competition: 15, access: 5, tier1: 1, tier2: 0.7, domestic_development: 0.8 };
 export const SCORE_FACTORS: { factor: ScoreFactor; label: string }[] = [
   { factor: 'intent', label: '도입 의사 표명' }, { factor: 'aging', label: '노후화' }, { factor: 'fiscal', label: '재정 여력' }, { factor: 'neighbor', label: '주변국 압력' },
   { factor: 'consumption', label: '소모 보충' }, { factor: 'competition', label: '경쟁 우위' }, { factor: 'access', label: '접근성' },
 ];
-/** 도입 의사 단계 점수(20점 만점): 검토 5, 입찰 15, 선정 대기 20. 계약·인도·취소는 열린 수요가 아니다. */
-export const STAGE_POINTS: Record<SignalStage, number> = { review: 5, tender: 15, selection: 20, contract: 0, delivery: 0, cancelled: 0 };
-/** 출처 신뢰도: 공식 발표·DB 1.0, 전문 매체 0.7, 일반 뉴스·X 0.4. 값이 없으면 가장 낮은 값으로 본다. */
+/** 도입 의사 단계 점수(20점 만점): 검토 5, 입찰 15, 선정 대기 20. 계약, 인도, 취소는 열린 수요가 아니다. */
+export const STAGE_POINTS: Record<SignalStage, number> = { consideration: 5, tender: 15, selected: 20, contract: 0, delivery: 0, cancelled: 0 };
+/** 출처 신뢰도: 공식 발표, DB 1.0, 전문 매체 0.7, 일반 뉴스, X 0.4. 값이 없으면 가장 낮은 값으로 본다. */
 export const SOURCE_CONFIDENCE = { official: 1, specialist: 0.7, news: 0.4 } as const;
 const FORECAST_CONFIDENCE = { 상: 1, 중: 0.7, 하: 0.4 } as const;
 
@@ -274,7 +297,7 @@ export interface ScoreInputs {
   signals?: SignalRow[]; inventory?: InventoryRow[]; budgets?: BudgetRow[];
   neighbors?: NeighborRow[]; neighborSignals?: SignalRow[]; neighborBudgets?: BudgetRow[];
   consumption?: ConsumptionRow[]; capacity?: CapacityRow[]; links?: SystemLinkRow[];
-  /** 같은 체계의 전체 국가 신호(그룹사·경쟁사 수주 실적 비교용) */
+  /** 같은 체계의 전체 국가 신호(그룹사, 경쟁사 수주 실적 비교용) */
   systemSignals?: SignalRow[];
   /** 기존 기록 예측. 보유 이력 테이블이 비었을 때 노후화 판단에 쓴다 */
   forecast?: Forecast | null; designLife?: number;
@@ -305,9 +328,9 @@ export function growth3y(budgets: BudgetRow[], base?: number): { value: number |
 
 /**
  * 인도 연도(delivered_year)가 없는 보유 행의 추정 규칙(노후화). retire_year가 있으면 그 값을 쓰고 추정하지 않는다.
- * 1) 같은 모델 기존 기록 배치의 도입 연도 2) 같은 모델 계약·인도 신호의 가장 이른 연도(사업 연도)
+ * 1) 같은 모델 기존 기록 배치의 도입 연도 2) 같은 모델 계약, 인도 신호의 가장 이른 연도(사업 연도)
  * 3) 둘 다 없으면 기준 연도 − 설계 수명의 절반(수명 중간에 있는 전력으로 가정).
- * 추정 행의 신뢰도는 원래 신뢰도에 근거 있는 추정(1·2) 0.7, 기본값(3) 0.4를 곱한다.
+ * 추정 행의 신뢰도는 원래 신뢰도에 근거 있는 추정(1, 2) 0.7, 기본값(3) 0.4를 곱한다.
  */
 export const INVENTORY_ESTIMATE = { derived: 0.7, default: 0.4 } as const;
 export type DeliveryBasis = 'batch' | 'signal' | 'default';
@@ -331,7 +354,7 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
   const signals = (input.signals || []).filter(s => s.system === input.system);
   const imminence: number[] = [];
 
-  // 진행 중 사업: 공급자가 정해져 교체 수요를 채웠으면 그 사업의 신호·기존 전력 노후화는 열린 수요가 아니다
+  // 진행 중 사업: 공급자가 정해져 교체 수요를 채웠으면 그 사업의 신호, 기존 전력 노후화는 열린 수요가 아니다
   const met = needMet(input.forecast) ? input.forecast : null;
   const prog = met?.program ?? null;
   const decided = prog ? (prog.decisionYear ?? prog.contractYear ?? base) : null;
@@ -384,19 +407,19 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
     add('fiscal', raw, confOf(rows), [...new Set(rows.map(evidenceId.budget))], `3년 평균 증가율 ${g.value == null ? '미상' : `${round1(g.value)}%`}, GDP 대비 ${latest ? `${round1(latest.gdp_pct!)}%(${latest.year})` : '미상'}`);
   } else add('fiscal', 0, 0, [], '국방비 자료 없음', true);
 
-  // 주변국 압력: 인접국별 (신규 구매·국방비 증가율) × 긴장도 중 최대
+  // 주변국 압력: 인접국별 (신규 구매, 국방비 증가율) × 긴장도 중 최대
   const near = (input.neighbors || []).filter(n => n.tension != null);
   if (near.length) {
     const scored = near.map(n => {
-      const buys = (input.neighborSignals || []).filter(s => s.country === n.neighbor && s.system === input.system && ['selection', 'contract', 'delivery'].includes(s.stage) && isRecent(yearOf(s), base));
+      const buys = (input.neighborSignals || []).filter(s => s.country === n.neighbor && s.system === input.system && ['selected', 'contract', 'delivery'].includes(s.stage) && isRecent(yearOf(s), base));
       const ng = growth3y((input.neighborBudgets || []).filter(b => b.country === n.neighbor), base);
       return { n, buys, ng, v: (n.tension! / 100) * (0.5 * Math.min(1, buys.length / 3) + 0.5 * clamp01((ng.value ?? 0) / 10)) };
     }).sort((a, b) => b.v - a.v);
     const top = scored[0], tensionEst = !!(top.n.components as { estimated?: unknown } | null)?.estimated;
-    add('neighbor', top.v, confOf([top.n, ...top.buys]), [evidenceId.neighbor(top.n), ...top.buys.map(evidenceId.signal), ...top.ng.rows.map(evidenceId.budget)], `${top.n.neighbor} 긴장도 ${round1(top.n.tension!)}${tensionEst ? ' (추정)' : ''}, 최근 3년(${recentRange(base)}) 구매 ${top.buys.length}건, 국방비 증가율 ${top.ng.value == null ? '미상' : `${round1(top.ng.value)}%`}`, false, tensionEst);
+    add('neighbor', top.v, confOf([top.n, ...top.buys]), [evidenceId.neighbor(top.n), ...top.buys.map(evidenceId.signal), ...top.ng.rows.map(evidenceId.budget)], `${countryName(top.n.neighbor)} 긴장도 ${round1(top.n.tension!)}${tensionEst ? ' (추정)' : ''}, 최근 3년(${recentRange(base)}) 구매 ${top.buys.length}건, 국방비 증가율 ${top.ng.value == null ? '미상' : `${round1(top.ng.value)}%`}`, false, tensionEst);
   } else add('neighbor', 0, 0, [], '긴장도 산출 인접국 없음', true);
 
-  // 소모 보충: 소모·공여량 대비 재고, 기존 공급사 수주잔고
+  // 소모 보충: 소모, 공여량 대비 재고, 기존 공급사 수주잔고
   const used = (input.consumption || []).filter(c => c.system === input.system);
   const stock = inv.reduce((s, i) => s + (i.quantity ?? 0), 0) || (input.forecast?.batches.filter(b => b.status !== 'retired' && b.status !== 'planned').reduce((s, b) => s + (b.qty ?? 0), 0) ?? 0);
   const incumbent = (input.capacity || []).filter(c => inv.some(i => sameModel(i.model, c.model)) && c.annual_output);
@@ -409,13 +432,13 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
     add('consumption', raw, confOf([...used, ...(latestCap ? [latestCap] : [])]), [...used.map(evidenceId.consumption), ...(latestCap ? [evidenceId.capacity(latestCap)] : [])], `소모와 공여 ${consumed}, 재고 ${stock}${wait == null ? '' : `, 기존 공급사 납기 ${round1(wait)}년분`}`);
   } else add('consumption', 0, 0, [], '소모, 공여, 수주잔고 자료 없음', true);
 
-  // 경쟁 우위: 그룹사 최근 5년 수주, 이 나라의 경쟁사 수주, 납기 비교
+  // 경쟁 우위: 그룹사 최근 5년 수주, 이 국가의 경쟁사 수주, 납기 비교
   const links = (input.links || []).filter(l => l.system === input.system);
   const groupModels = links.filter(l => l.is_group), rivals = links.filter(l => !l.is_group);
   const isGroup = (s: SignalRow) => s.supplier === 'KOR' || groupModels.some(l => sameModel(s.model, l.model));
   const won = (input.systemSignals || signals).filter(s => s.system === input.system && ['contract', 'delivery'].includes(s.stage) && yearOf(s) >= base - 5);
   const groupWins = won.filter(isGroup), rivalHere = won.filter(s => s.country === input.country && !isGroup(s));
-  // 경쟁사가 선정·계약한 진행 사업도 이 나라 경쟁사 수주로 센다(같은 모델 신호와 중복 없이)
+  // 경쟁사가 선정, 계약한 진행 사업도 이 국가 경쟁사 수주로 센다(같은 모델 신호와 중복 없이)
   const progRival = !!prog?.supplier && !/한화|hanwha/i.test(prog.supplier) && prog.supplier !== 'KOR' && !groupModels.some(l => sameModel(prog.model, l.model)) && !rivalHere.some(s => sameModel(s.model, prog.model));
   const rivalCount = rivalHere.length + (progRival ? 1 : 0);
   const capYears = (ms: SystemLinkRow[]) => { const rows = (input.capacity || []).filter(c => c.annual_output && ms.some(l => sameModel(c.model, l.model))); return rows.length ? { v: rows.reduce((s, c) => s + (c.backlog ?? 0) / c.annual_output!, 0) / rows.length, rows } : null; };
@@ -423,7 +446,7 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
   if (groupWins.length || rivalCount || (gCap && rCap)) {
     const raw = 0.5 + (groupWins.length ? 0.25 : 0) + (gCap && rCap && gCap.v < rCap.v ? 0.25 : 0) - (rivalCount ? 0.5 : 0);
     const used2 = [...groupWins.slice(0, 5), ...rivalHere, ...(progRival ? [{ confidence: FORECAST_CONFIDENCE[met!.confidence] }] : []), ...(gCap?.rows || []), ...(rCap?.rows || [])];
-    add('competition', raw, confOf(used2), [...groupWins.slice(0, 5).map(evidenceId.signal), ...rivalHere.map(evidenceId.signal), ...(progRival ? [`records:${met!.id}`] : []), ...(gCap?.rows || []).map(evidenceId.capacity), ...(rCap?.rows || []).map(evidenceId.capacity)], `그룹사 최근 5년 수주 ${groupWins.length}건, 이 나라 경쟁사 수주 ${rivalCount}건${progRival ? `(진행 사업 ${prog!.supplier} 포함)` : ''}${gCap && rCap ? `, 납기 ${round1(gCap.v)}년 대 경쟁사 ${round1(rCap.v)}년` : ''}`);
+    add('competition', raw, confOf(used2), [...groupWins.slice(0, 5).map(evidenceId.signal), ...rivalHere.map(evidenceId.signal), ...(progRival ? [`records:${met!.id}`] : []), ...(gCap?.rows || []).map(evidenceId.capacity), ...(rCap?.rows || []).map(evidenceId.capacity)], `그룹사 최근 5년 수주 ${groupWins.length}건, 이 국가 경쟁사 수주 ${rivalCount}건${progRival ? `(진행 사업 ${prog!.supplier} 포함)` : ''}${gCap && rCap ? `, 납기 ${round1(gCap.v)}년 대 경쟁사 ${round1(rCap.v)}년` : ''}`);
   } else add('competition', 0, 0, [], '수주와 납기 비교 자료 없음', true);
 
   // 접근성: 한국산 운용 → 1.0, 방산 협정만 → 0.6
@@ -437,8 +460,8 @@ export function computeScore(input: ScoreInputs, base: number): ScoreBreakdown {
   const tier = input.tier?.tier ?? null;
   const reasons: TierReason[] = input.tier?.tier_reasons?.reasons || [];
   let gate: ScoreBreakdown['gate'] = { passed: true, reason: null, evidence: [] };
-  if (tier === 3) gate = { passed: false, reason: `수출 불가: ${reasons.filter(r => r.tier === 3).map(r => r.text).join(', ') || '제재 또는 금수'}`, evidence: [evidenceId.tier(input.tier!)] };
-  else if (input.domestic?.status === 'production') gate = { passed: false, reason: `동급 체계 독자 양산: ${input.domestic.program || '프로그램 미상'}`, evidence: [evidenceId.domestic(input.domestic)] };
+  if (tier === 3) gate = { passed: false, reason: `수출 불가 - ${cleanTierReason(reasons.filter(r => r.tier === 3).map(r => r.text).join(', ')) || '제재 또는 금수'}`, evidence: [evidenceId.tier(input.tier!)] };
+  else if (input.domestic?.status === 'production') gate = { passed: false, reason: `동급 체계 독자 양산 - ${input.domestic.program || '프로그램 미상'}`, evidence: [evidenceId.domestic(input.domestic)] };
   const tierFactor = tier === 2 ? w.tier2 : tier === 1 ? w.tier1 : 1;
   const domesticFactor = input.domestic?.status === 'development' ? w.domestic_development : 1;
   const subtotal = round1(comps.reduce((s, c) => s + c.points, 0));

@@ -8,7 +8,8 @@ import { readFileSync } from 'node:fs';
 import { Repository, now } from '../server/store';
 import { executions } from '../server/execution';
 import { runTool, newOut, TOOL_DEFS } from '../server/agent';
-import { computeForecast, computeScore, needMet, programOf } from '../shared/forecast';
+import { computeForecast, computeScore, needMet, programOf, programReason } from '../shared/forecast';
+import { countryName } from '../shared/country-name';
 import { searchPrograms, writeReport, forecastBrief } from '../shared/tools';
 import { seed } from '../shared/data';
 import type { ProgramRecord, Project, SignalRow } from '../shared/types';
@@ -35,20 +36,33 @@ describe('캐나다 진행 중 사업(마이그레이션 009)', () => {
     expect(f.calc.join('\n')).toContain('다음 교체 주기(추정) = 인도 2029~2034 + 수명 30 → 2059~2064년');
     expect(f.program!.reason).toContain('2029~2034 (추정) 인도 예정'); // 인도 완료는 완전 운용능력(2034) 기준 추정
   });
+  it('shows a Korean country name when a reserve supplier is an ISO3 code', () => {
+    const p = programOf({ ...rec('CAN-ssk'), projects: [project({ supplier: 'Supplier', reserve: 'POL', contractYear: 2026 })] })!;
+    expect(p.reserve).toBe(countryName('POL'));
+    expect(programReason(p)).toContain(countryName('POL'));
+  });
+  it('yearless committed project does not count toward coverage', () => {
+    const dated: any = { id: 'dated-half', buyer: 'CAN', supplier: 'Supplier A', stage: 'contract', text: 'dated', contractYear: 2030, covers: 0.5, src: [] };
+    const undated: any = { id: 'undated-half', buyer: 'CAN', supplier: 'Supplier B', stage: 'contract', text: 'undated', covers: 0.5, src: [] };
+    const invalid: any = { id: 'invalid-year-half', buyer: 'CAN', supplier: 'Supplier C', stage: 'contract', text: 'invalid year', contractYear: 2500, covers: 0.5, src: [] };
+    const f = computeForecast({ ...rec('CAN-ssk'), projects: [dated, undated, invalid] });
+    expect(f.program).toMatchObject({ id: 'dated-half', covers: 0.5, open: false });
+    expect(needMet(f)).toBe(false);
+  });
   it('CPSP는 TKMS 선정(계약 전)으로 교체 수요 충족, 예비 공급자 한화오션을 이유에 밝히고 기존 계획(2027)을 쓰지 않는다', () => {
     const f = computeForecast(rec('CAN-ssk'));
-    expect(f.program).toMatchObject({ id: 'CAN-CPSP', stage: 'selected', open: false, reserve: 'Hanwha Ocean', contractYear: 2027, deliveryStart: 2034 });
+    expect(f.program).toMatchObject({ id: 'CAN-CPSP', stage: 'selected', open: false, reserve: '\uD55C\uD654\uC624\uC158', contractYear: 2027, deliveryStart: 2034 });
     expect(f.status).toBe('next');
     expect(f.window).toEqual([2061, 2067]); // 2034 + 30 = 2064 ±3
-    expect(f.program!.reason).toBe('진행 중 사업(공급자 선정(계약 전)): TKMS Type 212CD 12척, 2026 공급자 선정, 2027년까지 계약 예정, 2034년 인도 시작 예정, 예비 공급자 Hanwha Ocean');
+    expect(f.program!.reason).toBe('진행 중 사업(공급자 선정(계약 전)), TKMS Type 212CD 12척, 2026 공급자 선정, 2027년까지 계약 예정, 2034년 인도 시작 예정, 예비 공급자 \uD55C\uD654\uC624\uC158');
     expect(f.calc.some(c => c.includes('진행 사업으로 대체되어 교체 창 계산에 쓰지 않음'))).toBe(true);
   });
-  it('보고서·조회 도구가 사업 현황과 "신규 교체 기회 아님"을 쓴다', () => {
+  it('보고서, 조회 도구가 사업 현황과 "신규 교체 기회 아님"을 쓴다', () => {
     const md = (writeReport({ country: 'CAN', system: 'ssk' }) as { markdown: string }).markdown;
-    expect(md).toContain('- 구분: 진행 중 사업(공급자 선정(계약 전)) → 후속 주기');
-    expect(md).toContain('- 사업 현황: 진행 중 사업(공급자 선정(계약 전)): TKMS');
+    expect(md).toContain('- **구분** 진행 중인 사업(공급자 선정(계약 전))에 따른 후속 주기');
+    expect(md).toContain('- **사업 현황** 진행 중 사업(공급자 선정(계약 전)), TKMS');
     expect(md).toContain('신규 교체 사업 기회 아님');
-    expect(md).toContain('예비 공급자 Hanwha Ocean: 협상 결렬 시에만 기회');
+    expect(md).toContain('예비 공급자는 \uD55C\uD654\uC624\uC158, 협상 결렬 시 기회');
     expect(md).toContain('단계 공급자 선정(계약 전)');
     const mrl = (writeReport({ country: 'CAN', system: 'mrl' }) as { markdown: string }).markdown;
     expect(mrl).toContain('후속 주기 2059~2064년(추정)');
@@ -63,15 +77,15 @@ describe('캐나다 진행 중 사업(마이그레이션 009)', () => {
     const g = computeForecast(tender);
     expect(g.status).toBe('plan'); expect(g.window).toEqual(f.window);
     expect(g.program).toMatchObject({ open: true, covers: 0 });
-    expect(g.calc.join('\n')).toContain('선정 전 경쟁(입찰 또는 선정 중): 2027 계약 목표 → 공급자 미정, 사업 기회 유지');
-    expect((writeReport({ country: 'PHL', system: 'ssk' }, { ...seed, records: seed.records.map(r => (r.id === 'PHL-ssk' ? tender : r)) }) as { markdown: string }).markdown).toContain('공급자 미정(입찰 또는 선정 중) → 사업 기회 유지');
+    expect(g.calc.join('\n')).toContain('선정 전 경쟁(입찰 또는 선정 중), 2027 계약 목표 → 공급자 미정, 사업 기회 유지');
+    expect((writeReport({ country: 'PHL', system: 'ssk' }, { ...seed, records: seed.records.map(r => (r.id === 'PHL-ssk' ? tender : r)) }) as { markdown: string }).markdown).toContain('공급자 미정(입찰 또는 선정 중), 사업 기회 유지');
   });
 });
 
 describe('진행 사업 일반 규칙', () => {
   const fleet: ProgramRecord = { id: 'T', country: 'VNM', system: 'sph', src: [], batches: [{ model: 'A', introYear: 1985, qty: 100, src: [] }],
     plan: { start: 2027, end: 2030, qty: [100, 100], text: '교체 계획', src: [] } };
-  it('계약 사업이 전량 대체하면 계획·노후 교체보다 우선하고 후속 주기를 계산한다', () => {
+  it('계약 사업이 전량 대체하면 계획, 노후 교체보다 우선하고 후속 주기를 계산한다', () => {
     const f = computeForecast({ ...fleet, projects: [project({ deliveryStart: 2028, deliveryEnd: 2031, qty: 80 })] });
     expect(f.status).toBe('next'); expect(f.window).toEqual([2063, 2066]); expect(f.qty).toEqual([48, 80]); // 80 × 0.6~1
   });
@@ -94,7 +108,8 @@ describe('진행 사업 일반 규칙', () => {
   it('연도가 하나도 없는 계약 사업은 교체 계산에 쓰지 않고 이유를 남긴다', () => {
     const f = computeForecast({ ...fleet, plan: undefined, projects: [project({})] });
     expect(f.status).toBe('open'); expect(needMet(f)).toBe(false);
-    expect(f.calc.join('\n')).toContain('계약 연도와 인도 연도 미확인으로 교체 계산에 반영하지 않음');
+    expect(f.program).toBeNull();
+    expect(f.calc.join('\n')).not.toContain('계약 연도와 인도 연도 미확인으로 교체 계산에 반영하지 않음');
   });
   it('여러 계약의 covers 합으로 충족을 판단하고 가장 최근 계약을 대표로 쓴다', () => {
     const f = computeForecast({ ...fleet, projects: [project({ id: 'a', covers: 0.5, contractYear: 2020, deliveryStart: 2022, deliveryEnd: 2024 }), project({ id: 'b', covers: 0.5, contractYear: 2025, deliveryStart: 2027, deliveryEnd: 2029 })] });
@@ -102,8 +117,8 @@ describe('진행 사업 일반 규칙', () => {
   });
 });
 
-describe('진행 사업과 판단 점수', () => {
-  const sig = (p: Partial<SignalRow>): SignalRow => ({ id: 's', country: 'CAN', system: 'ssk', stage: 'selection', published_at: '2026-07-06', expected_year: 2027, confidence: 1, ...p } as SignalRow);
+describe('진행 사업과 종합 점수', () => {
+  const sig = (p: Partial<SignalRow>): SignalRow => ({ id: 's', country: 'CAN', system: 'ssk', stage: 'selected', published_at: '2026-07-06', expected_year: 2027, confidence: 1, ...p } as SignalRow);
   it('공급자가 정해진 사업의 도입 신호는 0점(충족), 노후도는 후속 주기 임박도이며 이유를 남긴다', () => {
     const before = computeScore({ country: 'CAN', system: 'ssk', signals: [sig({ model: 'Type 212CD' })], forecast: { ...computeForecast(rec('CAN-ssk')), program: null, status: 'plan', window: [2027, 2027], remaining: 1 } }, 2026);
     const after = computeScore({ country: 'CAN', system: 'ssk', signals: [sig({ model: 'Type 212CD' })], forecast: computeForecast(rec('CAN-ssk')) }, 2026);
@@ -123,7 +138,7 @@ describe('진행 사업과 판단 점수', () => {
 });
 
 describe('save_program 도구', () => {
-  it('보존 원문으로 선정 전 사업을 등록하고 같은 ID를 계약으로 갱신하며 위조 인용·공급자 없는 계약을 거절한다', async () => {
+  it('보존 원문으로 선정 전 사업을 등록하고 같은 ID를 계약으로 갱신하며 위조 인용, 공급자 없는 계약을 거절한다', async () => {
     expect(TOOL_DEFS.some(d => d.name === 'save_program')).toBe(true);
     const f = await fixture();
     try { await executions.run(f.ctx as any, async () => {

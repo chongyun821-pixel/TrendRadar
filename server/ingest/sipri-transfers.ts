@@ -1,5 +1,5 @@
 /**
- * SIPRI 무기 이전 DB → signals(계약·인도 단계) + inventory(인도 누적 보유 추정).
+ * SIPRI 무기 이전 DB → signals(계약, 인도 단계) + inventory(인도 누적 보유 추정).
  * 공개 웹앱(armstransfers.sipri.org)이 쓰는 CSV 내보내기 백엔드를 쓴다. 인증키 불필요, 문서화되지 않은 경로라 바뀔 수 있다.
  * CLI: npm run ingest:sipri-transfers -- [--dry-run] [--year 2025] [--since 1985] [--file 내보낸.csv]
  */
@@ -17,7 +17,7 @@ export function sipriBody(orderFrom: number, orderTo: number) {
   return { filters: [{ field: 'Order year', oldField: '', condition: 'contains', value1: orderFrom, value2: orderTo, listData: [] }], logic: 'AND' };
 }
 
-/** SIPRI 무기 설명 → 앱 체계. 함정 탑재 대공미사일·자주 박격포·견인포 등은 제외 */
+/** SIPRI 무기 설명 → 앱 체계. 함정 탑재 대공미사일, 자주 박격포, 견인포 등은 제외 */
 export function classifyWeapon(description: string): SystemKey | null {
   const d = description.toLowerCase().trim();
   if (d === 'self-propelled gun') return 'sph';
@@ -88,6 +88,6 @@ export async function ingestSipriTransfers(opts: IngestOptions = {}) {
   const { signals, inventory, unknown } = normalizeTrades(trades, base);
   opts.log?.(`거래 ${trades.length}건 → signals ${signals.length}, inventory ${inventory.length}`);
   const notes = [`주문 연도 ${since}~${base}`, ...(unknown.length ? [`국가 ID 미매칭(비국가 행위자 포함): ${unknown.join(', ')}`] : [])];
-  // 보유 추정은 연구 결과(높은 신뢰도)가 있으면 덮어쓰지 않도록 수량·연도를 비어 있을 때만 채운다
+  // 보유 추정은 연구 결과(높은 신뢰도)가 있으면 덮어쓰지 않도록 수량, 연도를 비어 있을 때만 채운다
   return load(opts, SIPRI_TRANSFERS_SOURCE, { signals, inventory }, notes, { inventory: ['quantity', 'service_life', 'retire_year'] });
 }

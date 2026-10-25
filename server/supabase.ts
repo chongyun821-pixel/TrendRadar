@@ -9,7 +9,7 @@ export interface SupabaseConfig {
   schema: string;
 }
 
-/** 앱·MCP 프로세스 하나가 쓰는 최대 DB 연결 수 */
+/** 앱, MCP 프로세스 하나가 쓰는 최대 DB 연결 수 */
 export const DB_CONNECTIONS = 3;
 
 export function databaseClient(config: SupabaseConfig) {

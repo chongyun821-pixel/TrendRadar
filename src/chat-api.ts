@@ -13,7 +13,7 @@ export type ModelInfo = { id: string; name: string; available: boolean };
 
 /**
  * ＋ 메뉴 「대화 자료」 목록: 사용자가 올린 파일(kind=attachment)만 보인다.
- * 추출 텍스트·수집 원문·보고서·생성 문서·기록은 숨길 뿐 지우지 않으며, 모델의 작업 폴더 도구는 그대로 모두 본다.
+ * 추출 텍스트, 수집 원문, 보고서, 생성 문서, 기록은 숨길 뿐 지우지 않으며, 모델의 작업 폴더 도구는 그대로 모두 본다.
  */
 export const uploadedFiles = <T extends { kind: string }>(files: T[]) => files.filter(f => f.kind === 'attachment');
 /** 저장 이름 attachments/<UUID>-원래이름 → 원래 이름 */
@@ -27,13 +27,13 @@ export async function api(path: string, options?: RequestInit): Promise<any> {
 }
 export const post = (body?: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
 
-/** 진행 중(대기·실행·중지 중) 상태 */
+/** 진행 중(대기, 실행, 중지 중) 상태 */
 export const isActiveStatus = (status: string) => ['queued', 'running', 'stopping'].includes(status);
 export const latestRun = (c: Conversation) => [...c.runs].sort((a, b) => (b.ended_at || b.started_at || '').localeCompare(a.ended_at || a.started_at || ''))[0];
 /** 끝난 실행의 상태 줄 문구 */
 export const runStatusText = (run: { status: string; error?: string | null }) => run.error || (run.status === 'completed' ? '완료' : run.status === 'cancelled' ? '작업 중지됨' : run.status);
 
-/** /api/chat 본문: 선택한 제공자(model)와 CLI 모델·추론 강도(options)를 요청마다 보낸다 */
+/** /api/chat 본문: 선택한 제공자(model)와 CLI 모델, 추론 강도(options)를 요청마다 보낸다 */
 export function chatBody(choice: ModelChoice, conversationId: string, text: string, state: unknown, appContext: unknown, reportIds: string[] = []) {
   return {
     conversationId, model: choice.provider,

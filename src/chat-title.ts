@@ -1,4 +1,4 @@
-/** 대화 제목: 눌러서 바로 고친다. Enter·초점 이동 저장, Esc 취소, 빈 값은 되돌림 */
+/** 대화 제목: 눌러서 바로 고친다. Enter, 초점 이동 저장, Esc 취소, 빈 값은 되돌림 */
 export function bindTitleEditor(titleEl: HTMLElement, o: { onEdit(): void; rename(next: string, previous: string): void }) {
   let before = '', cancelled = false;
   titleEl.addEventListener('click', () => {
