@@ -53,7 +53,7 @@ describe('판단 점수 행·항목별 점수 패널', () => {
     grey.components[0] = { ...grey.components[0], label: '<b>도입</b>', detail: '"q" & <i>' };
     const g = scorePanelHtml({ status: 'ok', data: grey }, '#fff');
     expect(g.indexOf('score-gate')).toBeLessThan(g.indexOf('sf-list'));
-    expect(g).toContain('제외됨: 수출 불가: &lt;script&gt;x&lt;/script&gt;');
+    expect(g).toContain('제외됨 (수출 불가: &lt;script&gt;x&lt;/script&gt;)');
     expect(g).toContain('&lt;b&gt;도입&lt;/b&gt;');
     expect(g).toContain('title="&quot;q&quot; &amp; &lt;i&gt;"');
     expect(g).not.toContain('<script>');

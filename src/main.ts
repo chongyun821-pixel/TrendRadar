@@ -367,7 +367,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   const style = mapStyles.get(id);
   if (scoreDetail.open && (scoreDetail.open.country !== id || scoreDetail.open.system !== mode)) scoreDetail.open = null;
   // 판단 점수 행: 누르거나(고정 카드에서) 커서를 올리면 바로 아래에 항목별 점수를 펼친다
-  const scoreRow = sc ? scoreRowHtml(id, mode, sc.grey ? `제외됨: ${esc((sc.gate || '').slice(0, 60))}` : `${sc.score}/100`, !!scoreDetail.open) + scoreSlotHtml(id, mode) : '';
+  const scoreRow = sc ? scoreRowHtml(id, mode, sc.grey ? `제외됨 (${esc((sc.gate || '').slice(0, 60))})` : `${sc.score}/100`, !!scoreDetail.open) + scoreSlotHtml(id, mode) : '';
   if (!rec || style?.coverage === 'missing') {
     const neighbors = style?.neighbors ?? [];
     const rows: [string, string][] = [
@@ -377,7 +377,7 @@ function tipHtml(id: string, names: Record<string, string>) {
     ];
     return `<div class="th">${esc(meta?.flag ?? '')} ${name} ${sysKo}<span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : '#8b98ad'}">${style?.hatched ? '인접국 영향' : '자료 없음'}</span></div>
       <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
-      <p class="map-note">${neighbors.length ? '인접국의 수와 확인 가능한 예상 사업 금액을 합산한 참고 점수입니다.' : '이 무기체계의 자료가 있는 육상 인접국이 없습니다.'} 이 국가의 보유 장비나 교체 일정은 확인되지 않았습니다.</p>`;
+      <p class="map-note">${neighbors.length ? '인접국의 수와 확인 가능한 예상 사업 금액을 합산한 인접국 영향 점수입니다.' : '이 무기체계의 자료가 있는 육상 인접국이 없습니다.'} 이 국가의 보유 장비나 교체 일정은 확인되지 않았습니다.</p>`;
   }
   const f = computeForecast(rec);
   const cur = f.current;
