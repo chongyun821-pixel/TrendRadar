@@ -7,11 +7,15 @@ import { app } from '../server/app';
 import { codexArgs, grokArgs } from '../server/cli';
 
 describe('/ 명령 해석', () => {
-  it('/sessions, /models와 별칭만 명령으로 본다', () => {
+  it('알려진 명령과 별칭만 명령으로 본다', () => {
     expect(parseSlash('/sessions')).toEqual({ cmd: 'sessions' });
     expect(parseSlash('  /Sessions  ')).toEqual({ cmd: 'sessions' });
     expect(parseSlash('/models')).toEqual({ cmd: 'models' });
     expect(parseSlash('/모델')).toEqual({ cmd: 'models' });
+    expect(parseSlash('/settings')).toEqual({ cmd: 'settings' });
+    expect(parseSlash('/설정')).toEqual({ cmd: 'settings' });
+    expect(parseSlash('/search')).toEqual({ cmd: 'search' });
+    expect(parseSlash('/검색')).toEqual({ cmd: 'search' });
     expect(parseSlash('/models gpt')).toBeNull();
     expect(parseSlash('/tmp/파일 경로를 봐줘')).toBeNull();
     expect(parseSlash('sessions')).toBeNull();
@@ -22,9 +26,11 @@ describe('/ 명령 해석', () => {
 describe('/ 명령 자동완성', () => {
   const names = (t: string) => slashSuggestions(t).map(s => s.command);
   it('/ 로 시작하는 부분 일치만 후보로 낸다', () => {
-    expect(names('/')).toEqual(['/models', '/sessions']);
+    expect(names('/')).toEqual(['/models', '/sessions', '/settings', '/search']);
     expect(names('/m')).toEqual(['/models']);
-    expect(names('/S')).toEqual(['/sessions']);
+    expect(names('/S')).toEqual(['/sessions', '/settings', '/search']);
+    expect(names('/설')).toEqual(['/settings']);
+    expect(names('/검')).toEqual(['/search']);
     expect(names('/세')).toEqual(['/sessions']);
     expect(names('／mo')).toEqual(['/models']);
     expect(names('/models')).toEqual(['/models']);
@@ -39,7 +45,9 @@ describe('/ 명령 자동완성', () => {
   it('Tab은 강조된 후보(기본 첫 후보)로 완성하고, 완성된 명령은 그대로 실행된다', () => {
     expect(completeSlash('/')).toBe('/models');
     expect(completeSlash('/', 1)).toBe('/sessions');
-    expect(completeSlash('/', 9)).toBe('/sessions');
+    expect(completeSlash('/', 9)).toBe('/search');
+    expect(completeSlash('/설')).toBe('/settings');
+    expect(completeSlash('/검')).toBe('/search');
     expect(completeSlash('/se')).toBe('/sessions');
     expect(completeSlash('/zz')).toBe('/zz');
     expect(parseSlash(completeSlash('/mo'))).toEqual({ cmd: 'models' });

@@ -18,7 +18,7 @@ async function fixture() {
   await repo.data();
   const c = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
   await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test', 'running', now());
-  return { repo, controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {} } };
+  return { repo, revision: await repo.revision(), controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {} } };
 }
 
 describe('챗봇의 국가 등록', () => {
@@ -51,16 +51,16 @@ describe('챗봇의 국가 등록', () => {
     try { await executions.run(f.ctx, async () => {
       const before = await f.repo.data();
       expect(await tool('find_country', { country: '독일' })).toMatchObject({ matches: [{ country: 'DEU', registered: false, systems: [] }] });
-      expect(await f.repo.revision()).toBe(1);
-      expect(await tool('add_country', { country: '독일' })).toMatchObject({ ok: true, created: true, country: 'DEU', revision: 2, metadata: { ko: '독일', flag: '🇩🇪' }, researchRequired: true });
-      expect(await tool('add_country', { country: 'Germany' })).toMatchObject({ ok: true, created: false, revision: 2 });
+      expect(await f.repo.revision()).toBe(f.revision);
+      expect(await tool('add_country', { country: '독일' })).toMatchObject({ ok: true, created: true, country: 'DEU', revision: f.revision + 1, metadata: { ko: '독일', flag: '🇩🇪' }, researchRequired: true });
+      expect(await tool('add_country', { country: 'Germany' })).toMatchObject({ ok: true, created: false, revision: f.revision + 1 });
       const data = await f.repo.data();
       expect(data.countries.DEU.ko).toBe('독일'); expect(data.records).toEqual(before.records);
       expect(await f.repo.all('SELECT * FROM forecasts')).toHaveLength(0);
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(1);
       expect(await tool('find_country', { country: 'DEU' })).toMatchObject({ matches: [{ registered: true }] });
       const poland = structuredClone(data.countries.POL);
-      expect(await tool('add_country', { country: 'Poland' })).toMatchObject({ created: false, revision: 2 });
+      expect(await tool('add_country', { country: 'Poland' })).toMatchObject({ created: false, revision: f.revision + 1 });
       expect((await f.repo.data()).countries.POL).toEqual(poland);
     }); } finally { await f.repo.close(); }
   });
@@ -70,7 +70,7 @@ describe('챗봇의 국가 등록', () => {
     try { await executions.run(f.ctx, async () => {
       expect((await tool('find_country', { country: '독' })).matches).toContainEqual(expect.objectContaining({ country: 'DEU' }));
       for (const country of ['독', '아틀란티스', '']) expect(await tool('add_country', { country })).toHaveProperty('error');
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
       expect((await f.repo.data()).countries.DEU).toBeUndefined();
     }); } finally { await f.repo.close(); }
   });
@@ -84,7 +84,7 @@ describe('챗봇의 국가 등록', () => {
     });
     try { await executions.run(f.ctx, async () => {
       expect(await tool('add_country', { country: '독일' })).toHaveProperty('error');
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
       expect(await f.repo.one('SELECT * FROM countries WHERE id=?', 'DEU')).toBeUndefined();
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(0);
       await expect(tool('add_country', { country: '독일' })).rejects.toThrow();
@@ -143,7 +143,7 @@ describe('챗봇의 국가 등록', () => {
       expect(result.repair.sourceCandidates[0].source).toMatchObject({ filePath: saved.filePath, hash: saved.hash, collectedAt: saved.collectedAt });
       expect(result.repair.example.record.batches[0].est).toEqual([]);
       expect(result.repair.example.evidence[0].path).toBe('batches');
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
     }); } finally { await f.repo.close(); }
   });
   it('간단한 장비 도구가 실제 원문으로 부분 자료를 저장하고 위조 인용, 상충 수량, 검색 요약을 거절한다', async () => {

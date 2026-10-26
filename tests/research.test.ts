@@ -20,7 +20,7 @@ async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'radar-research-')), repo = new Repository(join(dir, 'db.sqlite'), dir);
   const conversation = await repo.createConversation(), runId = randomUUID(), controller = new AbortController();
   await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, conversation.id, 'test', 'running', now());
-  return { repo, conversation, ctx: { repo, conversationId: conversation.id, runId, signal: controller.signal, env: {} }, controller };
+  return { repo, revision: await repo.revision(), conversation, ctx: { repo, conversationId: conversation.id, runId, signal: controller.signal, env: {} }, controller };
 }
 async function payload(f: Awaited<ReturnType<typeof fixture>>) {
   const raw = structuredClone((await f.repo.data()).records.find(r => r.country === 'POL' && r.system === 'sph')!);
@@ -79,7 +79,7 @@ describe('SQLite 조사 반영', () => {
       p.record.batches[0].qty = p.record.batches[0].qty! + 1;
       await expect(submitResearch(p)).rejects.toThrow(/batches: 변경 근거/);
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(0);
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
     }); await f.repo.close();
   });
   it('단가, 수명 가정 갱신은 전체 예측과 이력을 재계산하고 오래된 버전은 거절', async () => {
@@ -88,9 +88,9 @@ describe('SQLite 조사 반영', () => {
       const quote = '가상 검증: 자주포 설계 수명 40년, 단가 200~300억 원.';
       const source: any = await researchTool('save_source', { url: 'https://example.org/assumptions', content: quote, kind: 'original', publishedAt: '2026-10-16' });
       const system = { ...(await f.repo.data()).systems.sph, designLife: 40, unitCost: [200,300], costSrc: ['assumption-test'], unitCostEst: true };
-      const payload = { expectedRevision: 1, systems: { sph: system }, sources: { 'assumption-test': { ...source, t: '가정 검증', u: 'https://example.org/assumptions', y: 2026 } }, evidence: [{ path: 'systems.sph', sourceId: 'assumption-test', quote }], reason: '검증용 가정 변경' };
+      const payload = { expectedRevision: f.revision, systems: { sph: system }, sources: { 'assumption-test': { ...source, t: '가정 검증', u: 'https://example.org/assumptions', y: 2026 } }, evidence: [{ path: 'systems.sph', sourceId: 'assumption-test', quote }], reason: '검증용 가정 변경' };
       const result: any = await researchTool('update_assumptions', { payload: JSON.stringify(payload) });
-      expect(result.ok).toBe(true); expect(result.recalculated).toBe(60); expect(await f.repo.revision()).toBe(2);
+      expect(result.ok).toBe(true); expect(result.recalculated).toBe(60); expect(await f.repo.revision()).toBe(f.revision + 1);
       const changed = JSON.parse((await f.repo.one('SELECT data FROM forecasts WHERE record_id=?', 'POL-sph')).data);
       expect(changed.after.qty).toEqual(changed.before.qty);
       expect(changed.after.krw).toEqual([changed.after.qty[0] * 200, changed.after.qty[1] * 300]);

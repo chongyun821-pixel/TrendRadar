@@ -21,7 +21,7 @@ async function fixture() {
   await repo.run('INSERT INTO runs(id,conversation_id,model,status,started_at) VALUES(?,?,?,?,?)', runId, c.id, 'test', 'running', now());
   const state: AppContext = { screenId: randomUUID(), conversationId: c.id, model: 'gpt', activeView: 'map', mode: 'sph', flat: false, focus: 'POL', filters: { system: 'sph' }, report: null, dataVersion: 1 };
   await validateAppContext(repo, state);
-  return { repo, state, controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {}, appContext: state } };
+  return { repo, revision: await repo.revision(), state, controller, ctx: { repo, conversationId: c.id, runId, signal: controller.signal, env: {}, appContext: state } };
 }
 /** 앱 서버 프로세스의 화면 허브에 붙은 가짜 브라우저 탭. reply가 결과를 주면 바로 적용 결과를 돌려준다 */
 const screens: (() => void)[] = [];
@@ -112,7 +112,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(normalized.payload.record.batches.at(-1)).toMatchObject({ qty: 12, introYear: 2028 });
       expect(readFileSync(f.repo.path(f.ctx.conversationId, normalized.auditPath), 'utf8')).toContain('12문');
       expect(await runTool('validate_research', { payload: JSON.stringify(normalized.payload) }, newOut())).toMatchObject({ valid: true });
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(0);
       expect(await runTool('apply_research', { payload: JSON.stringify(normalized.payload) }, newOut())).toMatchObject({ ok: true, version: 2 });
       expect(await runTool('apply_research', { payload: JSON.stringify(normalized.payload) }, newOut())).toMatchObject({ unchanged: true, version: 2 });
@@ -138,7 +138,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       p.record.batches = [{ ...previous.batches[0], qty: '미확인' }]; p.replaceFields = ['batches'];
       const unknown: any = await runTool('normalize_procurement_data', { payload: JSON.stringify(p) }, newOut());
       expect(unknown.ok).toBe(true); expect(unknown.candidate.record.batches[0].qty).toBeNull();
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
     }); } finally { await f.repo.close(); }
   });
   it('사전 검증 이후 원문 변경과 중지가 발생하면 최종 반영을 거부한다', async () => {
@@ -150,7 +150,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       const path = f.repo.path(f.ctx.conversationId, normalized.payload.sources['new-source'].filePath);
       writeFileSync(path, '변조된 원문');
       expect(await runTool('apply_research', a, newOut())).toHaveProperty('error');
-      expect(await f.repo.revision()).toBe(1);
+      expect(await f.repo.revision()).toBe(f.revision);
       expect(await f.repo.all('SELECT * FROM changes')).toHaveLength(0);
       await f.repo.run("UPDATE runs SET status='stopping' WHERE id=?", f.ctx.runId);
       await expect(runTool('apply_research', a, newOut())).rejects.toThrow(/중지/);
@@ -168,8 +168,8 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(implicit.country).toBe('POL'); expect(implicit.system).toBe('sph');
       expect(explicit.country).toBe('FIN'); expect(explicit.system).toBe('sph');
       const stored = readFileSync(f.repo.path(f.ctx.conversationId, implicit.filePath));
-      await f.repo.run("UPDATE metadata SET value='2' WHERE key='revision'");
-      expect(JSON.parse(stored.toString()).revision).toBe(1);
+      await f.repo.run("UPDATE metadata SET value=? WHERE key='revision'", String(f.revision + 1));
+      expect(JSON.parse(stored.toString()).revision).toBe(f.revision);
       expect(hash(readFileSync(f.repo.path(f.ctx.conversationId, implicit.filePath)))).toBe(implicit.hash);
     }); } finally { await f.repo.close(); }
   });
@@ -250,7 +250,7 @@ describe('새 조달 도구의 공통 실행 흐름', () => {
       expect(saved.mime).toBe(POWERPOINT_MIME); expect(readFileSync(saved.path)).toEqual(Buffer.from(bytes));
       writeFileSync(path, '수정한 원본'); expect(readFileSync(saved.path)).toEqual(Buffer.from(bytes));
       const registration = await f.repo.one("SELECT path FROM artifacts WHERE kind='report-registration'");
-      expect(JSON.parse(readFileSync(registration.path, 'utf8'))).toMatchObject({ preparationId: packet.id, dataVersion: 1, templateVersion: 'report-templates-v1' });
+      expect(JSON.parse(readFileSync(registration.path, 'utf8'))).toMatchObject({ preparationId: packet.id, dataVersion: f.revision, templateVersion: 'report-templates-v1' });
     }); } finally { await f.repo.close(); }
   });
   it('공개 원본과 추출문을 각각 보존하고 수집 실패와 검색 요약을 구분한다', async () => {

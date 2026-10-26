@@ -50,7 +50,7 @@ export function initChat(o: ChatOpts) {
   const stop = get<HTMLButtonElement>('#stopButton'), sendButton = get<HTMLButtonElement>('.send');
   const workspace = get<HTMLElement>('#workspace');
   const attachButton = get<HTMLButtonElement>('#attachButton'), addFiles = get<HTMLButtonElement>('#addFiles');
-  let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false;
+  let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false, keepCollapsedUntilTerminal = false;
   let deliveryTarget = newTarget();
   let queuedMessages: QueuedMessage[] = [];
   let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], choice: ModelChoice = { provider: 'gpt' }, cliDefaults: CliDefaults = {};
@@ -88,9 +88,11 @@ export function initChat(o: ChatOpts) {
   showChoice();
 
   /* ───────── 입력창, 메뉴 ───────── */
-  const open = () => root.classList.add('open');
-  const collapse = () => { root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
-  const setChatOpen = (isOpen: boolean, focusInput = false) => { if (isOpen) { open(); if (focusInput) input.focus(); } else collapse(); };
+  const open = () => { if (!keepCollapsedUntilTerminal) root.classList.add('open'); };
+  const openFromUser = () => { keepCollapsedUntilTerminal = false; root.classList.add('open'); };
+  const openForTerminal = () => { keepCollapsedUntilTerminal = false; root.classList.add('open'); };
+  const collapse = () => { if (activeRun) keepCollapsedUntilTerminal = true; root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
+  const setChatOpen = (isOpen: boolean, focusInput = false) => { if (isOpen) { open(); if (focusInput && !keepCollapsedUntilTerminal) input.focus(); } else collapse(); };
   function closeMenus() {
     workspace.hidden = true; picker.close();
     attachButton.setAttribute('aria-expanded', 'false');
@@ -121,8 +123,8 @@ export function initChat(o: ChatOpts) {
       form.requestSubmit();
     }
   });
-  input.addEventListener('focus', open);
-  get('#chatToggle').addEventListener('click', () => root.classList.toggle('open'));
+  input.addEventListener('focus', openFromUser);
+  get('#chatToggle').addEventListener('click', () => { if (root.classList.contains('open')) collapse(); else openFromUser(); });
   document.querySelector('#globe')!.addEventListener('pointerdown', () => { if (!input.value && !activeRun) collapse(); });
 
   function exec(actions: Action[] = []) {
@@ -145,11 +147,12 @@ export function initChat(o: ChatOpts) {
     activeView = view === 'report' && currentReport ? 'report' : 'map';
   }
   function busy(on: boolean) {
+    if (on && !root.classList.contains('open')) keepCollapsedUntilTerminal = true;
     sending = on; root.classList.toggle('busy', on); stop.hidden = !on; updateSendButton();
     addFiles.disabled = on || !!uploader.task;
   }
   function updateSendButton() { sendButton.hidden = sending && !input.value.trim(); }
-  function showError(e: unknown) { progress.set(String(e instanceof Error ? e.message : e)); }
+  function showError(e: unknown) { openForTerminal(); progress.set(String(e instanceof Error ? e.message : e)); }
 
   /* ───────── 메시지 목록 ───────── */
   /** 대기 메시지 취소: 서버에서 실행하지 않고 취소한 뒤 대화를 다시 그린다 */
@@ -202,10 +205,36 @@ export function initChat(o: ChatOpts) {
     const entry = messages.reportEntries.find(r => r.id === element.dataset.reportId);
     if (!entry) return;
     const { markdown: _text, createdAt: _date, ...ref } = entry; currentReport = ref; activeView = 'report';
-    if (!element.querySelector('.report-editor-open-button')) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'report-editor-open-button'; button.textContent = '내보내기';
-      button.addEventListener('click', event => { event.stopPropagation(); dispatchEditor(entry); }); element.prepend(button);
+    if (!element.querySelector('.report-export-button')) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'report-export-button'; button.textContent = 'Word로 내보내기';
+      button.title = 'DB 자료와 보존 원문을 먼저 확인하고 부족한 항목은 추가 조사해 AI가 Word 보고서를 작성합니다';
+      button.addEventListener('click', event => { event.stopPropagation(); requestWordExport(entry); }); element.prepend(button);
     }
+  }
+  function requestWordExport(entry: ReportEntry) {
+    requestWordExportForScope(entry.country || o.getState().focus, entry.system);
+  }
+  function requestWordExportForScope(country: string | null, system: SystemKey | null) {
+    openFromUser();
+    if (choice.provider !== 'codex' && choice.provider !== 'grok') {
+      progress.set('Word 작성에는 문서 작성 도구가 있는 Codex 또는 Grok Build가 필요합니다. /models에서 선택해 주세요.');
+      openModels();
+      return;
+    }
+    if (!country) { progress.set('보고서의 국가 범위를 확인할 수 없습니다.'); return; }
+    const countryLabel = o.names[country] || countryName(country, seed);
+    const systemLabel = system ? seed.systems[system]?.ko || system : '전체 무기체계';
+    const prompt = [
+      '현재 표시 중인 보고서 카드는 대상과 범위를 확인하는 용도로만 사용하고, 본문을 그대로 Word로 변환하지 마세요.',
+      '먼저 이번 요청 시점의 DB 구조화 자료와 연결된 보존 원문을 조회하세요. 그 근거로 한국어 편집 가능 Word(.docx) 보고서를 작성하고, 빠졌거나 오래됐거나 서로 상충하는 핵심 내용만 최신 공개 출처를 추가 조사해 원문을 확인하세요.',
+      `대상 국가: ${countryLabel} (${country})`,
+      `대상 체계: ${systemLabel}${system ? ` (${system})` : ' (general, 국가의 해당 자료 전체)'}`,
+      '사실과 추정, 미확인 사항을 구분하고 출처 URL과 발행일을 문서에 표시하세요. 확인할 수 없는 내용은 만들지 말고 한계로 적으세요.',
+      `get_report_template에서 word-country-v1 양식을 확인하고, prepare_report에 country="${country}", system="${system || 'general'}", basis="latest"를 지정해 최신 DB 자료를 받으세요. 자료의 source ID에 연결된 원문은 source_read로 먼저 확인하세요. 원문이 보존되지 않았거나 최신성·완전성이 부족한 항목만 URL에서 추가 수집하세요. 기존 보고서 본문은 재사용하지 말고 DB 자료와 확인된 원문으로 내용을 구성하세요.`,
+      'Codex Documents 또는 Grok Build의 기본 docx 작성 도구로 대화 작업 폴더 reports/에 편집 가능한 Word 파일을 만드세요. 렌더링 후 내용과 레이아웃을 확인하고, 검수 결과와 preparationId를 넣어 publish_artifact로 등록하세요. 완료되면 실제 다운로드 링크를 답하세요.',
+      '이 요청은 문서 작성만 수행합니다. 조달 운영 DB의 장비·사업 자료는 변경하거나 apply_research로 반영하지 마세요.',
+    ].join('\n');
+    void send(prompt, { attachPending: false, preserveComposer: true });
   }
   function dispatchEditor(entry: ReportEntry) {
     const title = [entry.country ? o.names[entry.country] || countryName(entry.country, seed) : null, entry.system ? seed.systems[entry.system]?.ko : null, '분석 보고서'].filter(Boolean).join(' ');
@@ -255,9 +284,14 @@ export function initChat(o: ChatOpts) {
     } catch (error) { if (token === view) showError(error); return null; }
   }
   async function attachReport(country: string, system: SystemKey) {
-    open();
-    const entry = await viewReport(country, system);
-    if (entry) reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
+    openFromUser();
+    const token = view;
+    try {
+      const id = await ensureConversation(token);
+      const entry: ReportEntry = await api(`/conversations/${id}/reports`, post({ country, system }));
+      if (token !== view) return;
+      reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
+    } catch (error) { if (token === view) showError(error); }
   }
 
   /* ───────── 대화 목록, 전환 ───────── */
@@ -333,7 +367,7 @@ export function initChat(o: ChatOpts) {
   bindTitleEditor(titleEl, { onEdit: () => picker.close(), rename: (next, previous) => { void renameConversation(next, previous); } });
   choiceLabelEl.addEventListener('click', () => openModels());
   // ^: /sessions 선택기(다시 누르면 닫기)
-  get('#sessionsButton').addEventListener('click', () => { if (picker.isOpen('sessions')) picker.close(); else { open(); openSessions(); } });
+  get('#sessionsButton').addEventListener('click', () => { if (picker.isOpen('sessions')) picker.close(); else { openFromUser(); openSessions(); } });
   /** /models: 제공자 → (코덱스, 그록 빌드) 모델 → 추론 강도 */
   function openModels(path: string[] = []) {
     const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));
@@ -355,20 +389,20 @@ export function initChat(o: ChatOpts) {
     view++; resetSession(null); save('pr.conversation', '');
     messages.clear(); uploader.reset(); clearInput(); progress.set('');
     titleEl.textContent = '새 대화'; get('#workspaceFiles').textContent = '추가한 자료가 없습니다.'; get('#fileCount').hidden = true; closeMenus();
-    if (reveal) { open(); input.focus(); }
+    if (reveal) { openFromUser(); input.focus(); }
   }
   /** 낙관적 전환: 바로 선택을 바꾸고 캐시(없으면 제목만)를 보여준 뒤 최신 내용으로 갱신한다. 실패하면 이전 대화로 되돌린다 */
   async function selectConversation(id: string, reveal = true) {
     const token = ++view, previous = conversationId;
     const show = (c: Conversation) => {
       resetSession(c.id); save('pr.conversation', c.id); uploader.reset();
-      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); if (reveal) open();
+      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); if (reveal) openFromUser();
     };
     const cached = conversations.get(id);
     if (cached) show(cached);
     else {
       resetSession(id); messages.clear();
-      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; if (reveal) open();
+      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; if (reveal) openFromUser();
       progress.set('대화 불러오는 중…');
     }
     let c: Conversation;
@@ -437,7 +471,8 @@ export function initChat(o: ChatOpts) {
         }
         if (!isActiveStatus(run.status)) {
           // 접힌 창도 응답이 끝나면(답변, 보고서만 있는 답, 오류) 펼쳐 보여준다. 대화를 다시 불러오다 실패해도 펼친다(사용자 중지, 취소는 그대로 둔다)
-          if (run.status === 'failed' || run.status === 'completed') setChatOpen(true);
+          if (run.status === 'failed' || run.status === 'completed') openForTerminal();
+          else keepCollapsedUntilTerminal = false;
           const c = await loadConversation(conversationId!, true);
           if (!current()) return;
           // 답과 함께 온 화면 동작(화면 연결이 없을 때 남긴 것)은 사용자가 그사이 화면을 바꿨더라도 적용한다
@@ -452,7 +487,7 @@ export function initChat(o: ChatOpts) {
       }
     } catch (e) {
       if (token === view) {
-        open();
+        openForTerminal();
         progress.set(`${e instanceof Error ? e.message : e}\n대화 목록에서 다시 선택해 진행 상황을 복원하세요.`);
         if (activeRun === runId) activeRun = null;
         busy(deliveryTarget.pending > 0);
@@ -477,13 +512,17 @@ export function initChat(o: ChatOpts) {
   };
 
   /* ───────── 전송 ───────── */
-  async function send(text: string) {
-    if (uploader.task) await uploader.task;
-    if (!text.trim() && !uploader.names.length && !reportAttachments.items.length) return;
+  async function send(text: string, options: { attachPending?: boolean; preserveComposer?: boolean } = {}) {
+    const attachPending = options.attachPending !== false;
+    if (attachPending && uploader.task) await uploader.task;
+    if (!text.trim() && (!attachPending || (!uploader.names.length && !reportAttachments.items.length))) return;
     const slash = parseSlash(text);
     if (slash) {
-      clearInput(); updateSendButton(); open();
-      if (slash.cmd === 'sessions') openSessions(); else o.actions.open_settings();
+      clearInput(); updateSendButton(); openFromUser();
+      if (slash.cmd === 'sessions') openSessions();
+      else if (slash.cmd === 'models') openModels();
+      else if (slash.cmd === 'settings') o.actions.open_settings();
+      else o.actions.open_search();
       return;
     }
     const modelCommand = /^[!！]\s*(?:모델|model)\s*(.*)$/i.exec(text.trim());
@@ -493,12 +532,13 @@ export function initChat(o: ChatOpts) {
     }
     const wasBusy = sending, token = sending ? view : ++view, target = deliveryTarget;
     const selectedChoice = choice, state = { ...o.getState() }, appContext = appSnapshot();
-    const typed = text, files = [...uploader.names], reports = reportAttachments.take(), attached = [...files, ...reports.map(r => r.label)];
+    const typed = text, files = attachPending ? [...uploader.names] : [], reports = attachPending ? reportAttachments.take() : [], attached = [...files, ...reports.map(r => r.label)];
     if (attached.length) { text = `${text.trim() ? `${text}\n\n` : ''}첨부: ${attached.join(', ')}`; uploader.names.length = 0; }
     // 낙관적 표시: 보내는 즉시 「전송 중」으로 보이고, 서버 저장본으로 다시 그릴 때 한 번에 바꾼다.
     const entry: OutboxEntry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
     const dropEntry = () => { target.outbox = target.outbox.filter(message => message !== entry); };
-    clearInput(); open(); closeMenus(); busy(true);
+    if (!options.preserveComposer) clearInput();
+    openFromUser(); closeMenus(); busy(true);
     if (!wasBusy) progress.start({ message: '요청 전송 중' });
     messages.removeEmpty(); renderQueued(); messages.scrollToBottom();
     target.task = target.task.then(async () => {
@@ -522,7 +562,7 @@ export function initChat(o: ChatOpts) {
         dropEntry();
         if (token === view) {
           showError(error);
-          if (!input.value) { input.value = typed; resizeInput(); }
+          if (!options.preserveComposer && !input.value) { input.value = typed; resizeInput(); }
           for (const report of reports) reportAttachments.add(report);
           if (!uploader.names.length) uploader.names.push(...files);
         }
@@ -537,14 +577,14 @@ export function initChat(o: ChatOpts) {
   get('#workspaceFiles').textContent = '추가한 자료가 없습니다.';
   void refreshHistory().then(rows => {
     const id = read('pr.conversation');
-    if (view === 0 && id && rows.some(r => r.id === id)) return selectConversation(id);
+    if (view === 0 && id && rows.some(r => r.id === id)) return selectConversation(id, false);
   }).catch(showError);
   function suggest(id: string | null) {
     const box = get('#suggest'); box.replaceChildren(); box.classList.remove('show');
     if (!id || !seed.records.some(r => r.country === id)) return;
     const label = `${o.names[id] || id}${o.modeKo() ? ` ${o.modeKo()}` : ''} 보고서`;
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
-    button.onclick = () => { open(); void viewReport(id, o.getState().mode); };
+    button.onclick = () => { openFromUser(); void viewReport(id, o.getState().mode); };
     box.appendChild(button); box.classList.add('show');
   }
 
@@ -584,5 +624,5 @@ export function initChat(o: ChatOpts) {
   }
   const screen = createScreenCommands({ screenId, snapshot: appSnapshot, apply: applyCommand });
   screen.start();
-  return { send, viewReport, attachReport, suggest, collapse, open, setChatOpen, focusInput: () => input.focus(), dispatch: exec, openModels, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
+  return { send, viewReport, attachReport, exportWordReport: requestWordExportForScope, suggest, collapse, open, setChatOpen, focusInput: () => input.focus(), dispatch: exec, openModels, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }

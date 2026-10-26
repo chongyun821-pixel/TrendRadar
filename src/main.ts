@@ -91,19 +91,28 @@ async function boot() {
   (window as any).__globe = globe;
 
   let tipAt = { left: 0, top: 0 };
+  function tipPosition(left: number, top: number) {
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    left = Math.max(8, Math.min(left, innerWidth - w - 8));
+    let bottom = innerHeight - 90;
+    const legend = $('#legend'), box = legend.getBoundingClientRect();
+    if (legend.classList.contains('show') && box.width > 0 && left < box.right && left + w > box.left) {
+      bottom = Math.min(bottom, box.top - 8);
+    }
+    return { left, top: Math.max(56, Math.min(top, bottom - h)) };
+  }
   function placeTip(x: number, y: number) {
     tip.classList.add('show');
     const w = tip.offsetWidth, h = tip.offsetHeight, W = innerWidth, H = innerHeight;
     let left = x + 18, top = y + 14;
     if (left + w > W - 8) left = x - w - 18;
     if (top + h > H - 90) top = Math.max(60, y - h - 14);
-    tipAt = { left: Math.max(8, left), top: Math.max(56, top) };
+    tipAt = tipPosition(left, top);
     tip.style.transform = `translate(${tipAt.left}px, ${tipAt.top}px)`;
   }
   /** 카드 내용이 늘어난 뒤 화면 밖으로 나가는 만큼만 옮긴다(커서 아래 행이 튀지 않게 제자리 유지가 우선) */
   function keepTipOnScreen() {
-    const w = tip.offsetWidth, h = tip.offsetHeight;
-    const left = Math.max(8, Math.min(tipAt.left, innerWidth - w - 8)), top = Math.max(56, Math.min(tipAt.top, innerHeight - h - 90)); // placeTip과 같은 하단 여백(입력창)
+    const { left, top } = tipPosition(tipAt.left, tipAt.top);
     if (left === tipAt.left && top === tipAt.top) return;
     tipAt = { left, top };
     tip.style.transform = `translate(${left}px, ${top}px)`;
@@ -127,11 +136,20 @@ async function boot() {
     const ranking = $('#hatchRanking');
     ranking.hidden = !state.mode;
     if (state.mode) {
-      const top = [...mapStyles].filter(([, style]) => style.hatched && style.referenceRank != null)
-        .sort(([, a], [, b]) => a.referenceRank! - b.referenceRank!).slice(0, 5);
+      const top = [...mapStyles]
+        .filter(([, style]) => style.hatched && style.referenceRank != null)
+        .map(([country]) => ({ country, score: scores.get(scoreKey(state.mode!, country)) }))
+        .sort((a, b) => {
+          const aScore = a.score ? (a.score.grey ? 0 : a.score.score) : -1;
+          const bScore = b.score ? (b.score.grey ? 0 : b.score.score) : -1;
+          return bScore - aScore || a.country.localeCompare(b.country);
+        }).slice(0, 5);
       ranking.style.setProperty('--ranking-color', SYSTEM_COLOR[state.mode]);
-      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">인접국 영향 점수</h2></div></div>`
-        + (top.length ? `<ol>${top.map(([country, style]) => `<li><button type="button" data-hatch-country="${esc(country)}" title="${esc(names[country] ?? country)} 지도에서 보기"><span class="hatch-ranking-number">${style.referenceRank}</span><span class="hatch-ranking-country">${esc(names[country] ?? country)}</span><strong>${style.referenceScore.toFixed(1)}<small>점</small></strong></button></li>`).join('')}</ol>`
+      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">종합 점수</h2></div></div>`
+        + (top.length ? `<ol>${top.map(({ country, score }, index) => {
+          const value = score ? (score.grey ? '제외' : `${score.score.toFixed(1)}<small>점</small>`) : '—';
+          return `<li><button type="button" data-hatch-country="${esc(country)}" title="${esc(names[country] ?? country)} 지도에서 보기"><span class="hatch-ranking-number">${index + 1}</span><span class="hatch-ranking-country">${esc(names[country] ?? country)}</span><strong>${value}</strong></button></li>`;
+        }).join('')}</ol>`
           : '<p class="hatch-ranking-empty">조건에 맞는 빗금 국가가 없습니다.</p>');
     } else ranking.innerHTML = '';
     // 챗봇 표시 조정(숨김, 특정 국가만, 강조, 빗금, 막대)을 색과 막대에 반영한다
@@ -365,10 +383,12 @@ async function boot() {
     event.preventDefault(); event.stopPropagation();
     if (scoreDetail.open?.sticky) closeScore(); else openScore(row, true);
   });
-  // 정보 카드 클릭: 종합 점수 행은 항목별 점수를 열고 닫으며, 첨부 버튼은 채팅에 보고서를 전달하고, 그 밖에는 무기체계 칩을 처리한다
+  // 정보 카드 클릭: 종합 점수 행은 항목별 점수를 열고 닫으며, 첨부와 Word 내보내기 버튼은 해당 국가·체계를 처리한다.
   tip.addEventListener('click', event => {
     const attach = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-attach[data-attach-country][data-attach-system]');
     if (attach) { event.stopPropagation(); void chat.attachReport(attach.dataset.attachCountry!, attach.dataset.attachSystem as SystemKey); return; }
+    const exportButton = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-export[data-export-country][data-export-system]');
+    if (exportButton) { event.stopPropagation(); chat.exportWordReport(exportButton.dataset.exportCountry!, exportButton.dataset.exportSystem as SystemKey); return; }
     const scoreRow = scoreRowOf(event.target);
     if (scoreRow || inScoreArea(event.target)) {
       event.stopPropagation();
@@ -535,7 +555,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
   if (style?.coverage === 'partial') rows.push(['자료 상태', f.remaining == null ? '자료 일부만 있음, 시기 미확인' : '자료 일부']);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
-  return `<div class="th">${esc(meta.flag)} ${name} ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span><button type="button" class="tip-attach" data-attach-country="${esc(id)}" data-attach-system="${mode}" aria-label="채팅에 국가 보고서 첨부" title="채팅에 국가 보고서 첨부"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8 12.5 6.8-6.8a4 4 0 0 1 5.7 5.7l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+  return `<div class="th">${esc(meta.flag)} ${name} ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span><button type="button" class="tip-attach" data-attach-country="${esc(id)}" data-attach-system="${mode}" aria-label="채팅에 국가 보고서 첨부" title="채팅에 국가 보고서 첨부"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8 12.5 6.8-6.8a4 4 0 0 1 5.7 5.7l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="tip-export" data-export-country="${esc(id)}" data-export-system="${mode}" aria-label="DB와 보존 원문으로 Word 보고서 내보내기" title="DB 자료와 보존 원문을 먼저 확인하고 부족한 정보는 추가 조사합니다"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 3h8l4 4v5M14 3v5h5M8 12h8M8 15h8M8 18h5M17 15v6m-3-3 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
     <div class="src">${links}${f.sources.length > 4 ? `<span>+${f.sources.length - 4}</span>` : ''}</div>`;
 }

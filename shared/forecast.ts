@@ -44,7 +44,7 @@ export function confidenceOf(nSources: number, latestYear: number, estCount: num
 
 const r10 = (n: number) => Math.round(n);
 /** 현재 운용 배치(퇴역, 도입 예정, 0대 제외). 기준 연도 기본값은 meta.baseYear */
-export const isCurrentBatch = (b: Batch, base = defaultSeed.meta.baseYear) => b.status !== 'retired' && b.status !== 'planned' && b.qty !== 0 && (b.introYear == null || b.introYear <= base);
+export const isCurrentBatch = (b: Pick<Batch, 'status' | 'qty' | 'introYear'>, base = defaultSeed.meta.baseYear) => !['retired', 'planned', 'stored'].includes(b.status || '') && b.qty !== 0 && (b.introYear == null || b.introYear <= base);
 
 /** 설계 수명에 실제 출처(systems.lifeSrc)가 하국가도 있으면 추정이 아니다 */
 export const lifeSourced = (sys: SystemMeta, data: Seed) => !!sys.lifeSrc?.some(id => data.sources[id]);

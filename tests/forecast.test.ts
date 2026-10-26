@@ -1,10 +1,21 @@
 import { describe, it, expect, vi } from 'vitest';
-import { replacementYear, categoryOf, imminenceScore, confidenceOf, sizeNorm, computeForecast, allForecasts, formatKrw } from '../shared/forecast';
+import { replacementYear, categoryOf, imminenceScore, confidenceOf, sizeNorm, computeForecast, allForecasts, formatKrw, isCurrentBatch } from '../shared/forecast';
 import { seed, resolveCountry, resolveSystem } from '../shared/data';
 import { writeReport } from '../shared/tools';
 import type { ProgramRecord } from '../shared/types';
 
 describe('forecast basics', () => {
+  it('현재 배치는 운용 상태와 수량 및 도입 시점으로 판별하고 과거 보관 상태도 제외한다', () => {
+    const batch = { introYear: 2000, qty: 10 };
+    expect(isCurrentBatch(batch, 2026)).toBe(true);
+    expect(isCurrentBatch({ ...batch, status: 'in_service' }, 2026)).toBe(true);
+    for (const status of ['retired', 'planned', 'stored']) {
+      expect(isCurrentBatch(JSON.parse(JSON.stringify({ ...batch, status })), 2026)).toBe(false);
+    }
+    expect(isCurrentBatch({ ...batch, qty: 0 }, 2026)).toBe(false);
+    expect(isCurrentBatch({ ...batch, introYear: 2027 }, 2026)).toBe(false);
+    expect(isCurrentBatch({ qty: null, introYear: null }, 2026)).toBe(true);
+  });
   it('억 원 단위 금액을 공통 규칙으로 반올림한다', () => {
     expect(formatKrw(45321)).toBe('4.5조');
     expect(formatKrw(10000)).toBe('1조');

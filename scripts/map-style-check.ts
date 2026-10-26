@@ -4,8 +4,8 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright-core';
-import { SYSTEM_COLOR } from '../src/map-style';
-import type { ProgramRecord, Seed } from '../shared/types';
+import { mapCountryStyles, SYSTEM_COLOR } from '../src/map-style';
+import type { ProgramRecord, Seed, SystemKey } from '../shared/types';
 
 const folder = resolve('.local/verification', `map-style-${Date.now()}`);
 mkdirSync(folder, { recursive: true });
@@ -41,6 +41,17 @@ try {
   const unknown = record('CZE', 0); unknown.batches[0].introYear = null; delete unknown.plan;
   fixture.records = [record('DEU', 0), record('FRA', 4), record('ITA', 8), record('GBR', 16), partial, unknown, record('FRA', 0, 'mrl'), record('DEU', 0, 'mrl')];
   fixture.records.push({ ...record('GBR', 0), id: 'GBR_sam', system: 'sam' });
+  const geography = JSON.parse(readFileSync('public/countries.json', 'utf8')).map((f: { id: string; p: number[][][][] }) => ({ id: f.id, polygons: f.p }));
+  const sphStyles = mapCountryStyles(fixture, 'sph', geography);
+  function scoreRows(system: SystemKey) {
+    return Object.keys(fixture.countries).map((country, index) => {
+      const own = fixture.records.some(r => r.system === system && r.country === country);
+      return { country, system, score: own ? country === 'DEU' ? system === 'mrl' ? 90 : 70 : system === 'sph' ? 80 : 60 : 10 + index * 17 % 85,
+        grey: country === 'GBR', gate: country === 'GBR' ? '검증용 제외 사유' : null };
+    });
+  }
+  const expectedRanking = scoreRows('sph').filter(row => sphStyles.get(row.country)?.hatched)
+    .sort((a, b) => b.score - a.score || a.country.localeCompare(b.country)).slice(0, 5);
   browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.addInitScript(() => { (window as any).__name = (fn: unknown) => fn; }); // tsx의 함수 이름 도우미
@@ -52,8 +63,8 @@ try {
   await page.route('**/api/data', route => route.fulfill({ json: fixture, headers: { 'x-data-version': '1' } }));
   await page.route('**/api/data/version', route => route.fulfill({ json: { revision: 1 } }));
   await page.route('**/api/scores?*', route => {
-    const system = new URL(route.request().url()).searchParams.get('system');
-    return route.fulfill({ json: { scores: fixture.records.filter(r => r.system === system).map(r => ({ country: r.country, system: r.system, score: r.country === 'DEU' ? r.system === 'mrl' ? 90 : 70 : r.system === 'sph' ? 80 : 60, grey: r.country === 'GBR', gate: r.country === 'GBR' ? '검증용 제외 사유' : null })) } });
+    const system = new URL(route.request().url()).searchParams.get('system') as SystemKey;
+    return route.fulfill({ json: { scores: scoreRows(system) } });
   });
   await page.goto(base); await page.waitForSelector('body.ready');
   await page.waitForFunction(() => (window as any).__globe.uniforms.uEarthReady.value === 1);
@@ -121,7 +132,8 @@ try {
   assert.ok(Math.max(...bars.map((b: any) => b.height)) > Math.min(...bars.map((b: any) => b.height)) * 3, JSON.stringify(bars));
   const rankingGlobe = await rankingSnapshot();
   assert.equal(rankingGlobe.rows.length, 5);
-  assert.match(rankingGlobe.title!, /^인접국 영향 점수$/);
+  assert.match(rankingGlobe.title!, /^종합 점수$/);
+  assert.deepEqual(rankingGlobe.rows.map(({ country, score }) => ({ country, score })), expectedRanking.map(({ country, score }) => ({ country, score })));
   assert.ok(Math.abs(rankingGlobe.box.y + rankingGlobe.box.height / 2 - 450) < 1);
   assert.ok(rankingGlobe.box.left > 1440 / 2 && rankingGlobe.box.right <= 1440);
   assert.ok(rankingGlobe.rows.every((row, i, rows) => !fixture.records.some(r => r.system === 'sph' && r.country === row.country) && row.score >= 0 && row.score <= 100 && (!i || rows[i - 1].score >= row.score)));
@@ -132,7 +144,8 @@ try {
   await page.locator('#hatchRanking button').first().click(); await settled();
   assert.equal(await page.evaluate(() => (window as any).__app.state.focus), rankingGlobe.rows[0].country);
   const rankingCard = await hover(rankingGlobe.rows[0].country);
-  assert.ok(rankingCard.includes(`${rankingGlobe.rows[0].score.toFixed(1)}점, 1위`), rankingCard);
+  const reference = sphStyles.get(rankingGlobe.rows[0].country)!;
+  assert.ok(rankingCard.includes(`${reference.referenceScore.toFixed(1)}점, ${reference.referenceRank}위`), rankingCard);
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   assert.match(await page.locator('#legend .legend-title').innerText(), /자주포 예상 사업 도래 시기/);
   assert.match(await page.locator('#legend .sz').innerText(), /막대 길이는 예상 사업 규모를 나타냅니다/);
@@ -281,7 +294,7 @@ try {
   await page.screenshot({ path: resolve(folder, 'mobile-globe.png') });
   await page.evaluate(() => (window as any).__app.setMode('sam')); await settled();
   const rankingFew = await rankingSnapshot();
-  assert.match(rankingFew.title!, /^인접국 영향 점수$/);
+  assert.match(rankingFew.title!, /^종합 점수$/);
   assert.ok(rankingFew.rows.length > 0 && rankingFew.rows.length < 5);
   for (const system of ['ifv', 'frigate', 'ssk']) {
     await page.evaluate(system => (window as any).__app.setMode(system), system); await settled();

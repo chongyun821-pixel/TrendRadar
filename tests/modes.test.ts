@@ -49,6 +49,7 @@ describe('모드 정리: IFV 표기와 레이저대공무기 삭제 (마이그�
   it('SQLite 마이그레이션은 한 번만 적용되고 다시 열어도 같은 결과', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'radar-migrate-')), file = join(dir, 'db.sqlite');
     const first = new Repository(file, dir);
+    const revision = await first.revision();
     expect(await first.schemaVersions()).toEqual(expect.arrayContaining([1, 2, 3, ...MIGRATIONS.map(m => m.version)]));
     await first.run("UPDATE weights SET weight=25 WHERE factor='intent'");
     await first.close();
@@ -57,7 +58,7 @@ describe('모드 정리: IFV 표기와 레이저대공무기 삭제 (마이그�
       expect((await second.one("SELECT weight FROM weights WHERE factor='intent'")).weight).toBe(25);
       expect(await second.all("SELECT * FROM records WHERE system='laser'")).toEqual([]);
       expect((await second.all('SELECT * FROM system_links WHERE is_group=1')).length).toBe(6);
-      expect(await second.revision()).toBe(1);
+      expect(await second.revision()).toBe(revision);
     } finally { await second.close(); }
   });
   it('남은 laser 행은 앱이 읽지 않고, 008은 laser 행과 레이저 전용 출처를 지운다', async () => {

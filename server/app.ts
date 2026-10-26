@@ -136,7 +136,7 @@ app.get('/models', async c => {
   // defaults: 세부 선택이 없을 때 서버가 실제로 쓰는 CLI 모델, 추론 강도(환경 변수 반영). 상태 줄 표시용
   return c.json({ default: defaultModel(env, models), models, defaults: { grok: cliChoice('grok', env), codex: cliChoice('codex', env) } });
 });
-app.get('/weapons', async c => c.json((await allWeapons()).map(w => ({ id: w.id, name: w.name, nameKo: w.nameKo, aliases: w.aliases, matchTerms: [w.name, w.nameKo, ...w.aliases], system: w.system, systemKo: w.systemKo, typeKo: w.typeKo, maker: w.maker, origin: w.origin, originKo: w.originKo, operators: w.operators, operatorsKo: w.operatorsKo, introYear: w.introYear, description: w.description }))));
+app.get('/weapons', async c => c.json((await allWeapons()).map(w => ({ id: w.id, name: w.name, nameKo: w.nameKo, aliases: w.aliases, matchTerms: [w.name, w.nameKo, ...w.aliases], system: w.system, systemKo: w.systemKo, typeKo: w.typeKo, maker: w.maker, origin: w.origin, originKo: w.originKo, description: w.description, specs: w.specs, imageUrl: w.imageUrl }))));
 app.get('/weapons/lookup', async c => { const q = c.req.query('q') || ''; const result = await lookupWeapon(q); return result.match ? c.json(result) : c.json({ error: '무기 사전에서 찾지 못했다', ...result }, 404); });
 app.get('/forecasts', c => c.json(listForecasts({ system: c.req.query('system') ?? undefined, limit: 100 })));
 app.get('/scores', async c => {

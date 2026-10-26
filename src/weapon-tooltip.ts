@@ -1,6 +1,6 @@
 export interface WeaponTooltipEntry {
   id: string; name: string; nameKo: string; aliases: string[]; systemKo: string; typeKo: string;
-  maker: string | null; originKo: string; operatorsKo: string[]; introYear: number | null; description: string;
+  maker: string | null; originKo: string; description: string; specs: Record<string, unknown>; imageUrl: string | null;
 }
 export function buildWeaponMatcher(entries: WeaponTooltipEntry[]) {
   const byTerm = new Map<string, WeaponTooltipEntry>();
@@ -25,20 +25,58 @@ function getTip() {
   // 카드 위로 커서를 옮겨 긴 설명을 스크롤할 수 있게 카드 안에서는 닫지 않는다
   tooltip.addEventListener('mouseenter', () => clearTimeout(hideTimer));
   tooltip.addEventListener('mouseleave', hideSoon);
-  window.addEventListener('scroll', hide, true);
+  window.addEventListener('scroll', event => {
+    if (event.target instanceof Node && tooltip?.contains(event.target)) return;
+    hide();
+  }, true);
   document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
   return tooltip;
 }
+const SPEC_LABELS: Record<string, string> = {
+  caliber: '\uAD6C\uACBD', rangeKm: '\uC0AC\uAC70\uB9AC', rocketsPerPod: '\uD3EC\uB4DC\uB2F9 \uB85C\uCF13', missilesPerPod: '\uD3EC\uB4DC\uB2F9 \uBBF8\uC0AC\uC77C', pods: '\uBC1C\uC0AC \uD3EC\uB4DC', tubes: '\uBC1C\uC0AC\uAD00', salvo: '\uC77C\uC81C\uC0AC\uACA9',
+  missilesPerLauncher: '\uBC1C\uC0AC\uB300\uB2F9 \uBBF8\uC0AC\uC77C', missileCount: '\uBBF8\uC0AC\uC77C', crew: '\uC2B9\uBB34\uC6D0', passengers: '\uD0D1\uC2B9 \uBCD1\uB825',
+  speedKmh: '\uCD5C\uACE0 \uC18D\uB3C4', speedKt: '\uCD5C\uACE0 \uC18D\uB3C4', maxSpeedKt: '\uCD5C\uACE0 \uC18D\uB3C4', weightT: '\uC911\uB7C9', weightKg: '\uC911\uB7C9',
+  lengthM: '\uC804\uC7A5', widthM: '\uC804\uD3ED', heightM: '\uC804\uACE0', beamM: '\uC804\uD3ED', displacementT: '\uBC30\uC218\uB7C9',
+  vlsCells: '\uC218\uC9C1\uBC1C\uC0AC\uAD00', torpedoTubes: '\uC5B4\uB8B0 \uBC1C\uC0AC\uAD00', torpedoCaliberMm: '\uC5B4\uB8B0 \uAD6C\uACBD', warheadKg: '\uD0C4\uB450 \uC911\uB7C9',
+  wheels: '\uCC28\uB95C', payloadKg: '\uC801\uC7AC\uB7C9', armament: '\uC8FC\uC694 \uBB34\uC7A5', propulsion: '\uCD94\uC9C4 \uBC29\uC2DD', waterSpeedKmh: '\uC218\uC0C1 \uC18D\uB3C4',
+  antiShipMissiles: '\uB300\uD568\uBBF8\uC0AC\uC77C', weaponsLoad: '\uBB34\uC7A5 \uC801\uC7AC\uB7C9',
+};
+const SPEC_UNITS: Record<string, string> = {
+  rangeKm: 'km', speedKmh: 'km/h', speedKt: '\uB178\uD2B8', maxSpeedKt: '\uB178\uD2B8', weightT: 't', weightKg: 'kg',
+  lengthM: 'm', widthM: 'm', heightM: 'm', beamM: 'm', displacementT: 't', torpedoCaliberMm: 'mm', waterSpeedKmh: 'km/h',
+  warheadKg: 'kg', payloadKg: 'kg', torpedoTubes: '\uBB38', salvo: '\uBC1C',
+};
+const SPEC_PRIORITY = ['caliber', 'rocketsPerPod', 'missilesPerPod', 'tubes', 'salvo', 'torpedoCaliberMm', 'torpedoTubes', 'missilesPerLauncher', 'missileCount', 'vlsCells', 'rangeKm', 'crew', 'passengers', 'lengthM', 'beamM', 'widthM', 'heightM', 'displacementT', 'weightT', 'weightKg', 'speedKt', 'speedKmh', 'armament', 'propulsion'];
+function weaponSpecs(specs: Record<string, unknown>) {
+  return Object.entries(specs).filter(([, value]) => value != null && value !== '' && typeof value !== 'object')
+    .sort(([a], [b]) => (SPEC_PRIORITY.indexOf(a) < 0 ? SPEC_PRIORITY.length : SPEC_PRIORITY.indexOf(a)) - (SPEC_PRIORITY.indexOf(b) < 0 ? SPEC_PRIORITY.length : SPEC_PRIORITY.indexOf(b)))
+    .slice(0, 6).map(([key, value]) => {
+      const label = SPEC_LABELS[key] || key;
+      const formatted = typeof value === 'number' && SPEC_UNITS[key] ? value + ' ' + SPEC_UNITS[key] : String(value);
+      return '<dt>' + esc(label) + '</dt><dd>' + esc(formatted) + '</dd>';
+    }).join('');
+}
 function show(span: HTMLElement, entry: WeaponTooltipEntry) {
   const tip = getTip(); clearTimeout(hideTimer);
-  tip.innerHTML = `<strong>${esc(entry.nameKo)}${entry.name !== entry.nameKo ? ` <small>${esc(entry.name)}</small>` : ''}</strong><dl><dt>종류</dt><dd>${esc(entry.typeKo)} (${esc(entry.systemKo)})</dd>${entry.maker ? `<dt>제작사</dt><dd>${esc(entry.maker)}</dd>` : ''}<dt>기원</dt><dd>${esc(entry.originKo)}</dd>${entry.introYear != null ? `<dt>도입 연도</dt><dd>${entry.introYear}</dd>` : ''}<dt>설명</dt><dd>${esc(entry.description)}</dd><dt>운용 국가</dt><dd>${esc(entry.operatorsKo.join(', '))}</dd></dl>`;
+  let imageUrl = '';
+  try {
+    const url = new URL(entry.imageUrl || '');
+    if (url.protocol === 'https:' || url.protocol === 'http:') imageUrl = url.href;
+  } catch { /* no usable image URL */ }
+  const title = '<strong>' + esc(entry.nameKo) + (entry.name !== entry.nameKo ? ' <small>' + esc(entry.name) + '</small>' : '') + '</strong>';
+  const image = imageUrl ? '<img class="weapon-tooltip-image" src="' + esc(imageUrl) + '" alt="' + esc(entry.nameKo) + '" loading="lazy" referrerpolicy="no-referrer">' : '';
+  const maker = [entry.originKo, entry.maker].filter(Boolean).join(' / ');
+  const specs = weaponSpecs(entry.specs || {});
+  tip.innerHTML = title + image + '<dl><dt>\uBD84\uB958</dt><dd>' + esc(entry.typeKo) + ' (' + esc(entry.systemKo) + ')</dd>' +
+    (maker ? '<dt>\uC81C\uC870\uAD6D / \uC81C\uC870\uC0AC</dt><dd>' + esc(maker) + '</dd>' : '') +
+    '<dt>\uC124\uBA85</dt><dd>' + esc(entry.description) + '</dd>' +
+    (specs ? '<dt class="weapon-tooltip-specs-title">\uD575\uC2EC \uC81C\uC6D0</dt><dd class="weapon-tooltip-specs"><dl>' + specs + '</dl></dd>' : '') + '</dl>';
   tip.hidden = false;
   const r = span.getBoundingClientRect(), b = tip.getBoundingClientRect();
-  tip.style.left = `${Math.max(8, Math.min(innerWidth - b.width - 8, r.left))}px`;
-  // 아래 공간이 부족하면 용어 위에 띄워 카드가 용어를 가리지 않게 한다
+  tip.style.left = String(Math.max(8, Math.min(innerWidth - b.width - 8, r.left))) + 'px';
   const below = r.bottom + 7, above = r.top - b.height - 7;
   const top = below + b.height <= innerHeight - 8 || above < 8 ? below : above;
-  tip.style.top = `${Math.max(8, Math.min(innerHeight - b.height - 8, top))}px`;
+  tip.style.top = String(Math.max(8, Math.min(innerHeight - b.height - 8, top))) + 'px';
 }
 function hide() { clearTimeout(hideTimer); if (tooltip) tooltip.hidden = true; }
 function hideSoon() { clearTimeout(hideTimer); hideTimer = window.setTimeout(hide, 150); }

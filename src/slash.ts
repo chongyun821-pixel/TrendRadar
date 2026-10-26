@@ -1,14 +1,16 @@
 /** 채팅 입력의 / 명령과 모델 선택 단계(순수 함수, 테스트 대상) */
 import { CLI_OPTIONS, PROVIDERS, checkChoice, effortsFor, hasSubOptions, isProvider, type ModelChoice, type ProviderId } from '../shared/model-options';
 
-export type Slash = { cmd: 'sessions' } | { cmd: 'models' };
-/** 정확히 /sessions, /models(별칭 포함)만 명령으로 본다. 그 밖의 / 문장은 일반 메시지다 */
+export type Slash = { cmd: 'sessions' } | { cmd: 'models' } | { cmd: 'settings' } | { cmd: 'search' };
+/** 알려진 슬래시 명령만 실행한다. 그 밖의 / 문장은 일반 메시지다 */
 export function parseSlash(text: string): Slash | null {
   const m = /^[/／]\s*([a-z가-힣]+)\s*$/i.exec(text.trim());
   if (!m) return null;
   const name = m[1].toLowerCase();
   if (['sessions', 'session', '세션', '대화'].includes(name)) return { cmd: 'sessions' };
   if (['models', 'model', '모델'].includes(name)) return { cmd: 'models' };
+  if (['settings', 'setting', '설정'].includes(name)) return { cmd: 'settings' };
+  if (['search', 'find', '검색'].includes(name)) return { cmd: 'search' };
   return null;
 }
 
@@ -16,6 +18,8 @@ export function parseSlash(text: string): Slash | null {
 export const SLASH_COMMANDS = [
   { name: 'models', desc: '모델 변경', aliases: ['model', '모델'] },
   { name: 'sessions', desc: '세션 교체', aliases: ['session', '세션', '대화'] },
+  { name: 'settings', desc: '설정 열기', aliases: ['setting', '설정'] },
+  { name: 'search', desc: '국가·무기 체계 검색', aliases: ['find', '검색'] },
 ] as const;
 /** 입력이 / 로 시작하고 공백 없이 일부 일치하면 후보를 돌려준다(이름, 별칭 앞부분 일치) */
 export function slashSuggestions(text: string) {
