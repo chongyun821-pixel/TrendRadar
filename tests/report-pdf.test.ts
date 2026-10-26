@@ -21,4 +21,11 @@ describe('report PDF renderer', () => {
     await expect(renderReportPdf('<p>시험</p>', browser)).rejects.toThrow('Microsoft Edge 또는 Chrome');
     expect(browser.launch).toHaveBeenCalledTimes(2);
   });
+
+  it('prints the ranking layout at the reference slide size', async () => {
+    const pdf = vi.fn(async () => Buffer.from('%PDF landscape'));
+    const browser = { launch: vi.fn(async () => ({ newPage: vi.fn(async () => ({ setDefaultTimeout: vi.fn(), route: vi.fn().mockResolvedValue(undefined), setContent: vi.fn(), pdf })), close: vi.fn() })) } as any;
+    await renderReportPdf('<html><body>보고서</body></html>', browser, 'landscape');
+    expect(pdf).toHaveBeenCalledWith(expect.objectContaining({ width: '10.833333in', height: '7.5in', preferCSSPageSize: true, printBackground: true }));
+  });
 });

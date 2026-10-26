@@ -1,5 +1,6 @@
 import { reportDocSchema, type Block, type ReportDoc } from '../shared/report-doc';
 import { reportFilename, reportToHtml } from '../shared/report-export';
+import { reportToPresentationHtml } from '../shared/report-presentation';
 import { formatKrw } from '../shared/forecast';
 
 type Patch = { type: 'replace'; blockId: string; block: Block } | { type: 'remove'; blockId: string } | { type: 'insert'; index: number; block: Block };
@@ -28,21 +29,84 @@ export interface ReportEditorApi {
   getDoc(): ReportDoc | null;
   applyPatch(ops: Patch[]): void;
   select(blockId: string): void;
-  export(format: 'html' | 'pdf' | 'docx'): Promise<void>;
+  export(format: 'html' | 'pdf'): Promise<void>;
 }
 
 export function initReportEditor() {
   const overlay = document.createElement('section'); overlay.id = 'reportEditor'; overlay.className = 'report-editor'; overlay.hidden = true;
-  overlay.innerHTML = `<header class="re-top"><div class="re-brand"><b>보고서 편집기</b><span class="re-notice" aria-live="polite"></span></div><nav><button data-action="undo" type="button" title="실행 취소">실행 취소</button><button data-action="redo" type="button" title="다시 실행">다시 실행</button><button data-action="restore" type="button">원본으로 되돌리기</button><div class="re-menu-wrap"><button data-action="export-menu" type="button">내보내기 ▾</button><div class="re-export-menu" hidden><button data-export="html">HTML 파일</button><button data-export="pdf">PDF 파일</button><button data-export="docx">Word 파일</button></div></div><button data-action="close" type="button">닫기</button></nav></header><main class="re-workspace"><section class="re-canvas-wrap"><article class="re-paper"></article></section><aside id="reportAiPanel"><b>AI 도구</b><p>AI 도구는 곧 연결됩니다</p></aside></main>`;
+  overlay.innerHTML = `<header class="re-top"><div class="re-brand"><b>보고서 편집기</b><span class="re-notice" aria-live="polite"></span></div><nav><button data-action="undo" type="button" title="실행 취소">실행 취소</button><button data-action="redo" type="button" title="다시 실행">다시 실행</button><button data-action="restore" type="button">원본으로 되돌리기</button><div class="re-menu-wrap"><button data-action="export-menu" type="button">내보내기 ▾</button><div class="re-export-menu" hidden><button data-export="html">HTML 파일</button><button data-export="pdf">PDF 파일</button></div></div><button data-action="close" type="button">닫기</button></nav></header><main class="re-workspace"><section class="re-canvas-wrap" aria-label="보고서 내용 편집"><article class="re-paper"></article></section></main>`;
   document.body.append(overlay);
   const paper = overlay.querySelector<HTMLElement>('.re-paper')!, notice = overlay.querySelector<HTMLElement>('.re-notice')!;
   let doc: ReportDoc | null = null, original: ReportDoc | null = null, undo: ReportDoc[] = [], redo: ReportDoc[] = [], selected = '', restored = false, renderLock = false, chartsReady: Promise<void> = Promise.resolve();
+  let logoDataUri: Promise<string> | null = null;
+  const embeddedLogo = () => logoDataUri ??= fetch('/hanwha-logo.jpg').then(async response => {
+    if (!response.ok) throw new Error('한화 로고를 불러오지 못했습니다.');
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error('한화 로고를 읽지 못했습니다.'));
+      reader.readAsDataURL(blob);
+    });
+  }).catch(error => { logoDataUri = null; throw error; });
   const snapshot = () => { if (doc && !renderLock) { undo.push(copy(doc)); if (undo.length > 100) undo.shift(); redo = []; save(); } };
   const save = () => { if (doc) try { localStorage.setItem(`report-draft:${doc.id}`, JSON.stringify(doc)); } catch { /* 저장 제한 */ } };
+  const blockLabel = (block: Block) => block.type === 'heading' ? block.text : block.type === 'chart' ? block.title : block.type === 'table' ? `표: ${block.columns.join(', ')}` : block.type === 'paragraph' ? '문단' : block.type === 'pagebreak' ? '페이지 나누기' : block.type === 'list' ? '목록' : block.type === 'insight' ? '핵심 인사이트' : '메모';
+  function renderInspector() {
+    if (!doc || doc.source.kind !== 'ranking') return;
+    const inspector = paper.querySelector<HTMLElement>('.re-inspector');
+    const picker = paper.querySelector<HTMLSelectElement>('[data-select-block]');
+    if (!inspector || !picker) return;
+    picker.value = selected;
+    const block = doc.blocks.find(item => item.id === selected);
+    inspector.innerHTML = block ? blockHtml(block) : '<p>페이지의 제목, 표 또는 그래프를 선택하거나 위 목록에서 편집할 항목을 고르세요.</p>';
+    const frame = paper.querySelector<HTMLIFrameElement>('.re-edit-frame');
+    frame?.contentDocument?.querySelectorAll('[data-block]').forEach(node => node.classList.toggle('re-edit-selected', node.getAttribute('data-block') === selected));
+    chartsReady = mountCharts();
+  }
+  function scalePresentationFrame() {
+    const frame = paper.querySelector<HTMLIFrameElement>('.re-edit-frame');
+    const document = frame?.contentDocument;
+    if (!frame || !document?.body) return;
+    const scale = Math.min(1, Math.max(0.6, (paper.clientWidth - 18) / 1040));
+    document.body.style.zoom = String(scale);
+    frame.style.width = `${Math.max(paper.clientWidth, 1040 * scale)}px`;
+    frame.style.height = `${document.documentElement.scrollHeight + 8}px`;
+  }
+  function mountPresentationFrame(frame: HTMLIFrameElement) {
+    const document = frame.contentDocument;
+    if (!document) return;
+    const editStyle = document.createElement('style');
+    editStyle.textContent = '.slide{background:#fff}[contenteditable="true"]:hover,[contenteditable="true"]:focus{outline:2px solid #f37221;outline-offset:2px}.re-edit-selected{outline:2px solid #5f9ed0;outline-offset:3px}';
+    document.head.append(editStyle);
+    document.querySelectorAll<HTMLElement>('[data-doc-title],[data-doc-subtitle],[data-cell],[data-column],[data-field]').forEach(node => { node.contentEditable = 'true'; node.spellcheck = false; });
+    document.querySelectorAll<HTMLElement>('.slide').forEach(node => { node.style.marginBottom = '18px'; });
+    document.body.style.background = '#101827';
+    document.addEventListener('beforeinput', snapshot);
+    document.addEventListener('input', handleInput);
+    document.addEventListener('keydown', handleEditorShortcut, true);
+    document.addEventListener('keydown', handleEditorEscape, true);
+    document.addEventListener('click', event => {
+      const block = (event.target as HTMLElement).closest<HTMLElement>('[data-block]');
+      if (block && doc?.blocks.some(item => item.id === block.dataset.block)) { selected = block.dataset.block!; renderInspector(); }
+    });
+    scalePresentationFrame();
+    renderInspector();
+  }
   function render() {
     if (!doc) return;
     renderLock = true;
-    paper.innerHTML = `<div class="re-cover"><div class="re-title" contenteditable="true" data-doc-title>${esc(doc.title)}</div>${doc.subtitle ? `<div class="re-subtitle" contenteditable="true" data-doc-subtitle>${esc(doc.subtitle)}</div>` : ''}<div class="re-meta">${esc(doc.basisDate ?? '')} <span>${doc.source.kind === 'ranking' ? '조달 사업 예상' : '국가 분석'}</span></div></div>` + doc.blocks.map(blockHtml).join('') + `<button class="re-add-last" data-add="paragraph" type="button">＋ 블록 추가</button>`;
+    overlay.classList.toggle('re-ranking', doc.source.kind === 'ranking');
+    if (doc.source.kind === 'ranking') {
+      paper.classList.add('re-paper-slides');
+      paper.innerHTML = `<div class="re-editor-tools"><label>편집할 항목 <select data-select-block><option value="">페이지에서 선택</option>${doc.blocks.map(block => `<option value="${esc(block.id)}">${esc(blockLabel(block))}</option>`).join('')}</select></label><select data-add-block aria-label="블록 추가"><option value="">＋ 블록 추가</option>${[['heading','제목'],['paragraph','문단'],['list','목록'],['table','표'],['chart','그래프'],['insight','인사이트'],['note','메모'],['pagebreak','페이지 나누기']].map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></div><div class="re-inspector"></div><iframe class="re-edit-frame" title="PDF 형식의 보고서 편집 페이지"></iframe>`;
+      const frame = paper.querySelector<HTMLIFrameElement>('.re-edit-frame')!;
+      frame.addEventListener('load', () => mountPresentationFrame(frame), { once: true });
+      frame.srcdoc = reportToPresentationHtml(doc);
+    } else {
+      paper.classList.remove('re-paper-slides');
+      paper.innerHTML = `<div class="re-cover"><div class="re-title" contenteditable="true" data-doc-title>${esc(doc.title)}</div>${doc.subtitle ? `<div class="re-subtitle" contenteditable="true" data-doc-subtitle>${esc(doc.subtitle)}</div>` : ''}<div class="re-meta">${esc(doc.basisDate ?? '')} <span>국가 분석</span></div></div>` + doc.blocks.map(blockHtml).join('') + `<button class="re-add-last" data-add="paragraph" type="button">＋ 블록 추가</button>`;
+    }
     renderLock = false;
     chartsReady = mountCharts();
   }
@@ -74,60 +138,66 @@ export function initReportEditor() {
       await mountChart(Plotly, node, block);
     }
   }
-  function change(mutator: () => void) { snapshot(); mutator(); doc = reportDocSchema.parse(doc); render(); }
+  async function chartSvgs(current: ReportDoc): Promise<Record<string, string>> {
+    await chartsReady;
+    const charts = current.blocks.filter((block): block is Extract<Block, { type: 'chart' }> => block.type === 'chart');
+    if (!charts.length) return {};
+    const Plotly: any = await loadPlot();
+    const svgs: Record<string, string> = {};
+    for (const block of charts) {
+      const node = paper.querySelector<HTMLElement>(`[data-chart="${CSS.escape(block.id)}"]`);
+      if (node?.classList.contains('js-plotly-plot')) svgs[block.id] = await Plotly.toImage(node, { format: 'svg', width: 1000, height: 600 }) as string;
+      else {
+        const temp = document.createElement('div');
+        Object.assign(temp.style, { position: 'fixed', left: '0', top: '0', width: '1000px', height: '600px', opacity: '0.01', pointerEvents: 'none', zIndex: '-1' });
+        document.body.append(temp);
+        try { await mountChart(Plotly, temp, block); svgs[block.id] = await Plotly.toImage(temp, { format: 'svg', width: 1000, height: 600 }) as string; }
+        finally { Plotly.purge(temp); temp.remove(); }
+      }
+    }
+    return svgs;
+  }
+  function change(mutator: () => void) { snapshot(); mutator(); doc = reportDocSchema.parse(doc); save(); render(); }
   function applyPatch(ops: Patch[]) { change(() => { for (const op of ops) { if (op.type === 'replace') { const i = doc!.blocks.findIndex(b => b.id === op.blockId); if (i >= 0) doc!.blocks[i] = op.block; } else if (op.type === 'remove') doc!.blocks = doc!.blocks.filter(b => b.id !== op.blockId); else doc!.blocks.splice(Math.max(0, Math.min(doc!.blocks.length, op.index)), 0, op.block); } }); }
   function open(next: ReportDoc) {
     doc = reportDocSchema.parse(copy(next)); original = copy(doc); undo = []; redo = []; selected = ''; restored = false;
     try { const draft = localStorage.getItem(`report-draft:${doc.id}`); if (draft) { const parsed = reportDocSchema.safeParse(JSON.parse(draft)); if (parsed.success) { doc = parsed.data; restored = true; } } } catch { /* 오래되거나 손상된 초안 */ }
+    if (doc.source.kind === 'ranking') {
+      const recoveryKey = `report-composition-recovery:v1:${doc.id}`;
+      try {
+        if (restored && !localStorage.getItem(recoveryKey)) {
+          const start = doc.blocks.findIndex(block => block.type === 'heading' && block.level === 2);
+          const end = doc.blocks.findIndex((block, index) => index > start && block.type === 'heading' && block.level === 2);
+          const chart = doc.blocks.slice(start, end < 0 ? undefined : end).find(block => block.type === 'chart');
+          if (chart?.type === 'chart') chart.chartType = 'pie';
+          else {
+            const originalChart = next.blocks.find(block => block.type === 'chart' && block.chartType === 'pie');
+            if (originalChart) doc.blocks.splice(Math.max(0, start + 1), 0, copy(originalChart));
+          }
+          save();
+        }
+        localStorage.setItem(recoveryKey, '1');
+      } catch { /* 저장 제한 */ }
+    }
     overlay.hidden = false; document.body.classList.add('re-locked'); notice.textContent = restored ? '초안 복원됨' : ''; render();
   }
-  async function exportDoc(format: 'html'|'pdf'|'docx') {
+  async function exportDoc(format: 'html' | 'pdf') {
     if (!doc) return;
-    await chartsReady;
-    const Plotly: any = await loadPlot(); const svgs: Record<string,string> = {};
-    for (const block of doc.blocks) if (block.type === 'chart') {
-      const node = paper.querySelector<HTMLElement>(`[data-chart="${CSS.escape(block.id)}"]`);
-      if (node?.classList.contains('js-plotly-plot')) svgs[block.id] = await Plotly.toImage(node, { format: 'svg', width: 1000, height: 600 }) as string;
-      else {
-        const temp = document.createElement('div'); Object.assign(temp.style, { position: 'fixed', left: '0', top: '0', width: '1000px', height: '600px', opacity: '0.01', pointerEvents: 'none', zIndex: '-1' }); document.body.append(temp);
-        try { await mountChart(Plotly, temp, block); svgs[block.id] = await Plotly.toImage(temp, { format: 'svg', width: 1000, height: 600 }) as string; } finally { Plotly.purge(temp); temp.remove(); }
-      }
+    const current = copy(doc);
+    const svgs = await chartSvgs(current);
+    const ranking = current.source.kind === 'ranking';
+    const html = ranking ? reportToPresentationHtml(current, svgs, await embeddedLogo()) : reportToHtml(current, svgs);
+    if (format === 'html') {
+      download(new Blob([html], { type: 'text/html;charset=utf-8' }), 'html');
+      return;
     }
-    if (format === 'html') { const blob = new Blob([reportToHtml(doc, svgs)], { type: 'text/html;charset=utf-8' }); download(blob, 'html'); return; }
-    if (format === 'pdf') { const response = await fetch('/api/report-export/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html: reportToHtml(doc, svgs) }) }); if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'PDF를 만들지 못했습니다.'); download(await response.blob(), 'pdf'); return; }
-    await exportDocx();
+    const response = await fetch('/api/report-export/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html, layout: ranking ? 'landscape' : 'a4' }) });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? 'PDF를 만들지 못했습니다.');
+    download(await response.blob(), 'pdf');
   }
   function download(blob: Blob, ext: string) { const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = reportFilename(doc!.title, doc!.basisDate, ext); link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); }
-  async function exportDocx() {
-    const { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, ShadingType } = await import('docx');
-    const today = new Date();
-    const writtenDate = `작성일 ${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
-    const children: any[] = [new Paragraph({ text: doc!.title, heading: HeadingLevel.TITLE }), ...(doc!.subtitle ? [new Paragraph(doc!.subtitle)] : []), ...(doc!.basisDate ? [new Paragraph(`기준 연도 ${doc!.basisDate}`)] : []), new Paragraph(writtenDate)];
-    const exportBlocks = [...doc!.blocks];
-    const isEmptyTrailingBlock = (block: Block | undefined) => !block || block.type === 'pagebreak' || block.type === 'paragraph' && !block.html.replace(/<[^>]*>/g, '').trim() || block.type === 'note' && !block.text.trim() || (block.type === 'list' || block.type === 'insight') && block.items.every(item => !item.replace(/<[^>]*>/g, '').trim());
-    while (isEmptyTrailingBlock(exportBlocks.at(-1))) exportBlocks.pop();
-    for (const block of exportBlocks) {
-      if (block.type === 'heading') children.push(new Paragraph({ text: block.text, heading: block.level === 1 ? HeadingLevel.HEADING_1 : block.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3 }));
-      else if (block.type === 'paragraph') children.push(new Paragraph({ children: inlineRuns(block.html, TextRun) }));
-      else if (block.type === 'list') block.items.forEach((text, index) => children.push(new Paragraph({ text: `${block.ordered ? `${index + 1}.` : '•'} ${text.replace(/<[^>]+>/g, '')}` })));
-      else if (block.type === 'table') children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [new TableRow({ children: block.columns.map(text => new TableCell({ shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'DCE6F2' }, children: [new Paragraph({ children: [new TextRun({ text, bold: true, font: '맑은 고딕' })] })] })) }), ...block.rows.map(row => new TableRow({ children: block.columns.map((_,i) => new TableCell({ children: [new Paragraph(String(row[i] ?? ''))] })) }))] }));
-      else if (block.type === 'insight' && block.items.length) children.push(new Paragraph({ shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'EAF3FF' }, children: [new TextRun({ text: block.items.join('\n'), font: '맑은 고딕' })] }));
-      else if (block.type === 'note') children.push(new Paragraph({ text: block.text, shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'F2F4F7' } }));
-      else if (block.type === 'pagebreak') children.push(new Paragraph({ pageBreakBefore: true, text: '' }));
-      else if (block.type === 'chart') { const Plotly: any = await loadPlot(); const node = paper.querySelector<HTMLElement>(`[data-chart="${CSS.escape(block.id)}"]`); if (node?.classList.contains('js-plotly-plot')) { const data = await Plotly.toImage(node, { format: 'png', width: 1200, height: 720, scale: 2 }) as string; const bytes = Uint8Array.from(atob(data.split(',')[1]), c => c.charCodeAt(0)); const { ImageRun } = await import('docx'); children.push(new Paragraph({ text: block.title }), new Paragraph({ children: [new ImageRun({ data: bytes, type: 'png', transformation: { width: 600, height: 360 } })] })); } }
-    }
-    const blob = await Packer.toBlob(new Document({ styles: { default: { document: { run: { font: '맑은 고딕' } } } }, sections: [{ properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 1247, bottom: 1134, left: 1020, right: 1020 } } }, children }] })); download(blob, 'docx');
-  }
-  function inlineRuns(html: string, TextRun: any) {
-    let bold = false, italics = false, underline = false;
-    return html.replace(/<br\s*\/?>/g, '\n').split(/(<\/?(?:b|i|u)>)/g).filter(Boolean).flatMap(x => {
-      const tag = /^<(\/)?(b|i|u)>$/.exec(x);
-      if (tag) { const active = !tag[1]; if (tag[2] === 'b') bold = active; if (tag[2] === 'i') italics = active; if (tag[2] === 'u') underline = active; return []; }
-      return [new TextRun({ text: x.replace(/<[^>]+>/g, ''), bold, italics, underline, font: '맑은 고딕' })];
-    });
-  }
 
-  overlay.addEventListener('input', event => {
+  function handleInput(event: Event) {
     if (!doc) return; const target = event.target as HTMLElement, block = target.closest<HTMLElement>('[data-block]'), b = doc.blocks.find(x => x.id === block?.dataset.block); if (!b) { if (target.matches('[data-doc-title]')) doc.title = target.innerText; else if (target.matches('[data-doc-subtitle]')) doc.subtitle = target.innerText; doc = reportDocSchema.parse(doc); save(); return; }
     if (target.dataset.field && (b.type === 'heading' || b.type === 'paragraph' || b.type === 'note')) (b as any)[target.dataset.field] = target.dataset.field === 'html' ? target.innerHTML : target.innerText;
     if (target.dataset.item && (b.type === 'list' || b.type === 'insight')) b.items[Number(target.dataset.item)] = target.innerText;
@@ -138,9 +208,13 @@ export function initReportEditor() {
     if (target.dataset.series && b.type === 'chart') b.series[Number(target.dataset.series)].name = (target as HTMLInputElement).value;
     if (target.dataset.chartTitle && b.type === 'chart') b.title = target.innerText;
     if (!renderLock) { doc = reportDocSchema.parse(doc); save(); }
-  });
+  }
+  overlay.addEventListener('input', handleInput);
   overlay.addEventListener('beforeinput', () => { if (doc && !renderLock) snapshot(); });
-  overlay.addEventListener('change', event => { const target = event.target as HTMLElement, block = target.closest<HTMLElement>('[data-block]'), b = doc?.blocks.find(x => x.id === block?.dataset.block); if (!b) return;
+  overlay.addEventListener('change', event => { const target = event.target as HTMLElement;
+    if (target.matches('[data-select-block]')) { selected = (target as HTMLSelectElement).value; renderInspector(); paper.querySelector<HTMLIFrameElement>('.re-edit-frame')?.contentDocument?.querySelector(`[data-block="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: 'center' }); return; }
+    if (target.matches('[data-add-block]')) { const type = (target as HTMLSelectElement).value; if (type) change(() => { const index = doc!.blocks.findIndex(block => block.id === selected); doc!.blocks.splice(index < 0 ? doc!.blocks.length : index + 1, 0, defaultBlock(type)); }); return; }
+    const block = target.closest<HTMLElement>('[data-block]'), b = doc?.blocks.find(x => x.id === block?.dataset.block); if (!b) return;
     if (target.matches('[data-chart-type]') && b.type === 'chart') { change(() => { b.chartType = (target as HTMLSelectElement).value as any; }); return; }
     if (target.matches('[data-insert-after]')) { const type = (target as HTMLSelectElement).value; if (type) { const index = doc!.blocks.findIndex(x => x.id === b.id); change(() => doc!.blocks.splice(index + 1, 0, defaultBlock(type))); } return; }
     if (target.matches('[data-category],[data-value],[data-series]')) render(); else save();
@@ -148,8 +222,8 @@ export function initReportEditor() {
   overlay.addEventListener('click', event => {
     const target = (event.target as HTMLElement).closest<HTMLElement>('button,[data-action]'); if (!target) return; const section = target.closest<HTMLElement>('[data-block]'), b = doc?.blocks.find(x => x.id === section?.dataset.block);
     if (target.dataset.action === 'close') { overlay.hidden = true; document.body.classList.remove('re-locked'); return; }
-    if (target.dataset.action === 'undo') { if (doc && undo.length) { redo.push(copy(doc)); doc = undo.pop()!; render(); } return; }
-    if (target.dataset.action === 'redo') { if (doc && redo.length) { undo.push(copy(doc)); doc = redo.pop()!; render(); } return; }
+    if (target.dataset.action === 'undo') { if (doc && undo.length) { redo.push(copy(doc)); doc = undo.pop()!; save(); render(); } return; }
+    if (target.dataset.action === 'redo') { if (doc && redo.length) { undo.push(copy(doc)); doc = redo.pop()!; save(); render(); } return; }
     if (target.dataset.action === 'export-menu') { overlay.querySelector<HTMLElement>('.re-export-menu')!.hidden = !overlay.querySelector<HTMLElement>('.re-export-menu')!.hidden; return; }
     if (target.dataset.action === 'restore' && original && doc) { try { localStorage.removeItem(`report-draft:${doc.id}`); } catch { /* 저장 제한 */ } undo = []; redo = []; doc = copy(original); restored = false; notice.textContent = '원본으로 되돌렸습니다'; render(); return; }
     if (target.dataset.export) { void exportDoc(target.dataset.export as any).catch(error => { notice.textContent = error.message; }); overlay.querySelector<HTMLElement>('.re-export-menu')!.hidden = true; return; }
@@ -163,8 +237,10 @@ export function initReportEditor() {
     if (target.dataset.chartRow && b?.type === 'chart') change(() => { b.categories.push(`항목 ${b.categories.length + 1}`); b.series.forEach(s => s.values.push(0)); });
     if (b) { selected = b.id; paper.querySelectorAll('.re-block').forEach(x => x.classList.toggle('selected', x.getAttribute('data-block') === selected)); }
   });
-  document.addEventListener('keydown', event => { if (overlay.hidden || event.isComposing || !(event.ctrlKey || event.metaKey)) return; if (event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopImmediatePropagation(); if (event.shiftKey) overlay.querySelector<HTMLButtonElement>('[data-action=redo]')!.click(); else overlay.querySelector<HTMLButtonElement>('[data-action=undo]')!.click(); } else if (event.key.toLowerCase() === 'y') { event.preventDefault(); event.stopImmediatePropagation(); overlay.querySelector<HTMLButtonElement>('[data-action=redo]')!.click(); } }, true);
-  document.addEventListener('keydown', event => { if (!overlay.hidden && event.key === 'Escape') { const menu = overlay.querySelector<HTMLElement>('.re-export-menu')!; if (!menu.hidden) { menu.hidden = true; event.preventDefault(); event.stopImmediatePropagation(); } else { overlay.querySelector<HTMLButtonElement>('[data-action=close]')!.click(); event.preventDefault(); event.stopImmediatePropagation(); } } }, true);
+  function handleEditorShortcut(event: KeyboardEvent) { if (overlay.hidden || event.isComposing || !(event.ctrlKey || event.metaKey)) return; if (event.key.toLowerCase() === 'z') { event.preventDefault(); event.stopImmediatePropagation(); if (event.shiftKey) overlay.querySelector<HTMLButtonElement>('[data-action=redo]')!.click(); else overlay.querySelector<HTMLButtonElement>('[data-action=undo]')!.click(); } else if (event.key.toLowerCase() === 'y') { event.preventDefault(); event.stopImmediatePropagation(); overlay.querySelector<HTMLButtonElement>('[data-action=redo]')!.click(); } }
+  function handleEditorEscape(event: KeyboardEvent) { if (!overlay.hidden && event.key === 'Escape') { const menu = overlay.querySelector<HTMLElement>('.re-export-menu')!; if (!menu.hidden) { menu.hidden = true; event.preventDefault(); event.stopImmediatePropagation(); } else { overlay.querySelector<HTMLButtonElement>('[data-action=close]')!.click(); event.preventDefault(); event.stopImmediatePropagation(); } } }
+  document.addEventListener('keydown', handleEditorShortcut, true);
+  document.addEventListener('keydown', handleEditorEscape, true);
   addEventListener('radar:open-report-editor', event => { const value = (event as CustomEvent<ReportDoc>).detail; if (value) open(value); });
   addEventListener('radar:close-report-editor', () => { if (!overlay.hidden) overlay.querySelector<HTMLButtonElement>('[data-action=close]')!.click(); });
   const api: ReportEditorApi = { open, getDoc: () => doc ? copy(doc) : null, applyPatch, select: blockId => { selected = blockId; render(); }, export: exportDoc };

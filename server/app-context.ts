@@ -49,6 +49,7 @@ export const APP_DEFS: ToolDef[] = [
   { name: 'set_chat_open', description: '열린 앱의 채팅 패널을 열거나 접는다. 열 때 입력창에 포커스한다', properties: { open: { type: 'boolean', description: 'true=열기, false=접기' } }, required: ['open'] },
   { name: 'open_search', description: '열린 앱의 국가 및 무기체계 검색 상자를 연다. 선택 항목은 지도와 같은 화면 명령으로 적용된다', properties: { query: S('검색 상자에 미리 넣을 검색어(선택)') } },
   { name: 'open_settings', description: '열린 HORUS 앱에서 설정 화면을 연다.', properties: { toggle: { type: 'boolean', description: 'true이면 설정 화면에서 다시 실행할 때 이전 화면으로 돌아간다.' } } },
+  { name: 'create_country_brief', description: '지도 카드의 Word 버튼과 같은 동작으로 부족한 정보를 추가 조사하고 1~2쪽 Word 요약 보고서 작성 요청을 앱 대화에 접수한다. 사용자가 조사와 문서 작성을 요청했을 때 호출한다. 완료 파일은 대화의 다운로드 링크로 제공된다', properties: { country: S('대상 국가명 또는 ISO 코드'), system: S('대상 무기체계') }, required: ['country', 'system'] },
   { name: 'get_run_status', description: '실행 상태와 오류를 조회한다', properties: { runId: S('생략하면 현재 실행') } },
   { name: 'cancel_run', description: '실행에 중지를 요청한다. 자신의 종료를 기다리지 않는다', properties: { runId: S('생략하면 현재 실행') } },
 ];
@@ -93,6 +94,11 @@ export async function appTool(name: string, a: Record<string, any>): Promise<unk
     case 'open_settings': {
       const toggle = a.toggle == null ? undefined : z.boolean().parse(a.toggle);
       return screenCommand({ type: name, ...(toggle === undefined ? {} : { toggle }) });
+    }
+    case 'create_country_brief': {
+      const country = resolveCountry(a.country), system = resolveSystem(a.system);
+      if (!country || !system) throw new Error('대상 국가와 무기체계를 확인하세요.');
+      return screenCommand({ type: name, country, system });
     }
     case 'list_conversations': return repo.all('SELECT * FROM conversations ORDER BY updated_at DESC');
     case 'search_conversations': {

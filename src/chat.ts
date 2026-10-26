@@ -16,6 +16,7 @@ import { createReportAttachments } from './chat-attachments';
 import { createScreenCommands, type ScreenCommand } from './screen-commands';
 import { markdownToDoc } from '../shared/report-doc';
 import { countryName } from '../shared/country-name';
+import { countryBriefRequest } from '../shared/country-brief';
 
 export { pickModel, type ModelInfo };
 
@@ -79,7 +80,7 @@ export function initChat(o: ChatOpts) {
     const r = checkChoice({ provider: id, model: cliModel, effort });
     return r.ok && setChoice(r.choice);
   };
-  api('/models').then(j => {
+  const modelsReady = api('/models').then(j => {
     models = j.models; cliDefaults = j.defaults || {};
     const saved = (conversationId && readChoice(read(`pr.model.${conversationId}`))) || readChoice(read('pr.model'));
     if (!setChoice(saved, false)) setChoice({ provider: j.default }, false);
@@ -137,6 +138,7 @@ export function initChat(o: ChatOpts) {
       else if (a.type === 'set_app_view') setAppView(a.view);
       else if (a.type === 'open_report_editor') { const entry = messages.reportEntries.find(r => r.id === currentReport?.id); if (entry) dispatchEditor(entry); else dispatchEvent(new Event('radar:open-ranking-report-editor')); }
       else if (a.type === 'close_report_editor') dispatchEvent(new Event('radar:close-report-editor'));
+      else if (a.type === 'create_country_brief') { void createCountryBrief(a.country, a.system).catch(showError); }
       else if (a.type === 'set_chat_open') o.actions.set_chat_open(a.open);
       else if (a.type === 'open_search') o.actions.open_search(a.query);
       else if (a.type === 'open_settings') o.actions.open_settings(a.toggle);
@@ -292,6 +294,17 @@ export function initChat(o: ChatOpts) {
       if (token !== view) return;
       reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
     } catch (error) { if (token === view) showError(error); }
+  }
+  async function createCountryBrief(countryInput: string, systemInput: string) {
+    const country = resolveCountry(countryInput, o.names), system = resolveSystem(systemInput);
+    if (!country || !system) throw new Error('요약 보고서를 만들 국가와 무기체계를 확인하세요.');
+    openFromUser();
+    await modelsReady;
+    const selected = (choice.provider === 'codex' || choice.provider === 'grok') && models.some(model => model.id === choice.provider && model.available)
+      ? choice : (['codex', 'grok'] as const).filter(provider => models.some(model => model.id === provider && model.available)).map(provider => ({ provider }))[0];
+    if (!selected) throw new Error('Word 요약 보고서 작성에는 코덱스 또는 그록 빌드 연결이 필요합니다. 설정에서 연결 상태를 확인하세요.');
+    o.actions.set_mode(system); o.actions.focus_country(country); activeView = 'map';
+    await send(countryBriefRequest(country, system, seed), { choice: selected, attachPending: false, preserveComposer: true });
   }
 
   /* ───────── 대화 목록, 전환 ───────── */
@@ -512,7 +525,7 @@ export function initChat(o: ChatOpts) {
   };
 
   /* ───────── 전송 ───────── */
-  async function send(text: string, options: { attachPending?: boolean; preserveComposer?: boolean } = {}) {
+  async function send(text: string, options: { attachPending?: boolean; preserveComposer?: boolean; choice?: ModelChoice } = {}) {
     const attachPending = options.attachPending !== false;
     if (attachPending && uploader.task) await uploader.task;
     if (!text.trim() && (!attachPending || (!uploader.names.length && !reportAttachments.items.length))) return;
@@ -531,7 +544,8 @@ export function initChat(o: ChatOpts) {
       if (!target || !setModel(target)) { progress.set('모델 이름 또는 사용 가능 여부를 확인하세요'); return; }
     }
     const wasBusy = sending, token = sending ? view : ++view, target = deliveryTarget;
-    const selectedChoice = choice, state = { ...o.getState() }, appContext = appSnapshot();
+    const selectedChoice = options.choice ?? choice, state = { ...o.getState() };
+    const appContext = { ...appSnapshot(), model: selectedChoice.provider, modelOptions: selectedChoice.model || selectedChoice.effort ? { model: selectedChoice.model, effort: selectedChoice.effort } : undefined };
     const typed = text, files = attachPending ? [...uploader.names] : [], reports = attachPending ? reportAttachments.take() : [], attached = [...files, ...reports.map(r => r.label)];
     if (attached.length) { text = `${text.trim() ? `${text}\n\n` : ''}첨부: ${attached.join(', ')}`; uploader.names.length = 0; }
     // 낙관적 표시: 보내는 즉시 「전송 중」으로 보이고, 서버 저장본으로 다시 그릴 때 한 번에 바꾼다.
@@ -615,6 +629,7 @@ export function initChat(o: ChatOpts) {
     } else if (data.type === 'set_app_view') setAppView(data.view);
     else if (data.type === 'open_report_editor') { const entry = messages.reportEntries.find(r => r.id === currentReport?.id); if (entry) dispatchEditor(entry); else dispatchEvent(new Event('radar:open-ranking-report-editor')); }
     else if (data.type === 'close_report_editor') dispatchEvent(new Event('radar:close-report-editor'));
+    else if (data.type === 'create_country_brief') await createCountryBrief(data.country, data.system);
     else if (data.type === 'set_chat_open') o.actions.set_chat_open(data.open);
     else if (data.type === 'open_search') o.actions.open_search(data.query);
     else if (data.type === 'open_settings') o.actions.open_settings(data.toggle);

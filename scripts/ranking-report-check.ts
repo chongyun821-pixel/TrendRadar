@@ -1,7 +1,7 @@
 /** Isolated browser check for the Plotly report timeline on desktop and mobile. */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { chromium, type Locator, type Page } from 'playwright-core';
 
@@ -24,6 +24,8 @@ try {
   for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     const page: Page = await activeBrowser.newPage({ viewport });
     const errors: string[] = [];
+    let exportedPdfHtml = '';
+    page.on('request', request => { if (request.url().includes('/api/report-export/pdf')) exportedPdfHtml = request.postDataJSON().html; });
     page.on('pageerror', (error: Error) => errors.push(String(error)));
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.waitForSelector('body.ready');
@@ -69,7 +71,7 @@ try {
     });
     const initial = await state();
     assert.equal(initial.traces, 6);
-    assert.equal(initial.range[1] - initial.range[0], 25);
+    assert.equal(initial.range[1] - initial.range[0], 20);
     assert.ok(Math.abs(initial.yRange[1] - initial.maxValue * 1.05) < 1);
     const plotLegend = await plot.locator('.legend').evaluate(element => ({ opacity: getComputedStyle(element).opacity, pointerEvents: getComputedStyle(element).pointerEvents }));
     assert.deepEqual(plotLegend, { opacity: '1', pointerEvents: 'all' });
@@ -105,9 +107,85 @@ try {
     assert.ok(await sections.nth(3).locator('.rank-more[open] .rank-card:visible').count() > 0);
     assert.deepEqual(errors, []);
     await page.screenshot({ path: resolve(folder, `report-${viewport.width}.png`) });
+    await page.locator('.rank-export-button').click();
+    await page.evaluate(() => {
+      const doc = (window as any).reportEditor.getDoc();
+      doc.blocks.find((block: any) => block.type === 'chart').chartType = 'bar';
+      localStorage.setItem(`report-draft:${doc.id}`, JSON.stringify(doc));
+      localStorage.removeItem(`report-composition-recovery:v1:${doc.id}`);
+    });
+    await page.locator('[data-action="close"]').click();
+    await page.locator('.rank-export-button').click();
+    assert.equal(await page.locator('.re-preview').count(), 0);
+    assert.ok(await page.locator('.re-edit-frame').isVisible());
+    const editorFrame = page.frameLocator('.re-edit-frame');
+    assert.ok(await editorFrame.locator('.mix-top .mix-visual svg path').count() > 0);
+    await editorFrame.locator('.cover-logo').waitFor();
+    assert.ok(await editorFrame.locator('.cover-logo').evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0));
+    assert.equal(await editorFrame.locator('.slide').nth(1).locator('header h2').textContent(), 'Executive Summary');
+    assert.equal(await editorFrame.locator('.slide').nth(2).locator('header h2').textContent(), '01 예상 수주 매출 구성비');
+    await page.frameLocator('.re-edit-frame').locator('[data-doc-title]').fill('편집 검증 보고서');
+    assert.equal(await page.evaluate(() => (window as any).reportEditor.getDoc().title), '편집 검증 보고서');
+    if (viewport.width > 780) {
+      await page.frameLocator('.re-edit-frame').locator('h2[data-block]').first().fill('수정한 구성비');
+      assert.ok(await page.evaluate(() => (window as any).reportEditor.getDoc().blocks.some((block: { type: string; text?: string }) => block.type === 'heading' && block.text === '수정한 구성비')));
+      await page.frameLocator('.re-edit-frame').locator('table[data-block] tbody td').first().fill('편집한 체계');
+      assert.equal(await page.evaluate(() => (window as any).reportEditor.getDoc().blocks.find((block: { type: string }) => block.type === 'table')?.rows[0][0]), '편집한 체계');
+      await page.frameLocator('.re-edit-frame').locator('table[data-block] tbody td').first().press('Control+z');
+      assert.notEqual(await page.evaluate(() => (window as any).reportEditor.getDoc().blocks.find((block: { type: string }) => block.type === 'table')?.rows[0][0]), '편집한 체계');
+      await page.frameLocator('.re-edit-frame').locator('table[data-block] tbody td').first().press('Control+Shift+z');
+      assert.equal(await page.evaluate(() => (window as any).reportEditor.getDoc().blocks.find((block: { type: string }) => block.type === 'table')?.rows[0][0]), '편집한 체계');
+      await page.frameLocator('.re-edit-frame').locator('.mix-visual').first().click();
+      const amount = page.locator('.re-inspector [data-value="0:0"]');
+      await amount.fill('1234');
+      await amount.press('Tab');
+      assert.equal(await page.evaluate(() => (window as any).reportEditor.getDoc().blocks.find((block: { type: string }) => block.type === 'chart')?.series[0].values[0]), 1234);
+      await page.locator('.re-inspector [data-chart-type]').selectOption('bar');
+      assert.ok(await page.frameLocator('.re-edit-frame').locator('.mix-top .alt-chart').isVisible());
+      await page.frameLocator('.re-edit-frame').locator('table[data-block] tbody td').first().click();
+      await page.locator('.re-inspector [data-table="row+"]').click();
+      assert.equal(await page.evaluate(() => (window as any).reportEditor.getDoc().blocks.find((block: { type: string }) => block.type === 'table')?.rows.length), 7);
+    }
+    await page.screenshot({ path: resolve(folder, `editor-${viewport.width}.png`) });
+    await page.locator('[data-action="export-menu"]').click();
+    assert.equal(await page.locator('[data-export="docx"]').count(), 0);
+    const download = page.waitForEvent('download', { timeout: 30000 });
+    await page.locator('[data-export="pdf"]').click();
+    const pdf = await download.catch(async error => { throw new Error(`${error}; 편집기 알림: ${await page.locator('.re-notice').textContent()}`); });
+    assert.match(pdf.suggestedFilename(), /\.pdf$/);
+    const pdfPath = resolve(folder, `export-${viewport.width}.pdf`);
+    await pdf.saveAs(pdfPath);
+    assert.equal(readFileSync(pdfPath).subarray(0, 5).toString(), '%PDF-');
+    await page.locator('[data-action="export-menu"]').click();
+    const htmlDownload = page.waitForEvent('download', { timeout: 30000 });
+    await page.locator('[data-export="html"]').click();
+    const html = await htmlDownload;
+    const htmlPath = resolve(folder, `export-${viewport.width}.html`);
+    await html.saveAs(htmlPath);
+    const htmlContent = readFileSync(htmlPath, 'utf8');
+    assert.match(htmlContent, /편집 검증 보고서/);
+    assert.equal(htmlContent, exportedPdfHtml, 'HTML과 PDF가 다른 보고서 양식을 사용함');
+    const standalone = await activeBrowser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await standalone.setContent(htmlContent);
+    assert.equal(await standalone.locator('.slide').nth(1).locator('h2').textContent(), 'Executive Summary');
+    assert.ok(await standalone.locator('.cover-logo').evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0));
+    await standalone.screenshot({ path: resolve(folder, `html-${viewport.width}.png`) });
+    await standalone.close();
+    if (viewport.width > 780) {
+      await page.evaluate(() => (window as any).reportEditor.open({ id: 'country-export-check', title: '국가 분석', source: { kind: 'country' }, blocks: [{ id: 'heading', type: 'heading', level: 2, text: '국가 분석' }, { id: 'body', type: 'paragraph', html: '편집할 수 있는 내용' }] }));
+      assert.ok(await page.locator('.re-paper [data-doc-title]').isVisible());
+      await page.locator('[data-action="export-menu"]').click();
+      const countryDownload = page.waitForEvent('download', { timeout: 30000 });
+      await page.locator('[data-export="pdf"]').click();
+      const countryPdf = await countryDownload;
+      const countryPath = resolve(folder, 'country-export.pdf');
+      await countryPdf.saveAs(countryPath);
+      assert.equal(readFileSync(countryPath).subarray(0, 5).toString(), '%PDF-');
+    }
+    assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log(`Plotly 보고서 그래프 확대·초기화·범례 확인 완료: ${folder}`);
+  console.log(`보고서 그래프와 편집·PDF 다운로드 확인 완료: ${folder}`);
 } finally {
   await browser?.close();
   server.kill();

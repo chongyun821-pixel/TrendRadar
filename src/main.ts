@@ -385,10 +385,10 @@ async function boot() {
   });
   // 정보 카드 클릭: 종합 점수 행은 항목별 점수를 열고 닫으며, 첨부와 Word 내보내기 버튼은 해당 국가·체계를 처리한다.
   tip.addEventListener('click', event => {
+    const brief = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-brief[data-brief-country][data-brief-system]');
+    if (brief) { event.stopPropagation(); chat.dispatch([{ type: 'create_country_brief', country: brief.dataset.briefCountry!, system: brief.dataset.briefSystem! }]); return; }
     const attach = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-attach[data-attach-country][data-attach-system]');
     if (attach) { event.stopPropagation(); void chat.attachReport(attach.dataset.attachCountry!, attach.dataset.attachSystem as SystemKey); return; }
-    const exportButton = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-export[data-export-country][data-export-system]');
-    if (exportButton) { event.stopPropagation(); chat.exportWordReport(exportButton.dataset.exportCountry!, exportButton.dataset.exportSystem as SystemKey); return; }
     const scoreRow = scoreRowOf(event.target);
     if (scoreRow || inScoreArea(event.target)) {
       event.stopPropagation();
@@ -509,6 +509,8 @@ function fmtWin(f: Forecast) { return f.window ? `${f.window[0]}~${f.window[1]}�
 function host(u: string) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
 function safeHref(u: string) { try { const url = new URL(u); return ['http:', 'https:'].includes(url.protocol) ? esc(url.href) : '#'; } catch { return '#'; } }
 
+const briefButton = (country: string, system: SystemKey) => `<button type="button" class="tip-brief" data-brief-country="${esc(country)}" data-brief-system="${system}" aria-label="추가 조사 후 Word 요약 보고서 만들기" title="추가 조사 후 Word 요약 보고서 만들기"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M13 3H5v18h14V9M13 3v6h6L13 3ZM8 13h8M8 17h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="m19 1 .8 2.2L22 4l-2.2.8L19 7l-.8-2.2L16 4l2.2-.8Z" fill="currentColor"/></svg></button>`;
+
 function tipHtml(id: string, names: Record<string, string>) {
   const meta = seed.countries[id]; const name = esc(names[id] ?? id);
   const mode = state.mode;
@@ -534,7 +536,7 @@ function tipHtml(id: string, names: Record<string, string>) {
       ['이 무기체계 자료가 있는 육상 인접국', neighbors.length ? `${neighbors.map(n => esc(names[n] ?? n)).join(', ')} (${neighbors.length}개국)` : '없음'],
       ['인접국들의 예상 사업 금액 합계', `${fmtKrwRange(style?.neighborAmount ?? null)}${style?.neighborAmount ? ' <span class="pred">예측</span>' : ''}`],
     ];
-    return `<div class="th">${esc(meta?.flag ?? '')} ${name} ${sysKo}<span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : '#8b98ad'}">${style?.hatched ? '인접국 영향' : '자료 없음'}</span></div>
+    return `<div class="th"><span class="tip-title">${esc(meta?.flag ?? '')} ${name} ${sysKo}</span><span class="badge" style="--c:${style?.hatched ? SYSTEM_COLOR[mode] : '#8b98ad'}">${style?.hatched ? '인접국 영향' : '자료 없음'}</span>${briefButton(id, mode)}</div>
       <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
       <p class="map-note">${neighbors.length ? '인접국 영향 점수는 이 무기체계 자료가 있는 육상 인접국의 수(50점)와 그 인접국들의 예상 사업 금액 합계(50점)를 더해 계산합니다.' : '이 국가에는 이 무기체계 자료가 있는 육상 인접국이 없습니다.'} 이 국가가 직접 보유한 장비와 교체 일정은 아직 확인되지 않았습니다.</p>`;
   }
@@ -555,7 +557,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
   if (style?.coverage === 'partial') rows.push(['자료 상태', f.remaining == null ? '자료 일부만 있음, 시기 미확인' : '자료 일부']);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
-  return `<div class="th">${esc(meta.flag)} ${name} ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span><button type="button" class="tip-attach" data-attach-country="${esc(id)}" data-attach-system="${mode}" aria-label="채팅에 국가 보고서 첨부" title="채팅에 국가 보고서 첨부"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8 12.5 6.8-6.8a4 4 0 0 1 5.7 5.7l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="tip-export" data-export-country="${esc(id)}" data-export-system="${mode}" aria-label="DB와 보존 원문으로 Word 보고서 내보내기" title="DB 자료와 보존 원문을 먼저 확인하고 부족한 정보는 추가 조사합니다"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 3h8l4 4v5M14 3v5h5M8 12h8M8 15h8M8 18h5M17 15v6m-3-3 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+  return `<div class="th"><span class="tip-title">${esc(meta.flag)} ${name} ${sysKo}</span><span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span><button type="button" class="tip-attach" data-attach-country="${esc(id)}" data-attach-system="${mode}" aria-label="채팅에 국가 보고서 첨부" title="채팅에 국가 보고서 첨부"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8 12.5 6.8-6.8a4 4 0 0 1 5.7 5.7l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>${briefButton(id, mode)}</div>
     <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
     <div class="src">${links}${f.sources.length > 4 ? `<span>+${f.sources.length - 4}</span>` : ''}</div>`;
 }

@@ -20,6 +20,16 @@ describe('PDF export route', () => {
     expect(browserLaunch).toHaveBeenCalledWith({ channel: 'msedge', headless: true });
   });
 
+  it('accepts the ranking landscape PDF layout', async () => {
+    const response = await app.request('/api/report-export/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html: '<html><body>보고서</body></html>', layout: 'landscape' }) });
+    expect(response.status).toBe(200);
+  });
+
+  it('accepts an embedded cover logo', async () => {
+    const response = await app.request('/api/report-export/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html: '<html><body><img src="data:image/jpeg;base64,/9j/4AAQ"></body></html>', layout: 'landscape' }) });
+    expect(response.status).toBe(200);
+  });
+
   it('rejects active or remote content before launching a browser', async () => {
     const response = await app.request('/api/report-export/pdf', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ html: '<script>alert(1)</script>' }) });
     expect(response.status).toBe(400);

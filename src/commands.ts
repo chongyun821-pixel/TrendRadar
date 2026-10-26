@@ -8,6 +8,7 @@ export type Action = { type: 'set_mode'; system: string | null } | { type: 'togg
   | { type: 'set_app_view'; view: 'map' | 'report' }
   | { type: 'open_report_editor' }
   | { type: 'close_report_editor' }
+  | { type: 'create_country_brief'; country: string; system: string }
   | { type: 'set_chat_open'; open: boolean }
   | { type: 'open_search'; query?: string }
   | { type: 'open_settings'; toggle?: boolean };

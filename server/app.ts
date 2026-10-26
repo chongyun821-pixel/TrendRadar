@@ -156,12 +156,12 @@ app.get('/scores/:country', async c => {
 });
 app.get('/report', c => { const r = writeReport({ country: c.req.query('country'), system: c.req.query('system') }); return 'error' in r ? c.json(r, 404) : c.text(r.markdown, 200, { 'content-type': 'text/markdown; charset=utf-8' }); });
 app.post('/report-export/pdf', async c => {
-  const parsed = z.object({ html: z.string().min(1).max(5 * 1024 * 1024) }).strict().safeParse(await c.req.json().catch(() => null));
+  const parsed = z.object({ html: z.string().min(1).max(5 * 1024 * 1024), layout: z.enum(['a4', 'landscape']).optional() }).strict().safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: 'PDF 문서 형식이 올바르지 않거나 크기가 5MB를 넘습니다.' }, 400);
-  if (/<\s*(?:script|iframe|object|embed)\b|\bon[a-z]+\s*=|\b(?:src|href)\s*=\s*(?:(['"])(?!data:|blob:|#|\/|\.\/|\.\.\/)[^'"]*\1|(?!data:|blob:|#|\/|\.\/|\.\.\/)[^\s>]+)|url\(\s*(?!["']?data:)[^)]*\)/i.test(parsed.data.html)) return c.json({ error: 'PDF 문서에 허용되지 않는 콘텐츠가 있습니다.' }, 400);
+    if (/<\s*(?:script|iframe|object|embed)\b|\bon[a-z]+\s*=|\b(?:src|href)\s*=\s*(?:(['"])(?!data:|blob:|#|\/|\.\/|\.\.\/)[^'"]*\1|(?!['"])(?!data:|blob:|#|\/|\.\/|\.\.\/)[^\s>]+)|url\(\s*(?!["']?data:)[^)]*\)/i.test(parsed.data.html)) return c.json({ error: 'PDF 문서에 허용되지 않는 콘텐츠가 있습니다.' }, 400);
   const timeout = AbortSignal.timeout(30_000);
   try {
-    const bytes = await Promise.race([renderReportPdf(parsed.data.html), new Promise<never>((_, reject) => timeout.addEventListener('abort', () => reject(new Error('PDF 변환 시간이 초과되었습니다.')), { once: true }))]);
+    const bytes = await Promise.race([renderReportPdf(parsed.data.html, undefined, parsed.data.layout), new Promise<never>((_, reject) => timeout.addEventListener('abort', () => reject(new Error('PDF 변환 시간이 초과되었습니다.')), { once: true }))]);
     return c.body(new Uint8Array(bytes), 200, { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="report.pdf"' });
   } catch (error) { return c.json({ error: error instanceof Error ? error.message : 'PDF 변환에 실패했습니다.' }, 400); }
 });

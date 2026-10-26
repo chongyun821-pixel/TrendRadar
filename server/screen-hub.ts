@@ -12,7 +12,7 @@ import type { AppContext } from '../shared/app-context';
 
 export type ScreenStatus = 'applied' | 'failed' | 'inactive' | 'timeout';
 export interface ScreenResult { ok: boolean; status: ScreenStatus | 'queued'; screenId?: string; detail?: string; message?: string; error?: string; hidden?: boolean; screen?: AppContext }
-export const SCREEN_COMMANDS = ['set_map_state', 'show_report', 'switch_conversation', 'set_chat_model', 'set_app_view', 'set_chat_open', 'open_search', 'open_settings', 'open_report_editor', 'close_report_editor'] as const;
+export const SCREEN_COMMANDS = ['set_map_state', 'show_report', 'switch_conversation', 'set_chat_model', 'set_app_view', 'set_chat_open', 'open_search', 'open_settings', 'open_report_editor', 'close_report_editor', 'create_country_brief'] as const;
 export type ScreenCommandData = { type: typeof SCREEN_COMMANDS[number] } & Record<string, unknown>;
 
 /** 결과 대기 시간(ms). RADAR_SCREEN_TIMEOUT_MS로 바꾸고 테스트는 줄일 수 있다 */

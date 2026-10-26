@@ -1,7 +1,28 @@
 {
-  "version": "report-templates-v1",
-  "effectiveDate": "2026-10-17",
+  "version": "report-templates-v2",
+  "effectiveDate": "2026-10-26",
   "templates": [
+    {
+      "id": "word-map-brief-v1",
+      "format": "docx",
+      "title": "국가 무기체계 수주 기회 요약",
+      "scope": "지도에서 선택한 국가와 무기체계의 추가 조사 후 경영진 요약",
+      "layout": "A4 세로 1~2쪽, 별도 표지 없음, 본문 10~11포인트, 편집 가능한 제목과 표, 쪽번호",
+      "instructionsFile": "word-map-brief-v1.md",
+      "style": {
+        "reference": "현재 예상 수주 전망 보고서의 가로형 PDF와 PPT 출력",
+        "navy": "#204d79",
+        "orange": "#f37221",
+        "body": "#333a42",
+        "lightFill": "#f2f5f8",
+        "font": "맑은 고딕",
+        "brand": "HORUS",
+        "fullName": "Hanwha Observation & Reconnaissance Unified System",
+        "footer": "HORUS / 예상 수주 전망 보고서"
+      },
+      "sections": ["핵심 판단", "현재 전력과 교체 시기 및 규모", "진행 사업과 한화 기회", "불확실성과 추가 확인 사항", "주요 출처"],
+      "assets": [{ "name": "hanwha-logo.jpg", "source": "public/hanwha-logo.jpg", "mime": "image/jpeg" }]
+    },
     {
       "id": "word-country-v1",
       "format": "docx",

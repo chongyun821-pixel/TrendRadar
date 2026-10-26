@@ -8,7 +8,7 @@ export function reportFilename(title: string, basisDate?: string, extension = 'h
   const safe = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/i.test(base) ? `_${base}` : base;
   return `${safe}_${date}.${extension.replace(/[^a-z0-9]/gi, '').toLowerCase()}`;
 }
-function svgMarkup(svg: string): string {
+export function svgMarkup(svg: string): string {
   const dataUrl = /^data:image\/svg\+xml(?:;charset=[^;,]+)?(?:;base64)?,/i.exec(svg);
   if (dataUrl) {
     const payload = svg.slice(dataUrl[0].length);

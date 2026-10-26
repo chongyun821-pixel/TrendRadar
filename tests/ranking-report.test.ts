@@ -45,13 +45,22 @@ describe('수주 도래 순위', () => {
     expect(mix.slices[0].midpoint).toBeCloseTo(170);
     expect(mix.slices[1].midpoint).toBeCloseTo(50);
     const annual = annualRevenue(rows, data, 2026);
-    expect(annual.years).toHaveLength(25);
+    expect(annual.years).toHaveLength(20);
     expect(annual.years[0]).toBe(2026);
-    expect(annual.years.at(-1)).toBe(2050);
+    expect(annual.years.at(-1)).toBe(2045);
     expect(annual.series.map(line => line.system)).toEqual(['sph', 'sam']);
     expect(annual.series[0].amounts.reduce((sum, value) => sum + value, 0)).toBeCloseTo(240);
     expect(annual.series[1].amounts.reduce((sum, value) => sum + value, 0)).toBeCloseTo(50);
     expect(annual.series[0].amounts[0]).toBeCloseTo(50);
+  });
+
+  it('고정 TOP 5가 끝나면 이후 사업 자료가 있어도 기간 밖 연도는 0으로 유지한다', () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({ ...item(`기존${i}`, [2026, 2027]), system: 'sph', krw: [100, 100] } as Forecast));
+    rows.push({ ...item('후속', [2028, 2030]), system: 'sph', krw: [300, 300] } as Forecast);
+    const data = { systems: { sph: { hanwha: ['K9'] } }, meta: { baseYear: 2026 } } as unknown as Seed;
+    const annual = annualRevenue(rows, data);
+    expect(annual.series[0].amounts.slice(0, 4)).toEqual([250, 250, 0, 0]);
+    expect(rows.at(-1)?.window).toEqual([2028, 2030]);
   });
 
 });

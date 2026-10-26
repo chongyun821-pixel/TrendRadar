@@ -5,20 +5,9 @@ import { esc } from './md';
 import { SYSTEM_COLOR } from './map-style';
 import { countryName } from '../shared/country-name';
 
-/** Only forecasts with a dated opportunity can enter a deadline ranking. */
-export function rankByWindow(forecasts: Forecast[], limit: number): Forecast[] {
-  return forecasts.filter(f => f.status !== 'none' && f.window != null)
-    .sort((a, b) => a.window![0] - b.window![0]
-      || a.window![1] - b.window![1]
-      || b.score - a.score
-      || a.countryKo.localeCompare(b.countryKo, 'ko')
-      || a.systemKo.localeCompare(b.systemKo, 'ko'))
-    .slice(0, limit);
-}
-
-export interface RevenueSlice { system: SystemKey; low: number; high: number; midpoint: number; count: number }
-
-export interface AnnualRevenue { years: number[]; series: { system: SystemKey; amounts: number[] }[] }
+import { rankByWindow, revenueMix } from '../shared/report-ranking';
+export { rankByWindow, revenueMix, annualRevenue } from '../shared/report-ranking';
+export type { RevenueSlice, AnnualRevenue } from '../shared/report-ranking';
 
 /** Rank countries by the midpoint sum of the same TOP 3 opportunities shown in each card. */
 export function rankCountriesByRevenue(forecasts: Forecast[], data: Seed) {
@@ -30,41 +19,8 @@ export function rankCountriesByRevenue(forecasts: Forecast[], data: Seed) {
     || countryName(a.country, data).localeCompare(countryName(b.country, data), 'ko'));
 }
 
-/** TOP 5 opportunities within the next three calendar years, allocated over their stated windows. */
-export function revenueMix(forecasts: Forecast[], data: Seed, asOfYear = data.meta.baseYear): { slices: RevenueSlice[]; unknown: number } {
-  let unknown = 0;
-  const endYear = asOfYear + 2;
-  const slices = SYSTEM_KEYS.filter(system => data.systems[system]?.hanwha.length).map(system => {
-    const top = rankByWindow(forecasts.filter(f => f.system === system && f.window && f.window[0] <= endYear && f.window[1] >= asOfYear), 5);
-    const known = top.filter(f => f.krw != null);
-    unknown += top.length - known.length;
-    const share = (f: Forecast) => (Math.min(endYear, f.window![1]) - Math.max(asOfYear, f.window![0]) + 1) / (f.window![1] - f.window![0] + 1);
-    const low = known.reduce((sum, f) => sum + f.krw![0] * share(f), 0);
-    const high = known.reduce((sum, f) => sum + f.krw![1] * share(f), 0);
-    return { system, low, high, midpoint: (low + high) / 2, count: known.length };
-  }).filter(slice => slice.midpoint > 0);
-  return { slices, unknown };
-}
-
-/** Allocate each known TOP 5 midpoint over its inclusive forecast window for 25 years. */
-export function annualRevenue(forecasts: Forecast[], data: Seed, asOfYear = data.meta.baseYear): AnnualRevenue {
-  const groups = SYSTEM_KEYS.filter(system => data.systems[system]?.hanwha.length).map(system => ({
-    system,
-    rows: rankByWindow(forecasts.filter(f => f.system === system), 5).filter(f => f.window && f.krw),
-  }));
-  const years = Array.from({ length: 25 }, (_, i) => asOfYear + i);
-  const series = groups.map(({ system, rows }) => ({
-    system,
-    amounts: years.map(year => rows.reduce((sum, f) => {
-      if (year < f.window![0] || year > f.window![1]) return sum;
-      return sum + (f.krw![0] + f.krw![1]) / 2 / (f.window![1] - f.window![0] + 1);
-    }, 0)),
-  }));
-  return { years, series };
-}
-
 function renderAnnualChart(): string {
-  return `<div class="rank-timeline-panel"><div class="rank-timeline-head"><h3>연도별 예상 수주액</h3></div><div id="rankTimelinePlot" class="rank-plotly" aria-label="무기체계별 연간 예상 수주액 그래프"></div></div>`;
+  return `<div class="rank-timeline-panel"><div class="rank-timeline-head"><h3>연도별 예상 수주액</h3><small class="rank-cohort-note">고정 TOP 5 사업의 예상 기간 밖 연도는 0원으로 표시합니다.</small></div><div id="rankTimelinePlot" class="rank-plotly" aria-label="무기체계별 연간 예상 수주액 그래프"></div></div>`;
 }
 
 function donutPath(start: number, end: number): string {
@@ -123,5 +79,5 @@ export function renderRankingReport(data: Seed): string {
   const byCountry = countries.slice(0, 6).map(countryCard).join('');
   const moreCountries = countries.slice(6);
   const more = moreCountries.length ? `<details class="rank-more"><summary>더보기 <span>${moreCountries.length}개국</span></summary><div class="rank-grid">${moreCountries.map(countryCard).join('')}</div></details>` : '';
-  return `<div class="rank-page"><div class="rank-hero"><h1>예상 수주 전망 보고서</h1><div class="rank-summary"><span>기준 연도 <strong>${data.meta.baseYear}년</strong></span><span>무기체계 <strong>${SYSTEM_KEYS.filter(k => data.systems[k]).length}종</strong></span><span>국가 <strong>${countries.length}개</strong></span></div></div><section class="rank-section"><div class="rank-section-head"><span>01</span><div><h2>예상 수주 매출 구성비</h2><p>3년 내 무기별 TOP 5 예상 수주액 기준</p></div></div>${renderRevenueChart(forecasts, data)}</section><section class="rank-section"><div class="rank-section-head"><span>02</span><div><h2>연도별 예상 수주액 추이</h2><p>무기별 TOP 5 예상 수주액 기준</p></div></div><div id="rankTimelineHost">${renderAnnualChart()}</div></section><section class="rank-section"><div class="rank-section-head"><span>03</span><div><h2>무기별 예상 수주 국가</h2><p>무기체계별 예상 시기 도래 순</p></div></div><div class="rank-grid">${bySystem}</div></section><section class="rank-section"><div class="rank-section-head"><span>04</span><div><h2>국가별 예상 수주 무기</h2><p>국가별 예상 시기 도래 순</p></div></div><div class="rank-grid">${byCountry}</div>${more}</section></div>`;
+  return `<div class="rank-page"><div class="rank-hero"><h1>예상 수주 전망 보고서</h1><div class="rank-summary"><span>기준 연도 <strong>${data.meta.baseYear}년</strong></span><span>무기체계 <strong>${SYSTEM_KEYS.filter(k => data.systems[k]).length}종</strong></span><span>국가 <strong>${countries.length}개</strong></span></div></div><section class="rank-section"><div class="rank-section-head"><span>01</span><div><h2>예상 수주 매출 구성비</h2><p>3년 내 무기별 TOP 5 예상 수주액 기준</p></div></div>${renderRevenueChart(forecasts, data)}</section><section class="rank-section"><div class="rank-section-head"><span>02</span><div><h2>연도별 예상 수주액 추이</h2><p>무기별 고정 TOP 5 예상 수주액 기준</p></div></div><div id="rankTimelineHost">${renderAnnualChart()}</div></section><section class="rank-section"><div class="rank-section-head"><span>03</span><div><h2>무기별 예상 수주 국가</h2><p>무기체계별 예상 시기 도래 순</p></div></div><div class="rank-grid">${bySystem}</div></section><section class="rank-section"><div class="rank-section-head"><span>04</span><div><h2>국가별 예상 수주 무기</h2><p>국가별 예상 시기 도래 순</p></div></div><div class="rank-grid">${byCountry}</div>${more}</section></div>`;
 }

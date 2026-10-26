@@ -15,7 +15,11 @@ export const REPORT_DEFS: ToolDef[] = [
   { name: 'get_report_template', description: `기본 워드와 파워포인트 양식 정의, 버전 및 검수 기준을 조회한다. ${REPORT_WRITING_RULE}`, properties: { templateId: S('생략하면 전체 양식'), format: S('docx 또는 pptx') } },
   { name: 'prepare_report', description: `요청 대상과 데이터, 예측 및 양식 버전을 고정한 문서 작성 자료를 보존한다. ${REPORT_WRITING_RULE}`, properties: { country: S('국가명. 생략하면 요청 당시 활성 화면의 국가'), system: S('무기체계. 전체는 general'), templateId: S('기본 word-country-v1'), purpose: S('독자와 작성 목적'), basis: { type: 'string', enum: ['latest', 'viewed'], description: '최신 데이터 또는 열어 본 보고서 기준' } } },
 ];
-export function reportTemplates() { return JSON.parse(readFileSync(join(PROJECT_ROOT, 'templates/report-templates-v1.json'), 'utf8')); }
+export function reportTemplates() {
+  const definitions = JSON.parse(readFileSync(join(PROJECT_ROOT, 'templates/report-templates-v1.json'), 'utf8'));
+  definitions.templates = definitions.templates.map((template: any) => ({ ...template, ...(template.instructionsFile ? { instructions: readFileSync(join(PROJECT_ROOT, 'templates', template.instructionsFile), 'utf8') } : {}) }));
+  return definitions;
+}
 export async function reportTool(name: string, a: Record<string, any>): Promise<unknown> {
   const ctx = await execution(), definitions = reportTemplates();
   if (name === 'get_report_template') {
@@ -42,13 +46,18 @@ export async function reportTool(name: string, a: Record<string, any>): Promise<
     packet = { basis, country, system, revision: report.data_version, basisDate: report.basis_date, reportId: report.id, markdown: report.markdown, note: '보존 보고서의 내용이다. 현재 데이터와 혼합하지 않는다. 새 계산은 latest로 별도 준비한다.' };
   } else {
     const records = snapshot.data.records.filter(r => r.country === country && (!system || r.system === system));
-    if (!records.length) throw new Error('대상 국가와 체계의 자료가 없습니다');
+    if (!records.length && template.id !== 'word-map-brief-v1') throw new Error('대상 국가와 체계의 자료가 없습니다');
     const sourceIds = new Set(records.flatMap(r => [...r.src, ...r.batches.flatMap(b => b.src), ...(r.awarded?.src || []), ...(r.plan?.src || []), ...(r.mro || []).flatMap(m => m.src), ...(r.signals || []).flatMap(s => s.src), ...(r.projects || []).flatMap(p => p.src), ...snapshot.data.systems[r.system].costSrc, ...(snapshot.data.systems[r.system].lifeSrc || [])]));
     packet = { basis, country, system: system || null, revision: snapshot.revision, basisDate: snapshot.data.meta.collected, records, forecasts: records.map(r => computeForecast(r, snapshot.data)), assumptions: snapshot.data.systems, meta: snapshot.data.meta, sources: Object.fromEntries(Object.entries(snapshot.data.sources).filter(([id]) => sourceIds.has(id))), analysis: writeReport({ country, system: system || undefined }, snapshot.data) };
     // 케이스별 근거 표(양식 evidenceTable). 종합 점수는 예측이다
-    const cases = await Promise.all(records.map(r => scoreCase(ctx.repo, snapshot.data, r.country, r.system)));
+    const cases = await Promise.all(records.length ? records.map(r => scoreCase(ctx.repo, snapshot.data, r.country, r.system)) : system ? [scoreCase(ctx.repo, snapshot.data, country, system)] : []);
     packet = { ...packet, evidenceTables: cases.map(evidenceTable), evidenceMarkdown: cases.map(evidenceTableMarkdown) };
   }
+  const assets = await Promise.all((template.assets ?? []).map(async (asset: { name: string; source: string; mime: string }) => {
+    const file = await ctx.repo.artifact(ctx.conversationId, `reports/templates/${template.id}/${id}/${asset.name}`, readFileSync(join(PROJECT_ROOT, asset.source)), { runId: ctx.runId, kind: 'report-template', mime: asset.mime });
+    return { name: asset.name, path: file.name, hash: file.hash, mime: asset.mime };
+  }));
+  template.assets = assets;
   packet = { ...packet, id, createdAt, purpose: a.purpose || '', requestContext: state || null, rulesVersion: 'normalization-v1', templateVersion: definitions.version, template, checks: definitions.checks, authoring: definitions.authoring };
   const content = JSON.stringify(packet, null, 2);
   const file = await ctx.repo.artifact(ctx.conversationId, `reports/prepared/${id}.json`, content, { runId: ctx.runId, kind: 'report-packet', mime: 'application/json' });

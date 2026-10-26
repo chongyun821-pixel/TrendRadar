@@ -36,7 +36,7 @@
 <rect x="140" y="92" width="240" height="26" rx="9" fill="#3b6fd8"/><rect x="140" y="108" width="240" height="10" fill="#3b6fd8"/>
 <text x="152" y="110" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">사용자 요청</text>
 <text x="152" y="138" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">채팅 메시지 ,  파일 첨부</text>
-<text x="152" y="156" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지도에서 연 보고서 첨부</text>
+<text x="152" y="156" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지도 Word 버튼 → 추가 조사와 요약</text>
 <text x="152" y="174" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">화면 맥락(국가, 체계, 2D/3D, 보고서)</text>
 <rect x="420" y="92" width="320" height="108" rx="9" fill="#ffffff" stroke="#3b6fd8" stroke-width="1.6"/>
 <rect x="420" y="92" width="320" height="26" rx="9" fill="#3b6fd8"/><rect x="420" y="108" width="320" height="10" fill="#3b6fd8"/>
@@ -212,8 +212,8 @@
 <rect x="840" y="1020" width="280" height="115" rx="9" fill="#ffffff" stroke="#13808a" stroke-width="1.6"/>
 <rect x="840" y="1020" width="280" height="26" rx="9" fill="#13808a"/><rect x="840" y="1036" width="280" height="10" fill="#13808a"/>
 <text x="852" y="1038" font-size="13.5" font-weight="bold" text-anchor="start" fill="#ffffff">prepare_report → 문서 작성</text>
-<text x="852" y="1066" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">양식, 고정 자료, 케이스별 근거 표</text>
-<text x="852" y="1084" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">기존 문서 도구로 docx, pptx 작성</text>
+<text x="852" y="1066" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">양식, 고정 자료, 근거 표, 한화 로고</text>
+<text x="852" y="1084" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">지도 요약 Word 1~2쪽 또는 자유 양식</text>
 <text x="852" y="1102" font-size="12" font-weight="normal" text-anchor="start" fill="#1f2937">렌더링 검수(내용, 배치)</text>
 <rect x="1160" y="1020" width="220" height="115" rx="9" fill="#ffffff" stroke="#13808a" stroke-width="1.6"/>
 <rect x="1160" y="1020" width="220" height="26" rx="9" fill="#13808a"/><rect x="1160" y="1036" width="220" height="10" fill="#13808a"/>

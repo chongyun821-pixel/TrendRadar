@@ -1,10 +1,11 @@
 import MarkdownIt from 'markdown-it';
 import { z } from 'zod';
 import { allForecasts, formatKrw, fmtKrwRange, fmtQtyRange } from './forecast';
-import type { Forecast, Seed } from './types';
+import type { Seed } from './types';
 import { SYSTEM_KEYS } from './types';
 import { SYSTEM_COLOR } from '../src/map-style';
 import { countryName } from './country-name';
+import { rankByWindow, revenueMix, annualRevenue } from './report-ranking';
 
 const id = z.string().min(1).max(100);
 const inline = z.string().max(100_000).transform(sanitizeInline);
@@ -26,9 +27,6 @@ export const reportDocSchema = z.object({ id, title: z.string().min(1).max(500),
 });
 export type ReportDoc = z.infer<typeof reportDocSchema>;
 const uid = () => crypto.randomUUID();
-const rankByWindow = (forecasts: Forecast[], limit: number) => forecasts.filter(f => f.status !== 'none' && f.window != null)
-  .sort((a, b) => a.window![0] - b.window![0] || a.window![1] - b.window![1] || b.score - a.score || a.countryKo.localeCompare(b.countryKo, 'ko') || a.systemKo.localeCompare(b.systemKo, 'ko')).slice(0, limit);
-
 /** Keep only the small inline vocabulary supported by the editor and exports. */
 export function sanitizeInline(input: string): string {
   return input.replace(/<\/?strong\b/gi, match => match.startsWith('</') ? '</b' : '<b').replace(/<\/?em\b/gi, match => match.startsWith('</') ? '</i' : '<i')
@@ -79,23 +77,16 @@ export function rankingToDoc(data: Seed): ReportDoc {
   const forecasts = allForecasts(null, data), blocks: Block[] = [];
   const countries = [...new Set(forecasts.map(f => f.country))].filter(country => rankByWindow(forecasts.filter(f => f.country === country), 3).length > 0);
   const systems = SYSTEM_KEYS.filter(system => data.systems[system]?.hanwha.length);
-  const endYear = data.meta.baseYear + 2;
-  const pieRows = systems.map(system => {
-    const top = rankByWindow(forecasts.filter(f => f.system === system && f.window && f.window[0] <= endYear && f.window[1] >= data.meta.baseYear), 5).filter(f => f.krw);
-    const value = top.reduce((sum, f) => sum + ((f.krw![0] + f.krw![1]) / 2) * (Math.min(endYear, f.window![1]) - Math.max(data.meta.baseYear, f.window![0]) + 1) / (f.window![1] - f.window![0] + 1), 0);
-    return { system, value, count: top.length, low: top.reduce((sum, f) => sum + f.krw![0] * (Math.min(endYear, f.window![1]) - Math.max(data.meta.baseYear, f.window![0]) + 1) / (f.window![1] - f.window![0] + 1), 0), high: top.reduce((sum, f) => sum + f.krw![1] * (Math.min(endYear, f.window![1]) - Math.max(data.meta.baseYear, f.window![0]) + 1) / (f.window![1] - f.window![0] + 1), 0) };
-  }).filter(row => row.value > 0);
+  const pieRows = revenueMix(forecasts, data).slices.map(row => ({ ...row, value: row.midpoint }));
   const total = pieRows.reduce((sum, row) => sum + row.value, 0);
   blocks.push({ id: uid(), type: 'paragraph', html: `${data.meta.baseYear}년부터 3년간 예상 수주액 합계는 중간값 기준 ${formatKrw(total)}입니다.` });
   blocks.push({ id: uid(), type: 'heading', level: 2, text: '01 예상 수주 매출 구성비' });
   if (pieRows.length) {
     blocks.push({ id: uid(), type: 'chart', chartType: 'pie', title: '3년 합계 예상 수주액 구성', unit: '억', colors: pieRows.map(row => SYSTEM_COLOR[row.system]), categories: pieRows.map(row => data.systems[row.system].ko), series: [{ name: '예상 수주액', values: pieRows.map(row => row.value) }] });
-    blocks.push({ id: uid(), type: 'table', columns: ['무기체계', '대상 국가 수', '예상 수주액 범위', '비중'], rows: pieRows.map(row => [data.systems[row.system].ko, `${row.count}개 국가`, fmtKrwRange([row.low, row.high]), `${(row.value / total * 100).toFixed(1)}%`]) });
+    blocks.push({ id: uid(), type: 'table', columns: ['무기체계', '대상 국가 수', '예상 수주액 범위(*2)', '비중'], rows: pieRows.map(row => [data.systems[row.system].ko, `${row.count}개 국가`, fmtKrwRange([row.low, row.high]), `${(row.value / total * 100).toFixed(1)}%`]) });
   }
   blocks.push({ id: uid(), type: 'heading', level: 2, text: '02 연도별 예상 수주액 추이' });
-  const years = Array.from({ length: 25 }, (_, i) => data.meta.baseYear + i);
-  const series = systems.map(system => ({ system, rows: rankByWindow(forecasts.filter(f => f.system === system), 5).filter(f => f.window && f.krw) }));
-  const annual = { years, series: series.map(({ system, rows }) => ({ system, amounts: years.map(year => rows.reduce((sum, f) => year < f.window![0] || year > f.window![1] ? sum : sum + (f.krw![0] + f.krw![1]) / 2 / (f.window![1] - f.window![0] + 1), 0)) })) };
+  const annual = annualRevenue(forecasts, data);
   blocks.push({ id: uid(), type: 'chart', chartType: 'stacked-bar', title: '연도별 무기체계 예상 수주액', xLabel: '연도', yLabel: '예상 수주액', unit: '억', colors: annual.series.map(s => SYSTEM_COLOR[s.system]), categories: annual.years.map(String), series: annual.series.map(s => ({ name: data.systems[s.system]?.ko ?? s.system, values: s.amounts })) });
   blocks.push({ id: uid(), type: 'heading', level: 2, text: '03 무기체계별 예상 수주 국가' });
   for (const system of SYSTEM_KEYS.filter(k => data.systems[k])) {
