@@ -373,10 +373,12 @@ async function boot() {
     event.preventDefault(); event.stopPropagation();
     if (scoreDetail.open?.sticky) closeScore(); else openScore(row, true);
   });
-  // 정보 카드 클릭: 종합 점수 행은 항목별 점수를 열고 닫으며, 첨부 버튼은 채팅에 보고서를 전달하고, 그 밖에는 무기체계 칩을 처리한다
+  // 정보 카드 클릭: 종합 점수 행은 항목별 점수를 열고 닫으며, 첨부와 Word 내보내기 버튼은 해당 국가·체계를 처리한다.
   tip.addEventListener('click', event => {
     const attach = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-attach[data-attach-country][data-attach-system]');
     if (attach) { event.stopPropagation(); void chat.attachReport(attach.dataset.attachCountry!, attach.dataset.attachSystem as SystemKey); return; }
+    const exportButton = (event.target as HTMLElement).closest<HTMLButtonElement>('button.tip-export[data-export-country][data-export-system]');
+    if (exportButton) { event.stopPropagation(); chat.exportWordReport(exportButton.dataset.exportCountry!, exportButton.dataset.exportSystem as SystemKey); return; }
     const scoreRow = scoreRowOf(event.target);
     if (scoreRow || inScoreArea(event.target)) {
       event.stopPropagation();
@@ -543,7 +545,7 @@ function tipHtml(id: string, names: Record<string, string>) {
   rows.push(['신뢰도', `${f.confidence} (근거 ${f.nSources}건)`]);
   if (style?.coverage === 'partial') rows.push(['자료 상태', f.remaining == null ? '자료 일부만 있음, 시기 미확인' : '자료 일부']);
   const links = f.sources.slice(0, 4).map((s, i) => `<a href="${safeHref(s.u)}" target="_blank" rel="noopener" title="${esc(s.t)}">${i + 1}. ${esc(host(s.u))}</a>`).join('');
-  return `<div class="th">${esc(meta.flag)} ${name} ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span><button type="button" class="tip-attach" data-attach-country="${esc(id)}" data-attach-system="${mode}" aria-label="채팅에 국가 보고서 첨부" title="채팅에 국가 보고서 첨부"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8 12.5 6.8-6.8a4 4 0 0 1 5.7 5.7l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+  return `<div class="th">${esc(meta.flag)} ${name} ${sysKo}<span class="badge" style="--c:${SYSTEM_COLOR[mode]}">${style?.coverage === 'partial' ? '자료 일부' : timingLabel(f.remaining)}</span><button type="button" class="tip-attach" data-attach-country="${esc(id)}" data-attach-system="${mode}" aria-label="채팅에 국가 보고서 첨부" title="채팅에 국가 보고서 첨부"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8 12.5 6.8-6.8a4 4 0 0 1 5.7 5.7l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button><button type="button" class="tip-export" data-export-country="${esc(id)}" data-export-system="${mode}" aria-label="최신 자료를 조사해 Word 보고서 내보내기" title="최신 공개 자료를 다시 조사해 AI가 Word 보고서를 작성합니다"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 3h8l4 4v5M14 3v5h5M8 12h8M8 15h8M8 18h5M17 15v6m-3-3 3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     <table>${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('')}${scoreRow}</table>
     <div class="src">${links}${f.sources.length > 4 ? `<span>+${f.sources.length - 4}</span>` : ''}</div>`;
 }

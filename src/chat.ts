@@ -205,10 +205,36 @@ export function initChat(o: ChatOpts) {
     const entry = messages.reportEntries.find(r => r.id === element.dataset.reportId);
     if (!entry) return;
     const { markdown: _text, createdAt: _date, ...ref } = entry; currentReport = ref; activeView = 'report';
-    if (!element.querySelector('.report-editor-open-button')) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'report-editor-open-button'; button.textContent = '내보내기';
-      button.addEventListener('click', event => { event.stopPropagation(); dispatchEditor(entry); }); element.prepend(button);
+    if (!element.querySelector('.report-export-button')) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'report-export-button'; button.textContent = 'Word로 내보내기';
+      button.title = '최신 공개 자료를 다시 조사해 AI가 Word 보고서를 작성합니다';
+      button.addEventListener('click', event => { event.stopPropagation(); requestWordExport(entry); }); element.prepend(button);
     }
+  }
+  function requestWordExport(entry: ReportEntry) {
+    requestWordExportForScope(entry.country || o.getState().focus, entry.system);
+  }
+  function requestWordExportForScope(country: string | null, system: SystemKey | null) {
+    openFromUser();
+    if (choice.provider !== 'codex' && choice.provider !== 'grok') {
+      progress.set('Word 작성에는 문서 작성 도구가 있는 Codex 또는 Grok Build가 필요합니다. /models에서 선택해 주세요.');
+      openModels();
+      return;
+    }
+    if (!country) { progress.set('보고서의 국가 범위를 확인할 수 없습니다.'); return; }
+    const countryLabel = o.names[country] || countryName(country, seed);
+    const systemLabel = system ? seed.systems[system]?.ko || system : '전체 무기체계';
+    const prompt = [
+      '현재 표시 중인 보고서 카드는 대상과 범위를 확인하는 용도로만 사용하고, 본문을 그대로 Word로 변환하지 마세요.',
+      '이번 요청 시점의 최신 공개 자료를 새로 검색하고 원문을 확인한 뒤, 챗봇이 한국어 편집 가능 Word(.docx) 보고서를 직접 작성해 주세요.',
+      `대상 국가: ${countryLabel} (${country})`,
+      `대상 체계: ${systemLabel}${system ? ` (${system})` : ' (general, 국가의 해당 자료 전체)'}`,
+      '사실과 추정, 미확인 사항을 구분하고 출처 URL과 발행일을 문서에 표시하세요. 확인할 수 없는 내용은 만들지 말고 한계로 적으세요.',
+      `get_report_template에서 word-country-v1 양식을 확인하고, prepare_report에 country="${country}", system="${system || 'general'}", basis="latest"를 지정해 최신 작성 자료를 받으세요. 기존 보고서 본문을 재사용하지 말고 이번에 새로 조사한 자료로 내용을 구성하세요.`,
+      'Codex Documents 또는 Grok Build의 기본 docx 작성 도구로 대화 작업 폴더 reports/에 편집 가능한 Word 파일을 만드세요. 렌더링 후 내용과 레이아웃을 확인하고, 검수 결과와 preparationId를 넣어 publish_artifact로 등록하세요. 완료되면 실제 다운로드 링크를 답하세요.',
+      '이 요청은 문서 작성만 수행합니다. 조달 운영 DB의 장비·사업 자료는 변경하거나 apply_research로 반영하지 마세요.',
+    ].join('\n');
+    void send(prompt, { attachPending: false, preserveComposer: true });
   }
   function dispatchEditor(entry: ReportEntry) {
     const title = [entry.country ? o.names[entry.country] || countryName(entry.country, seed) : null, entry.system ? seed.systems[entry.system]?.ko : null, '분석 보고서'].filter(Boolean).join(' ');
@@ -259,8 +285,13 @@ export function initChat(o: ChatOpts) {
   }
   async function attachReport(country: string, system: SystemKey) {
     openFromUser();
-    const entry = await viewReport(country, system);
-    if (entry) reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
+    const token = view;
+    try {
+      const id = await ensureConversation(token);
+      const entry: ReportEntry = await api(`/conversations/${id}/reports`, post({ country, system }));
+      if (token !== view) return;
+      reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
+    } catch (error) { if (token === view) showError(error); }
   }
 
   /* ───────── 대화 목록, 전환 ───────── */
@@ -481,9 +512,10 @@ export function initChat(o: ChatOpts) {
   };
 
   /* ───────── 전송 ───────── */
-  async function send(text: string) {
-    if (uploader.task) await uploader.task;
-    if (!text.trim() && !uploader.names.length && !reportAttachments.items.length) return;
+  async function send(text: string, options: { attachPending?: boolean; preserveComposer?: boolean } = {}) {
+    const attachPending = options.attachPending !== false;
+    if (attachPending && uploader.task) await uploader.task;
+    if (!text.trim() && (!attachPending || (!uploader.names.length && !reportAttachments.items.length))) return;
     const slash = parseSlash(text);
     if (slash) {
       clearInput(); updateSendButton(); openFromUser();
@@ -500,12 +532,13 @@ export function initChat(o: ChatOpts) {
     }
     const wasBusy = sending, token = sending ? view : ++view, target = deliveryTarget;
     const selectedChoice = choice, state = { ...o.getState() }, appContext = appSnapshot();
-    const typed = text, files = [...uploader.names], reports = reportAttachments.take(), attached = [...files, ...reports.map(r => r.label)];
+    const typed = text, files = attachPending ? [...uploader.names] : [], reports = attachPending ? reportAttachments.take() : [], attached = [...files, ...reports.map(r => r.label)];
     if (attached.length) { text = `${text.trim() ? `${text}\n\n` : ''}첨부: ${attached.join(', ')}`; uploader.names.length = 0; }
     // 낙관적 표시: 보내는 즉시 「전송 중」으로 보이고, 서버 저장본으로 다시 그릴 때 한 번에 바꾼다.
     const entry: OutboxEntry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
     const dropEntry = () => { target.outbox = target.outbox.filter(message => message !== entry); };
-    clearInput(); openFromUser(); closeMenus(); busy(true);
+    if (!options.preserveComposer) clearInput();
+    openFromUser(); closeMenus(); busy(true);
     if (!wasBusy) progress.start({ message: '요청 전송 중' });
     messages.removeEmpty(); renderQueued(); messages.scrollToBottom();
     target.task = target.task.then(async () => {
@@ -529,7 +562,7 @@ export function initChat(o: ChatOpts) {
         dropEntry();
         if (token === view) {
           showError(error);
-          if (!input.value) { input.value = typed; resizeInput(); }
+          if (!options.preserveComposer && !input.value) { input.value = typed; resizeInput(); }
           for (const report of reports) reportAttachments.add(report);
           if (!uploader.names.length) uploader.names.push(...files);
         }
@@ -591,5 +624,5 @@ export function initChat(o: ChatOpts) {
   }
   const screen = createScreenCommands({ screenId, snapshot: appSnapshot, apply: applyCommand });
   screen.start();
-  return { send, viewReport, attachReport, suggest, collapse, open, setChatOpen, focusInput: () => input.focus(), dispatch: exec, openModels, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
+  return { send, viewReport, attachReport, exportWordReport: requestWordExportForScope, suggest, collapse, open, setChatOpen, focusInput: () => input.focus(), dispatch: exec, openModels, HELP, getModel: () => choice.provider, getAppContext: appSnapshot };
 }

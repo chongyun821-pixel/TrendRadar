@@ -238,8 +238,8 @@ body.re-locked { overflow: hidden; }
 .tip.pinned { pointer-events: auto; }
 .tip .th { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 8px; }
 .tip .badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: var(--c); background: color-mix(in srgb, var(--c) 18%, transparent); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); white-space: nowrap; }
-.tip-attach { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--mut); cursor: pointer; }
-.tip-attach:hover, .tip-attach:focus-visible { color: var(--tx); border-color: var(--acc); }
+.tip-attach, .tip-export { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: transparent; color: var(--mut); cursor: pointer; }
+.tip-attach:hover, .tip-attach:focus-visible, .tip-export:hover, .tip-export:focus-visible { color: var(--tx); border-color: var(--acc); }
 .tip table { border-collapse: collapse; margin-top: 7px; width: 100%; }
 .tip th { text-align: left; color: var(--mut); font-weight: 500; white-space: nowrap; padding: 2px 10px 2px 0; vertical-align: top; }
 .tip td { padding: 2px 0; overflow-wrap: anywhere; }
@@ -272,8 +272,8 @@ body.re-locked { overflow: hidden; }
 .m.bot, .m.wait { align-self: flex-start; background: rgba(31, 36, 46, .84); border: 1px solid var(--line); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .m.report { align-self: stretch; max-width: 100%; background: rgba(31, 36, 46, .84); border: 1px solid var(--line); padding: 10px 14px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 /* 보고서 내보내기 버튼: 브라우저 기본(흰 바탕) 버튼 대신 어두운 테마 칩으로 그린다 */
-.report-editor-open-button { float: right; margin: 0 0 6px 8px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.05); color: var(--mut); font: inherit; font-size: 11px; cursor: pointer; }
-.report-editor-open-button:hover, .report-editor-open-button:focus-visible { color: var(--tx); border-color: var(--acc); }
+.report-export-button { float: right; margin: 0 0 6px 8px; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.05); color: var(--mut); font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+.report-export-button:hover, .report-export-button:focus-visible { color: var(--tx); border-color: var(--acc); }
 .m p { margin: 4px 0; } .m ul, .m ol { margin: 4px 0; padding-left: 22px; } .m li { margin: 2px 0; }
 .m li > p { margin: 3px 0; }
 .m h1, .m h2, .m h3, .m h4, .m h5, .m h6 { margin: 10px 0 5px; line-height: 1.35; font-size: 13.5px; }
