@@ -17,7 +17,7 @@ Use Node.js 22.16+ (22.x) or 24+ and `npm install`.
 - `npm run build`: strict TypeScript checking and production output in `dist/`.
 - `npm start`: Vite build and Node hosting; `npm run serve` uses an existing build. Use `npm run build` for strict TypeScript checking. The start command is not `node start`.
 - `npm test`: run Vitest; target a file with `npm test -- tests/forecast.test.ts`.
-- `npm run mcp:check`: verify MCP stdio and HTTP integration.
+- `npm run mcp:check`: verify MCP stdio and HTTP integration, including the Word brief tool and template, using a new isolated SQLite workspace by default.
 - `npm run shots`: capture UI screenshots with a running server and installed Chrome.
 - `npm run map:check`: after building, verify HORUS branding/centered tabs, leading-weapon general colors, 100/50/20% timing tints, land-neighbor-only hatching, composite-score ranking separately from neighbor-reference card scores, surface-anchored patterns during motion, log-scaled bars/flat circles, horizontal world wrapping/picking, polar zoom bounds, and desktop/mobile layouts in an isolated SQLite server and headless Chrome. `CHROME_PATH` can select Chrome/Edge; operating data and providers are not used.
 - `npm run report:check`: after building, verify report headings, initial country cards and more expansion, plus Plotly timeline drag zoom, y-axis reset, legend toggling, and desktop/mobile rendering in an isolated SQLite server and headless Chrome.
