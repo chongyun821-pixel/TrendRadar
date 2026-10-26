@@ -28,7 +28,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .brand { display: flex; align-items: center; gap: 8px; justify-self: start; color: #f4f6f9; white-space: nowrap; }
 .brand img { display: block; width: auto; height: 32px; filter: drop-shadow(0 1px 6px #0008); }
 /* 한화 R 서체에서 H, O, R, U, S 5글자만 담은 워드마크 전용 글꼴(public/fonts) */
-.brand .wordmark { font-family: 'HORUS Wordmark', sans-serif; font-weight: 400; font-size: 24px; line-height: 1; letter-spacing: .02em; transform: translateY(.024em); /* 글자(H, O, R, U, S) 높이의 중심을 심볼 중심에 맞춘다 */ text-shadow: 0 1px 8px #000; }
+.brand .wordmark { font-family: 'HORUS Wordmark', sans-serif; font-weight: 400; font-size: 24px; line-height: 1; letter-spacing: .10em; transform: translateY(-2px); /* 서체 여백을 보정해 실제 글자 중심을 심볼 중심에 맞춘다 */ text-shadow: 0 1px 8px #000; }
 .modes { justify-self: center; margin: 0; display: flex; gap: 2px; padding: 3px; background: var(--glass); border: 1px solid var(--line); border-radius: 999px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); overflow-x: auto; scrollbar-width: none; max-width: 100%; }
 .modes::-webkit-scrollbar { display: none; }
 .modes button { border: 0; background: transparent; padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--mut); white-space: nowrap; transition: background .2s, color .2s; display: inline-flex; align-items: center; gap: 5px; }
@@ -211,9 +211,16 @@ body.re-locked { overflow: hidden; }
 #legend span, #legend .legend-title { display: flex; align-items: center; gap: 7px; }
 #legend .legend-title { color: var(--tx); font-size: 12px; margin-bottom: 3px; }
 #legend i { width: 12px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
-#legend .hatch { background: repeating-linear-gradient(135deg, #394351 0 4px, var(--hue) 4px 6px, #394351 6px 10px); }
+#legend .hatch { background: repeating-linear-gradient(135deg, var(--hue) 0 1px, #394351 1px 2.5px); }
 #legend small { font-size: 10px; line-height: 1.5; margin: 2px 0; }
-#legend .sz b { width: 9px; height: 14px; border-radius: 2px; background: linear-gradient(#fff8, #fff2); display: inline-block; margin-top: 2px; }
+#legend .sz { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 3px; color: var(--tx); }
+#legend .size-icon { display: inline-flex; align-items: flex-end; justify-content: center; gap: 3px; width: 26px; height: 16px; }
+#legend .size-icon b { display: block; width: 5px; height: 6px; border-radius: 1px; background: linear-gradient(#dce9fa, #8b98ad); }
+#legend .size-icon.bars b:nth-child(2) { height: 10px; }
+#legend .size-icon.bars b:nth-child(3) { height: 14px; }
+#legend .size-icon.circle { align-items: center; }
+#legend .size-icon.circle b { width: 7px; height: 7px; border-radius: 50%; }
+#legend .size-icon.circle b:last-child { width: 12px; height: 12px; }
 
 /* 빗금 후보 순위 */
 .hatch-ranking { position: fixed; top: 50%; right: 16px; transform: translateY(-50%); width: 252px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 160px); overflow-y: auto; padding: 14px; background: var(--glass2); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 32px #0004; z-index: 4; scrollbar-width: thin; }
@@ -352,10 +359,14 @@ body.re-locked { overflow: hidden; }
   .top-left { grid-column: 1; grid-row: 1; } .map-btn { grid-column: 2; grid-row: 1; } .modes { grid-column: 1 / -1; grid-row: 2; max-width: 100%; }
 }
 @media (max-width: 760px) {
-  .brand img { height: 28px; } .brand .wordmark { font-size: 21px; }
+  .brand img { height: 28px; } .brand .wordmark { font-size: 21px; transform: translateY(-1px); }
+  .top-left { gap: 8px; }
+  .view-tabs { gap: 1px; padding: 2px; }
+  .view-tabs button { padding: 6px 5px; font-size: 11px; }
+  .map-btn { padding: 7px 10px; font-size: 12px; }
   .modes { width: 100%; }
-  #legend { bottom: 76px; left: 10px; display: grid; grid-template-columns: repeat(2, max-content); gap: 4px 14px; max-width: calc(100vw - 20px); }
-  #legend .legend-title, #legend small, #legend .sz { grid-column: 1 / -1; }
+  #legend { bottom: 76px; left: 10px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 14px; max-width: calc(100vw - 20px); }
+  #legend .legend-title, #legend small, #legend .sz, #legend .legend-detail { grid-column: 1 / -1; }
   .ranking-report { padding: 72px 12px 32px; }
   .rank-hero { padding: 22px 18px; }
   .rank-hero p { font-size: 12px; }

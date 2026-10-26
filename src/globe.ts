@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import earcut from 'earcut';
+import { earthUniforms, loadEarthSurface, EARTH_VERTEX_GLSL, EARTH_FRAGMENT_GLSL } from './earth-surface';
 
 export const R = 100;
 const D2R = Math.PI / 180;
@@ -8,7 +9,7 @@ const D2R = Math.PI / 180;
 /** point: 지도 경계가 없어 중심 좌표의 작은 원(점)으로 그리는 국가 */
 export interface CountryFeature { id: string; ko: string; en: string; p: number[][][][]; point?: boolean }
 interface CountryGeo { id: string; ko: string; idx: number; point: boolean; polys: { rings: number[][][]; bbox: [number, number, number, number] }[] }
-export interface Spike { id: string; lat: number; lon: number; color: string; size: number }
+export interface Spike { id: string; lat: number; lon: number; color: string; size: number; dimmed?: boolean; circleTone?: { saturation: number; lightness: number } }
 export interface GlobeEvents { onHover(id: string | null, x: number, y: number): void; onClick(id: string | null): void }
 
 const MORPH_GLSL = /* glsl */ `
@@ -98,11 +99,13 @@ export class Globe {
     this.prev = new Uint8Array(N * 4); this.next = new Uint8Array(N * 4);
     this.texPrev = new THREE.DataTexture(this.prev, N, 1, THREE.RGBAFormat); this.texNext = new THREE.DataTexture(this.next, N, 1, THREE.RGBAFormat);
     this.uniforms = {
+      ...earthUniforms(),
       uMorph: { value: 0 }, uR: { value: R }, uPrev: { value: this.texPrev }, uNext: { value: this.texNext }, uMix: { value: 1 },
       uN: { value: N }, uHover: { value: -1 }, uSel: { value: -1 }, uLight: { value: new THREE.Vector3(0, 0, 1) }, uViewport: { value: new THREE.Vector2(1, 1) },
     };
     this.buildCountries(features);
     this.buildOcean();
+    void loadEarthSurface(this.renderer, this.uniforms);
     this.scene.add(this.world);
     for (const offset of [-2, -1, 1, 2]) {
       const copy = this.world.clone(true); copy.position.x = offset * 2 * Math.PI * R; copy.visible = false;
@@ -170,7 +173,7 @@ export class Globe {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array((ll.length / 2) * 3), 3));
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
-      vertexShader: MORPH_GLSL + /* glsl */ `
+      vertexShader: MORPH_GLSL + EARTH_VERTEX_GLSL + /* glsl */ `
         attribute vec2 lonlat; attribute float cidx; attribute float lift;
         uniform sampler2D uPrev; uniform sampler2D uNext; uniform float uMix; uniform float uN; uniform float uHover; uniform float uSel; uniform vec3 uLight;
         varying vec3 vCol; varying float vShade; varying float vHatch; varying vec2 vLonLat;
@@ -185,9 +188,10 @@ export class Globe {
           vCol = c;
           vec3 n = morphNormal(lonlat);
           vShade = mix(0.5 + 0.6 * max(dot(n, uLight), 0.0), 1.0, uMorph);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, lift), 1.0);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, lift + earthHeight(lonlat)), 1.0);
         }`,
-      fragmentShader: /* glsl */ `
+      fragmentShader: EARTH_FRAGMENT_GLSL + /* glsl */ `
+        uniform float uOverlayOpacity;
         varying vec3 vCol; varying float vShade; varying float vHatch; varying vec2 vLonLat;
         void main(){
           // 경위도에 고정해 지구 회전, 이동, 확대 및 평면 전환에도 표면과 함께 움직인다.
@@ -197,8 +201,17 @@ export class Globe {
           float stripe = 1.0 - smoothstep(0.16 - aa, 0.16 + aa, abs(fract(phase) - 0.5));
           // 멀리서 해상도보다 촘촘해진 선은 평균색으로 섞어 깜빡임을 줄인다.
           stripe = mix(stripe, 0.32, smoothstep(0.3, 0.7, footprint));
-          vec3 hatched = mix(vec3(0.22, 0.26, 0.31), vCol, 0.12 + 0.45 * stripe);
-          gl_FragColor = vec4(mix(vCol, hatched, vHatch) * vShade, 1.0);
+          vec3 terrain = earthLand(vLonLat);
+          float colored = smoothstep(0.03, 0.09, length(vCol - vec3(0.075, 0.105, 0.14)));
+          // 데이터가 있는 영역만 바탕 채도와 밝기를 낮춰 지형색이 시기별 색상을 흐리지 않게 한다.
+          float luminance = dot(terrain, vec3(0.2126, 0.7152, 0.0722));
+          vec3 quietTerrain = mix(vec3(luminance), terrain, 0.35) * 0.8;
+          terrain = mix(terrain, quietTerrain, colored * smoothstep(0.0, 0.5, uOverlayOpacity));
+          float opacity = uOverlayOpacity * mix(0.12, 1.0, colored);
+          vec3 fill = mix(terrain, vCol, opacity);
+          vec3 hatched = mix(terrain, vCol, clamp(uOverlayOpacity * (0.12 + 1.35 * stripe), 0.0, 0.94));
+          // 바탕 지형과 국가 레이어를 한 번 합성해 뒷면 비침과 투명 삼각형 정렬 오류를 피한다.
+          gl_FragColor = vec4(mix(fill, hatched, vHatch) * vShade, 1.0);
         }`,
       side: THREE.DoubleSide,
     });
@@ -221,11 +234,11 @@ export class Globe {
     bgeo.setIndex(indices);
     const bmat = new THREE.ShaderMaterial({
       uniforms: this.uniforms, transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      vertexShader: MORPH_GLSL + `attribute vec2 startLL; attribute vec2 endLL; attribute float along; attribute float edge;
+      vertexShader: MORPH_GLSL + EARTH_VERTEX_GLSL + `attribute vec2 startLL; attribute vec2 endLL; attribute float along; attribute float edge;
         uniform vec2 uViewport; varying float vEdge;
         void main(){
-          vec4 a = projectionMatrix * modelViewMatrix * vec4(morphPos(startLL, 0.45), 1.0);
-          vec4 b = projectionMatrix * modelViewMatrix * vec4(morphPos(endLL, 0.45), 1.0);
+          vec4 a = projectionMatrix * modelViewMatrix * vec4(morphPos(startLL, 0.45 + earthHeight(startLL)), 1.0);
+          vec4 b = projectionMatrix * modelViewMatrix * vec4(morphPos(endLL, 0.45 + earthHeight(endLL)), 1.0);
           vec2 delta = (b.xy / b.w - a.xy / a.w) * uViewport;
           vec2 direction = delta / max(length(delta), 0.001);
           gl_Position = mix(a, b, along);
@@ -238,7 +251,7 @@ export class Globe {
   }
 
   private buildOcean() {
-    const ll: number[] = []; const step = 3;
+    const ll: number[] = []; const step = 2;
     for (let lat = -90; lat < 90; lat += step) for (let lon = -180; lon < 180; lon += step) {
       const a = [lon, lat], b = [lon + step, lat], c = [lon + step, lat + step], d = [lon, lat + step];
       ll.push(...a, ...b, ...c, ...a, ...c, ...d);
@@ -248,15 +261,15 @@ export class Globe {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array((ll.length / 2) * 3), 3));
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms, side: THREE.DoubleSide,
-      vertexShader: MORPH_GLSL + `attribute vec2 lonlat; uniform vec3 uLight; varying float vS; varying vec2 vLL;
+      vertexShader: MORPH_GLSL + EARTH_VERTEX_GLSL + `attribute vec2 lonlat; uniform vec3 uLight; varying float vS; varying vec2 vLL;
         void main(){ vec3 n = morphNormal(lonlat); vS = mix(0.35 + 0.75 * max(dot(n, uLight), 0.0), 1.0, uMorph); vLL = lonlat;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, 0.0), 1.0); }`,
-      fragmentShader: `varying float vS; varying vec2 vLL;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(morphPos(lonlat, earthHeight(lonlat)), 1.0); }`,
+      fragmentShader: EARTH_FRAGMENT_GLSL + `varying float vS; varying vec2 vLL;
         void main(){
-          vec3 c = mix(vec3(0.035, 0.07, 0.12), vec3(0.05, 0.10, 0.17), smoothstep(-60.0, 60.0, vLL.y));
+          vec3 c = mix(vec3(0.035, 0.07, 0.12), earthSurface(vLL), uEarthReady);
           vec2 g = abs(fract(vLL / 30.0 + 0.5) - 0.5) * 30.0;
           float line = 1.0 - smoothstep(0.0, 0.35, min(g.x, g.y));
-          c += vec3(0.05, 0.08, 0.12) * line * 0.6;
+          c += vec3(0.008, 0.014, 0.022) * line;
           gl_FragColor = vec4(c * vS, 1.0);
         }`,
     });
@@ -268,7 +281,7 @@ export class Globe {
     const mat = new THREE.ShaderMaterial({
       uniforms: { uFade: { value: 1 } }, transparent: true, side: THREE.BackSide, depthWrite: false, blending: THREE.AdditiveBlending,
       vertexShader: `varying vec3 vN; varying vec3 vV; void main(){ vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position,1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
-      fragmentShader: `uniform float uFade; varying vec3 vN; varying vec3 vV; void main(){ float d = clamp(-dot(vN, vV) / 0.42, 0.0, 1.0); float i = pow(d, 3.0) * 0.55; gl_FragColor = vec4(0.30, 0.58, 1.0, 1.0) * i * uFade; }`,
+      fragmentShader: `uniform float uFade; varying vec3 vN; varying vec3 vV; void main(){ float d = clamp(-dot(vN, vV) / 0.42, 0.0, 1.0); float i = pow(d, 2.8) * 0.65; gl_FragColor = vec4(0.30, 0.58, 1.0, 1.0) * i * uFade; }`,
     });
     const m = new THREE.Mesh(geo, mat); this.scene.add(m); return m;
   }
@@ -346,7 +359,23 @@ export class Globe {
 
   private buildSpikes() {
     const g = new THREE.CylinderGeometry(1, 1, 1, 14, 1, false); g.translate(0, 0.5, 0);
-    const m = new THREE.InstancedMesh(g, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: true }), 2048);
+    const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: true });
+    material.onBeforeCompile = shader => {
+      shader.uniforms.uFlatMix = this.uniforms.uMorph;
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec2 vCircleXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvCircleXZ = position.xz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uFlatMix; varying vec2 vCircleXZ;')
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          float radial = length(vCircleXZ);
+          float edgeWidth = clamp(fwidth(radial) * 1.5, 0.055, 0.35);
+          float rim = smoothstep(1.0 - edgeWidth, 0.985, radial) * smoothstep(0.65, 1.0, uFlatMix);
+          // 같은 색 계열의 짙은 테두리를 원 안쪽에 그려 금액을 나타내는 지름을 유지한다.
+          diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.035, rim);
+          diffuseColor.a = mix(diffuseColor.a, 1.0, uFlatMix);`);
+    };
+    const m = new THREE.InstancedMesh(g, material, 2048);
     m.count = 0; m.frustumCulled = false; m.renderOrder = 3; this.scene.add(m); return m;
   }
 
@@ -379,18 +408,25 @@ export class Globe {
     if (this.spikeT < 1) this.spikeT = Math.min(1, this.spikeT + dt / 0.6);
     const e = ease(this.spikeT);
     const pos = new THREE.Vector3(), nrm = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), mtx = new THREE.Matrix4(), up = new THREE.Vector3(0, 1, 0);
-    const col = new THREE.Color(); let instance = 0;
+    const col = new THREE.Color(), hsl = { h: 0, s: 0, l: 0 }; let instance = 0;
     const offsets = this.morph > 0.998 ? [-2, -1, 0, 1, 2] : [0];
     this.spikes.forEach(s => {
       s.h = s.h0 + (s.h1 - s.h0) * e;
-      morphPosJS(s.lon, s.lat, 0.3, this.morph, pos); morphNormalJS(s.lon, s.lat, this.morph, nrm);
+      morphPosJS(s.lon, s.lat, 0.5, this.morph, pos); morphNormalJS(s.lon, s.lat, this.morph, nrm);
       q.setFromUnitVectors(up, nrm);
       const presence = s.h1 > 0 ? Math.min(1, s.h / s.h1) : s.h / Math.max(0.001, s.h0);
       const radius = ((1 - this.morph) * s.r + this.morph * 0.5 * (1 + 6 * s.size)) * presence;
       sc.set(radius, Math.max(0.001, s.h * (1 - this.morph) + 0.09 * this.morph * presence), radius);
+      col.set(s.color);
+      if (this.morph > 0 && !s.dimmed) {
+        col.getHSL(hsl, THREE.SRGBColorSpace);
+        col.setHSL(hsl.h,
+          THREE.MathUtils.lerp(hsl.s, s.circleTone?.saturation ?? hsl.s * 0.9, this.morph),
+          THREE.MathUtils.lerp(hsl.l, Math.max(s.circleTone?.lightness ?? 0.8, hsl.l), this.morph), THREE.SRGBColorSpace);
+      }
       for (const offset of offsets) {
         const wrapped = pos.clone(); wrapped.x += offset * 2 * Math.PI * R;
-        mtx.compose(wrapped, q, sc); this.spikeMesh.setMatrixAt(instance, mtx); this.spikeMesh.setColorAt(instance, col.set(s.color)); instance++;
+        mtx.compose(wrapped, q, sc); this.spikeMesh.setMatrixAt(instance, mtx); this.spikeMesh.setColorAt(instance, col); instance++;
       }
     });
     if (this.spikeT >= 1) this.spikes = this.spikes.filter(s => s.h1 > 0);

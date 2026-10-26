@@ -9,6 +9,10 @@ export const SYSTEM_COLOR: Record<SystemKey, string> = {
   sph: '#f97316', ifv: '#14b8a6', sam: '#a78bfa', mrl: '#ec4899',
   frigate: '#38bdf8', ssk: '#eab308',
 };
+/** 자주포 원은 채도를 유지한 밝은 주황색으로 표시한다. */
+export const CIRCLE_TONE: Partial<Record<SystemKey, { saturation: number; lightness: number }>> = {
+  sph: { saturation: 0.98, lightness: 0.69 },
+};
 export type Rgb = [number, number, number];
 export const MISSING_RGB: Rgb = [0.075, 0.105, 0.14];
 export const hexRgb = (h: string): Rgb => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255];

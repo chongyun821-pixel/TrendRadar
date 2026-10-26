@@ -56,6 +56,7 @@ try {
     return route.fulfill({ json: { scores: fixture.records.filter(r => r.system === system).map(r => ({ country: r.country, system: r.system, score: r.country === 'DEU' ? r.system === 'mrl' ? 90 : 70 : r.system === 'sph' ? 80 : 60, grey: r.country === 'GBR', gate: r.country === 'GBR' ? '검증용 제외 사유' : null })) } });
   });
   await page.goto(base); await page.waitForSelector('body.ready');
+  await page.waitForFunction(() => (window as any).__globe.uniforms.uEarthReady.value === 1);
   assert.equal(await page.locator('#hatchRanking').isVisible(), false);
   async function rankingSnapshot() {
     return page.locator('#hatchRanking').evaluate(el => ({
@@ -133,18 +134,21 @@ try {
   const rankingCard = await hover(rankingGlobe.rows[0].country);
   assert.ok(rankingCard.includes(`${rankingGlobe.rows[0].score.toFixed(1)}점, 1위`), rankingCard);
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
+  assert.match(await page.locator('#legend .legend-title').innerText(), /자주포 예상 사업 도래 시기/);
+  assert.match(await page.locator('#legend .sz').innerText(), /막대 길이는 예상 사업 규모를 나타냅니다/);
   await page.screenshot({ path: resolve(folder, 'desktop-globe.png') });
   await page.click('#mapBtn'); await settled();
   assert.deepEqual((await rankingSnapshot()).rows, rankingGlobe.rows);
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   const card = await hover('CHE');
   assert.match(card, /인접국 영향 점수/); assert.match(card, /독일/); assert.match(card, /프랑스/); assert.match(card, /확인되지 않았습니다/);
-  assert.match(card, /인접국 영향/); assert.match(card, /예상 사업 합계/);
+  assert.match(card, /인접국 영향/); assert.match(card, /예상 사업 금액 합계/);
   assert.doesNotMatch(await page.locator('#legend').innerText(), /교차|상위 5개국/);
   assert.match(await page.locator('#legend').innerText(), /3년 이내/);
   assert.match(await page.locator('#legend').innerText(), /10년 이내/);
   assert.match(await page.locator('#legend').innerText(), /10년 이후/);
-  assert.doesNotMatch(await page.locator('#legend').innerText(), /원 지름|막대 높이|·/);
+  assert.match(await page.locator('#legend .sz').innerText(), /원 크기는 예상 사업 규모를 나타냅니다/);
+  assert.doesNotMatch(await page.locator('#legend').innerText(), /·/);
   await page.screenshot({ path: resolve(folder, 'desktop-flat-hatch.png') });
   const pixels = await page.evaluate(() => {
     const g = (window as any).__globe;
@@ -163,8 +167,28 @@ try {
       return Math.max(...result) - Math.min(...result);
     };
     const hatchContrast = sample(-4.5, 40.5), solidContrast = sample(10, 51);
+    const landPixels = () => [8, 9, 10, 11, 12].flatMap(lon => [49.5, 50, 50.5, 51].map(lat => {
+      const p = g.project(lon, lat), pixel = new Uint8Array(4);
+      gl.readPixels(Math.round(p.x * ratio), gl.drawingBufferHeight - Math.round(p.y * ratio), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return [...pixel.slice(0, 3)];
+    }));
+    const overlay = landPixels(), opacity = g.uniforms.uOverlayOpacity.value;
+    g.uniforms.uOverlayOpacity.value = 0.55; g.renderer.render(g.scene, g.camera);
+    const translucent = landPixels();
+    g.uniforms.uOverlayOpacity.value = 0; g.renderer.render(g.scene, g.camera);
+    const terrain = landPixels();
+    g.uniforms.uOverlayOpacity.value = opacity; g.renderer.render(g.scene, g.camera);
+    const range = (pixels: number[][]) => {
+      const values = pixels.map(p => p[0] * 0.2126 + p[1] * 0.7152 + p[2] * 0.0722);
+      return Math.max(...values) - Math.min(...values);
+    };
+    const terrainRange = range(terrain), overlayRange = range(overlay);
+    const translucentRange = range(translucent);
+    const colorError = (pixels: number[][]) => pixels.reduce((sum, p) => sum + Math.hypot(...p.map((v, i) => v - styles.DEU[i])), 0) / pixels.length;
+    const overlayColorError = colorError(overlay), translucentColorError = colorError(translucent);
+    const tintDifference = overlay.reduce((sum, p, i) => sum + p[0] - terrain[i][0], 0) / overlay.length;
     const patterns = g.countries.map((c: any) => g.next[c.idx * 4 + 3]);
-    return { styles, hatchContrast, solidContrast, hatchCount: patterns.filter((a: number) => a === 255).length,
+    return { styles, hatchContrast, solidContrast, terrainRange, overlayRange, translucentRange, overlayColorError, translucentColorError, tintDifference, hatchCount: patterns.filter((a: number) => a === 255).length,
       shaderErrors: g.renderer.info.programs?.filter((p: any) => p.diagnostics?.runnable === false).length ?? 0 };
   });
   assert.equal(pixels.styles.CHE[3], 255); assert.equal(pixels.styles.ESP[3], 255);
@@ -174,18 +198,40 @@ try {
   assert.ok(pixels.hatchCount > 5 && pixels.hatchCount < 30);
   assert.deepEqual(pixels.styles.DEU.slice(0, 3), [249, 115, 22]); // 점수 제외가 지도 색을 덮어쓰지 않는다.
   assert.ok(pixels.hatchContrast > 30, JSON.stringify(pixels));
-  assert.ok(pixels.solidContrast < 5, JSON.stringify(pixels));
+  // 지형 굴곡은 남기되, 더 투명한 채움보다 지형의 간섭과 원래 국가 색과의 차이가 작아야 한다.
+  assert.ok(pixels.terrainRange > 5 && pixels.overlayRange > 2, JSON.stringify(pixels));
+  assert.ok(pixels.overlayRange < pixels.translucentRange * 0.65, JSON.stringify(pixels));
+  assert.ok(pixels.overlayColorError < pixels.translucentColorError * 0.6, JSON.stringify(pixels));
+  assert.ok(pixels.tintDifference > 20, JSON.stringify(pixels));
   assert.equal(pixels.shaderErrors, 0);
   const flatMotion = await surfaceMotion();
   const circles = await page.evaluate(() => {
     const g = (window as any).__globe;
+    const gl = g.renderer.getContext(), ratio = g.renderer.getPixelRatio();
+    const readCenter = (s: { lon: number; lat: number }) => {
+      const p = g.project(s.lon, s.lat), pixel = new Uint8Array(4);
+      gl.readPixels(Math.round(p.x * ratio), gl.drawingBufferHeight - Math.round(p.y * ratio), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return [...pixel.slice(0, 3)];
+    };
+    const count = g.spikeMesh.count;
+    g.spikeMesh.count = 0; g.renderer.render(g.scene, g.camera);
+    const background = g.spikes.map(readCenter);
+    g.spikeMesh.count = count; g.renderer.render(g.scene, g.camera);
+    const luminance = (p: number[]) => p[0] * 0.2126 + p[1] * 0.7152 + p[2] * 0.0722;
     return g.spikes.map((s: any, i: number) => {
       const a = g.spikeMesh.instanceMatrix.array, offset = i * 5 * 16;
-      return { id: s.id, radius: Math.hypot(a[offset], a[offset + 1], a[offset + 2]), thickness: Math.hypot(a[offset + 4], a[offset + 5], a[offset + 6]) };
+      const color = g.spikeMesh.material.color.clone(), source = color.clone().set(s.color);
+      g.spikeMesh.getColorAt(i * 5, color);
+      const original = source.getHSL({ h: 0, s: 0, l: 0 }, 'srgb'), displayed = color.getHSL({ h: 0, s: 0, l: 0 }, 'srgb');
+      const hueDifference = Math.abs(original.h - displayed.h);
+      return { id: s.id, radius: Math.hypot(a[offset], a[offset + 1], a[offset + 2]), thickness: Math.hypot(a[offset + 4], a[offset + 5], a[offset + 6]),
+        centerContrast: luminance(readCenter(s)) - luminance(background[i]), hueDifference: Math.min(hueDifference, 1 - hueDifference), lightnessGain: displayed.l - original.l };
     });
   });
   assert.ok(Math.max(...circles.map((c: any) => c.radius)) > Math.min(...circles.map((c: any) => c.radius)) * 3, JSON.stringify(circles));
-  assert.ok(circles.every((c: any) => Math.abs(c.thickness - 0.12) < 0.01), JSON.stringify(circles));
+  const thicknesses = circles.map((c: any) => c.thickness);
+  assert.ok(Math.min(...thicknesses) > 0 && Math.max(...thicknesses) - Math.min(...thicknesses) < 0.01, JSON.stringify(circles));
+  assert.ok(circles.every((c: any) => c.centerContrast > 25 && c.hueDifference < 0.005 && c.lightnessGain > 0.02), JSON.stringify(circles));
   assert.match(await hover('AUT'), /자료 일부/);
   assert.match(await hover('CZE'), /자료 일부만 있음, 시기 미확인/);
   await page.evaluate(() => {
@@ -221,8 +267,9 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => (window as any).__app.focusCountry('CHE')); await settled();
   await hover('CHE');
-  const layout = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth, legend: document.querySelector('#legend')!.getBoundingClientRect().toJSON(), composer: document.querySelector('.bar')!.getBoundingClientRect().toJSON(), tip: document.querySelector('#tip')!.getBoundingClientRect().toJSON() }));
+  const layout = await page.evaluate(() => ({ width: document.documentElement.scrollWidth, viewport: innerWidth, headerRight: document.querySelector('.view-tabs')!.getBoundingClientRect().right, mapButtonLeft: document.querySelector('#mapBtn')!.getBoundingClientRect().left, legend: document.querySelector('#legend')!.getBoundingClientRect().toJSON(), composer: document.querySelector('.bar')!.getBoundingClientRect().toJSON(), tip: document.querySelector('#tip')!.getBoundingClientRect().toJSON() }));
   assert.ok(layout.width <= layout.viewport); assert.ok(layout.legend.right <= layout.viewport);
+  assert.ok(layout.headerRight + 4 <= layout.mapButtonLeft, JSON.stringify(layout));
   assert.ok(layout.legend.bottom <= layout.composer.top, JSON.stringify(layout));
   assert.ok(layout.tip.bottom <= layout.legend.top || layout.tip.top >= layout.legend.bottom, JSON.stringify(layout));
   const rankingMobile = await rankingSnapshot();

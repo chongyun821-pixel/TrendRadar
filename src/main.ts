@@ -7,7 +7,7 @@ import { SYSTEM_KEYS } from '../shared/types';
 import { initChat } from './chat';
 import { esc } from './md';
 import { landNeighbors } from '../shared/tension';
-import { SYSTEM_COLOR, MISSING_RGB, rgbCss, hexRgb, systemTint, timingLabel, leadingWeapons, mapSizes, mapCountryStyles, type CountryMapStyle, type WeaponScore } from './map-style';
+import { SYSTEM_COLOR, CIRCLE_TONE, MISSING_RGB, rgbCss, hexRgb, systemTint, timingLabel, leadingWeapons, mapSizes, mapCountryStyles, type CountryMapStyle, type WeaponScore } from './map-style';
 import { est, scorePanelHtml, scoreRowHtml, type ScoreDetail } from './score-panel';
 import { DEFAULT_DISPLAY, applyDisplayPatch, dimRgb, displayStyle, displaySummary, type MapDisplay, type MapDisplayPatch, type MapZoom } from '../shared/map-display';
 import { renderRankingReport } from './ranking-report';
@@ -141,12 +141,13 @@ async function boot() {
     globe.setBaseColors(shown.colors, true, shown.hatched);
     const visible = state.display.bars ? fs.filter(f => f.status !== 'none' && f.krw != null && seed.countries[f.country] && shown.shows(f.country)) : [];
     const sizes = mapSizes(visible);
-    globe.setSpikes(visible.filter(f => (sizes.get(f.country) ?? 0) > 0).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: shown.dimmed(f.country) ? rgbCss(dimRgb(hexRgb(SYSTEM_COLOR[f.system]), DIM_BASE_RGB)) : SYSTEM_COLOR[f.system], size: sizes.get(f.country)! })));
+    globe.setSpikes(visible.filter(f => (sizes.get(f.country) ?? 0) > 0).map(f => ({ id: f.country, lat: seed.countries[f.country].lat, lon: seed.countries[f.country].lon, color: shown.dimmed(f.country) ? rgbCss(dimRgb(hexRgb(SYSTEM_COLOR[f.system]), DIM_BASE_RGB)) : SYSTEM_COLOR[f.system], size: sizes.get(f.country)!, dimmed: shown.dimmed(f.country), circleTone: CIRCLE_TONE[f.system] })));
     if (state.mode) {
       const mode = state.mode, hue = SYSTEM_COLOR[mode];
-      $('#legend').innerHTML = `<strong class="legend-title"><i style="background:${hue}"></i>${esc(seed.systems[mode].ko)}</strong>`
+      $('#legend').innerHTML = `<strong class="legend-title"><i style="background:${hue}"></i>${esc(seed.systems[mode].ko)} 예상 사업 도래 시기</strong>`
         + ([3, 10, 11] as const).map(years => `<span><i style="background:${rgbCss(systemTint(mode, years))}"></i>${timingLabel(years)}</span>`).join('')
-        + `<span><i class="hatch" style="--hue:${hue}"></i>자체 자료는 없지만 인접국 자료로 도입 가능성을 짐작한 국가</span><span><i style="background:${rgbCss(MISSING_RGB)}"></i>자료가 없는 국가</span>`;
+        + `<span class="legend-detail"><i class="hatch" style="--hue:${hue}"></i>인접국 자료로 도입 가능성 추정</span><span class="legend-detail"><i style="background:${rgbCss(MISSING_RGB)}"></i>자료 없음</span>`
+        + (state.display.bars ? `<span class="sz"><i class="size-icon ${state.flat ? 'circle' : 'bars'}" aria-hidden="true"><b></b><b></b>${state.flat ? '' : '<b></b>'}</i>${state.flat ? '원 크기' : '막대 길이'}는 예상 사업 규모를 나타냅니다.</span>` : '');
     } else {
       $('#legend').innerHTML = `<strong class="legend-title">국가별 수주 가능성이 가장 높은 무기</strong>`
         + SYSTEM_KEYS.map(system => `<span><i style="background:${SYSTEM_COLOR[system]}"></i>${esc(seed.systems[system].ko)}</span>`).join('');

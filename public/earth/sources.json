@@ -1,0 +1,35 @@
+{
+  "provider": "NASA Earth Observatory, Blue Marble: Next Generation",
+  "retrievedAt": "2026-10-26",
+  "surfacePage": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography/",
+  "elevationPage": "https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/topography-bathymetry-maps/",
+  "sources": [
+    {
+      "file": "surface.jpg",
+      "original": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-topography/july/world.topo.200407.3x5400x2700.jpg",
+      "width": 4096,
+      "height": 2048,
+      "download": "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/bmng/bmng-topography/july/world.topo.200407.3x5400x2700.jpg?w=4096&h=2048&fit=clip",
+      "bytes": 436887,
+      "sha256": "b4c4aa7b8ee94975390aa42685c1a0beb942b6b608fe52e2a095bfcd57087f9f"
+    },
+    {
+      "file": "height.jpg",
+      "original": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/topography/gebco_08_rev_elev_5400x2700.jpg",
+      "width": 2048,
+      "height": 1024,
+      "download": "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/bmng/topography/gebco_08_rev_elev_5400x2700.jpg?w=2048&h=1024&fit=clip",
+      "bytes": 87068,
+      "sha256": "472d3b4574adb57da9575531cb7c54da7b30ec8275c47d10fce7369dc691c09c"
+    },
+    {
+      "file": "depth.jpg",
+      "original": "https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bathymetry/gebco_08_rev_bath_5400x2700.jpg",
+      "width": 2048,
+      "height": 1024,
+      "download": "https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/bmng/bathymetry/gebco_08_rev_bath_5400x2700.jpg?w=2048&h=1024&fit=clip",
+      "bytes": 203762,
+      "sha256": "12f39329108a7e707fc3c75653c6ab2a928313ea656bde1735397c3c9067de6d"
+    }
+  ]
+}
