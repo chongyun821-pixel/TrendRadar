@@ -127,11 +127,20 @@ async function boot() {
     const ranking = $('#hatchRanking');
     ranking.hidden = !state.mode;
     if (state.mode) {
-      const top = [...mapStyles].filter(([, style]) => style.hatched && style.referenceRank != null)
-        .sort(([, a], [, b]) => a.referenceRank! - b.referenceRank!).slice(0, 5);
+      const top = [...mapStyles]
+        .filter(([, style]) => style.hatched && style.referenceRank != null)
+        .map(([country]) => ({ country, score: scores.get(scoreKey(state.mode!, country)) }))
+        .sort((a, b) => {
+          const aScore = a.score ? (a.score.grey ? 0 : a.score.score) : -1;
+          const bScore = b.score ? (b.score.grey ? 0 : b.score.score) : -1;
+          return bScore - aScore || a.country.localeCompare(b.country);
+        }).slice(0, 5);
       ranking.style.setProperty('--ranking-color', SYSTEM_COLOR[state.mode]);
-      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">인접국 영향 점수</h2></div></div>`
-        + (top.length ? `<ol>${top.map(([country, style]) => `<li><button type="button" data-hatch-country="${esc(country)}" title="${esc(names[country] ?? country)} 지도에서 보기"><span class="hatch-ranking-number">${style.referenceRank}</span><span class="hatch-ranking-country">${esc(names[country] ?? country)}</span><strong>${style.referenceScore.toFixed(1)}<small>점</small></strong></button></li>`).join('')}</ol>`
+      ranking.innerHTML = `<div class="hatch-ranking-heading"><i aria-hidden="true"></i><div><h2 id="hatchRankingTitle">종합 점수</h2></div></div>`
+        + (top.length ? `<ol>${top.map(({ country, score }, index) => {
+          const value = score ? (score.grey ? '제외' : `${score.score.toFixed(1)}<small>점</small>`) : '—';
+          return `<li><button type="button" data-hatch-country="${esc(country)}" title="${esc(names[country] ?? country)} 지도에서 보기"><span class="hatch-ranking-number">${index + 1}</span><span class="hatch-ranking-country">${esc(names[country] ?? country)}</span><strong>${value}</strong></button></li>`;
+        }).join('')}</ol>`
           : '<p class="hatch-ranking-empty">조건에 맞는 빗금 국가가 없습니다.</p>');
     } else ranking.innerHTML = '';
     // 챗봇 표시 조정(숨김, 특정 국가만, 강조, 빗금, 막대)을 색과 막대에 반영한다
@@ -146,7 +155,7 @@ async function boot() {
       const mode = state.mode, hue = SYSTEM_COLOR[mode];
       $('#legend').innerHTML = `<strong class="legend-title"><i style="background:${hue}"></i>${esc(seed.systems[mode].ko)}</strong>`
         + ([3, 10, 11] as const).map(years => `<span><i style="background:${rgbCss(systemTint(mode, years))}"></i>${timingLabel(years)}</span>`).join('')
-        + `<span><i class="hatch" style="--hue:${hue}"></i>자체 자료는 없지만 인접국 자료로 도입 가능성을 짐작한 국가</span><span><i style="background:${rgbCss(MISSING_RGB)}"></i>자료가 없는 국가</span>`;
+        + `<span><i class="hatch" style="--hue:${hue}"></i>인접국 자료로 도입 가능성을 짐작한 국가</span><span><i style="background:${rgbCss(MISSING_RGB)}"></i>자료가 없는 국가</span>`;
     } else {
       $('#legend').innerHTML = `<strong class="legend-title">국가별 수주 가능성이 가장 높은 무기</strong>`
         + SYSTEM_KEYS.map(system => `<span><i style="background:${SYSTEM_COLOR[system]}"></i>${esc(seed.systems[system].ko)}</span>`).join('');

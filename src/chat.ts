@@ -50,7 +50,7 @@ export function initChat(o: ChatOpts) {
   const stop = get<HTMLButtonElement>('#stopButton'), sendButton = get<HTMLButtonElement>('.send');
   const workspace = get<HTMLElement>('#workspace');
   const attachButton = get<HTMLButtonElement>('#attachButton'), addFiles = get<HTMLButtonElement>('#addFiles');
-  let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false;
+  let conversationId: string | null = null, activeRun: string | null = null, view = 0, sending = false, keepCollapsedUntilTerminal = false;
   let deliveryTarget = newTarget();
   let queuedMessages: QueuedMessage[] = [];
   let models: ModelInfo[] = [{ id: 'gpt', name: '지피티', available: true }], choice: ModelChoice = { provider: 'gpt' }, cliDefaults: CliDefaults = {};
@@ -88,9 +88,11 @@ export function initChat(o: ChatOpts) {
   showChoice();
 
   /* ───────── 입력창, 메뉴 ───────── */
-  const open = () => root.classList.add('open');
-  const collapse = () => { root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
-  const setChatOpen = (isOpen: boolean, focusInput = false) => { if (isOpen) { open(); if (focusInput) input.focus(); } else collapse(); };
+  const open = () => { if (!keepCollapsedUntilTerminal) root.classList.add('open'); };
+  const openFromUser = () => { keepCollapsedUntilTerminal = false; root.classList.add('open'); };
+  const openForTerminal = () => { keepCollapsedUntilTerminal = false; root.classList.add('open'); };
+  const collapse = () => { if (activeRun) keepCollapsedUntilTerminal = true; root.classList.remove('open'); closeMenus(); input.blur(); activeView = 'map'; };
+  const setChatOpen = (isOpen: boolean, focusInput = false) => { if (isOpen) { open(); if (focusInput && !keepCollapsedUntilTerminal) input.focus(); } else collapse(); };
   function closeMenus() {
     workspace.hidden = true; picker.close();
     attachButton.setAttribute('aria-expanded', 'false');
@@ -121,8 +123,8 @@ export function initChat(o: ChatOpts) {
       form.requestSubmit();
     }
   });
-  input.addEventListener('focus', open);
-  get('#chatToggle').addEventListener('click', () => root.classList.toggle('open'));
+  input.addEventListener('focus', openFromUser);
+  get('#chatToggle').addEventListener('click', () => { if (root.classList.contains('open')) collapse(); else openFromUser(); });
   document.querySelector('#globe')!.addEventListener('pointerdown', () => { if (!input.value && !activeRun) collapse(); });
 
   function exec(actions: Action[] = []) {
@@ -145,11 +147,12 @@ export function initChat(o: ChatOpts) {
     activeView = view === 'report' && currentReport ? 'report' : 'map';
   }
   function busy(on: boolean) {
+    if (on && !root.classList.contains('open')) keepCollapsedUntilTerminal = true;
     sending = on; root.classList.toggle('busy', on); stop.hidden = !on; updateSendButton();
     addFiles.disabled = on || !!uploader.task;
   }
   function updateSendButton() { sendButton.hidden = sending && !input.value.trim(); }
-  function showError(e: unknown) { progress.set(String(e instanceof Error ? e.message : e)); }
+  function showError(e: unknown) { openForTerminal(); progress.set(String(e instanceof Error ? e.message : e)); }
 
   /* ───────── 메시지 목록 ───────── */
   /** 대기 메시지 취소: 서버에서 실행하지 않고 취소한 뒤 대화를 다시 그린다 */
@@ -255,7 +258,7 @@ export function initChat(o: ChatOpts) {
     } catch (error) { if (token === view) showError(error); return null; }
   }
   async function attachReport(country: string, system: SystemKey) {
-    open();
+    openFromUser();
     const entry = await viewReport(country, system);
     if (entry) reportAttachments.add({ id: entry.id, label: `${o.names[country] || country} ${seed.systems[system]?.ko || system} 보고서` });
   }
@@ -333,7 +336,7 @@ export function initChat(o: ChatOpts) {
   bindTitleEditor(titleEl, { onEdit: () => picker.close(), rename: (next, previous) => { void renameConversation(next, previous); } });
   choiceLabelEl.addEventListener('click', () => openModels());
   // ^: /sessions 선택기(다시 누르면 닫기)
-  get('#sessionsButton').addEventListener('click', () => { if (picker.isOpen('sessions')) picker.close(); else { open(); openSessions(); } });
+  get('#sessionsButton').addEventListener('click', () => { if (picker.isOpen('sessions')) picker.close(); else { openFromUser(); openSessions(); } });
   /** /models: 제공자 → (코덱스, 그록 빌드) 모델 → 추론 강도 */
   function openModels(path: string[] = []) {
     const step = modelStep(path, choice, new Set(models.filter(m => m.available).map(m => m.id)));
@@ -355,20 +358,20 @@ export function initChat(o: ChatOpts) {
     view++; resetSession(null); save('pr.conversation', '');
     messages.clear(); uploader.reset(); clearInput(); progress.set('');
     titleEl.textContent = '새 대화'; get('#workspaceFiles').textContent = '추가한 자료가 없습니다.'; get('#fileCount').hidden = true; closeMenus();
-    if (reveal) { open(); input.focus(); }
+    if (reveal) { openFromUser(); input.focus(); }
   }
   /** 낙관적 전환: 바로 선택을 바꾸고 캐시(없으면 제목만)를 보여준 뒤 최신 내용으로 갱신한다. 실패하면 이전 대화로 되돌린다 */
   async function selectConversation(id: string, reveal = true) {
     const token = ++view, previous = conversationId;
     const show = (c: Conversation) => {
       resetSession(c.id); save('pr.conversation', c.id); uploader.reset();
-      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); if (reveal) open();
+      setChoice(readChoice(read(`pr.model.${c.id}`)), false); renderConversation(c); if (reveal) openFromUser();
     };
     const cached = conversations.get(id);
     if (cached) show(cached);
     else {
       resetSession(id); messages.clear();
-      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; if (reveal) open();
+      titleEl.textContent = historyRows.find(r => r.id === id)?.title || '대화'; if (reveal) openFromUser();
       progress.set('대화 불러오는 중…');
     }
     let c: Conversation;
@@ -437,7 +440,8 @@ export function initChat(o: ChatOpts) {
         }
         if (!isActiveStatus(run.status)) {
           // 접힌 창도 응답이 끝나면(답변, 보고서만 있는 답, 오류) 펼쳐 보여준다. 대화를 다시 불러오다 실패해도 펼친다(사용자 중지, 취소는 그대로 둔다)
-          if (run.status === 'failed' || run.status === 'completed') setChatOpen(true);
+          if (run.status === 'failed' || run.status === 'completed') openForTerminal();
+          else keepCollapsedUntilTerminal = false;
           const c = await loadConversation(conversationId!, true);
           if (!current()) return;
           // 답과 함께 온 화면 동작(화면 연결이 없을 때 남긴 것)은 사용자가 그사이 화면을 바꿨더라도 적용한다
@@ -452,7 +456,7 @@ export function initChat(o: ChatOpts) {
       }
     } catch (e) {
       if (token === view) {
-        open();
+        openForTerminal();
         progress.set(`${e instanceof Error ? e.message : e}\n대화 목록에서 다시 선택해 진행 상황을 복원하세요.`);
         if (activeRun === runId) activeRun = null;
         busy(deliveryTarget.pending > 0);
@@ -482,7 +486,7 @@ export function initChat(o: ChatOpts) {
     if (!text.trim() && !uploader.names.length && !reportAttachments.items.length) return;
     const slash = parseSlash(text);
     if (slash) {
-      clearInput(); updateSendButton(); open();
+      clearInput(); updateSendButton(); openFromUser();
       if (slash.cmd === 'sessions') openSessions(); else o.actions.open_settings();
       return;
     }
@@ -498,7 +502,7 @@ export function initChat(o: ChatOpts) {
     // 낙관적 표시: 보내는 즉시 「전송 중」으로 보이고, 서버 저장본으로 다시 그릴 때 한 번에 바꾼다.
     const entry: OutboxEntry = { id: crypto.randomUUID(), text }; target.outbox.push(entry); target.pending++;
     const dropEntry = () => { target.outbox = target.outbox.filter(message => message !== entry); };
-    clearInput(); open(); closeMenus(); busy(true);
+    clearInput(); openFromUser(); closeMenus(); busy(true);
     if (!wasBusy) progress.start({ message: '요청 전송 중' });
     messages.removeEmpty(); renderQueued(); messages.scrollToBottom();
     target.task = target.task.then(async () => {
@@ -537,14 +541,14 @@ export function initChat(o: ChatOpts) {
   get('#workspaceFiles').textContent = '추가한 자료가 없습니다.';
   void refreshHistory().then(rows => {
     const id = read('pr.conversation');
-    if (view === 0 && id && rows.some(r => r.id === id)) return selectConversation(id);
+    if (view === 0 && id && rows.some(r => r.id === id)) return selectConversation(id, false);
   }).catch(showError);
   function suggest(id: string | null) {
     const box = get('#suggest'); box.replaceChildren(); box.classList.remove('show');
     if (!id || !seed.records.some(r => r.country === id)) return;
     const label = `${o.names[id] || id}${o.modeKo() ? ` ${o.modeKo()}` : ''} 보고서`;
     const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
-    button.onclick = () => { open(); void viewReport(id, o.getState().mode); };
+    button.onclick = () => { openFromUser(); void viewReport(id, o.getState().mode); };
     box.appendChild(button); box.classList.add('show');
   }
 
