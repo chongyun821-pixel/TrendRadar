@@ -487,7 +487,10 @@ export function initChat(o: ChatOpts) {
     const slash = parseSlash(text);
     if (slash) {
       clearInput(); updateSendButton(); openFromUser();
-      if (slash.cmd === 'sessions') openSessions(); else o.actions.open_settings();
+      if (slash.cmd === 'sessions') openSessions();
+      else if (slash.cmd === 'models') openModels();
+      else if (slash.cmd === 'settings') o.actions.open_settings();
+      else o.actions.open_search();
       return;
     }
     const modelCommand = /^[!！]\s*(?:모델|model)\s*(.*)$/i.exec(text.trim());
