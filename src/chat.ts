@@ -207,7 +207,7 @@ export function initChat(o: ChatOpts) {
     const { markdown: _text, createdAt: _date, ...ref } = entry; currentReport = ref; activeView = 'report';
     if (!element.querySelector('.report-export-button')) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'report-export-button'; button.textContent = 'Word로 내보내기';
-      button.title = '최신 공개 자료를 다시 조사해 AI가 Word 보고서를 작성합니다';
+      button.title = 'DB 자료와 보존 원문을 먼저 확인하고 부족한 항목은 추가 조사해 AI가 Word 보고서를 작성합니다';
       button.addEventListener('click', event => { event.stopPropagation(); requestWordExport(entry); }); element.prepend(button);
     }
   }
@@ -226,11 +226,11 @@ export function initChat(o: ChatOpts) {
     const systemLabel = system ? seed.systems[system]?.ko || system : '전체 무기체계';
     const prompt = [
       '현재 표시 중인 보고서 카드는 대상과 범위를 확인하는 용도로만 사용하고, 본문을 그대로 Word로 변환하지 마세요.',
-      '이번 요청 시점의 최신 공개 자료를 새로 검색하고 원문을 확인한 뒤, 챗봇이 한국어 편집 가능 Word(.docx) 보고서를 직접 작성해 주세요.',
+      '먼저 이번 요청 시점의 DB 구조화 자료와 연결된 보존 원문을 조회하세요. 그 근거로 한국어 편집 가능 Word(.docx) 보고서를 작성하고, 빠졌거나 오래됐거나 서로 상충하는 핵심 내용만 최신 공개 출처를 추가 조사해 원문을 확인하세요.',
       `대상 국가: ${countryLabel} (${country})`,
       `대상 체계: ${systemLabel}${system ? ` (${system})` : ' (general, 국가의 해당 자료 전체)'}`,
       '사실과 추정, 미확인 사항을 구분하고 출처 URL과 발행일을 문서에 표시하세요. 확인할 수 없는 내용은 만들지 말고 한계로 적으세요.',
-      `get_report_template에서 word-country-v1 양식을 확인하고, prepare_report에 country="${country}", system="${system || 'general'}", basis="latest"를 지정해 최신 작성 자료를 받으세요. 기존 보고서 본문을 재사용하지 말고 이번에 새로 조사한 자료로 내용을 구성하세요.`,
+      `get_report_template에서 word-country-v1 양식을 확인하고, prepare_report에 country="${country}", system="${system || 'general'}", basis="latest"를 지정해 최신 DB 자료를 받으세요. 자료의 source ID에 연결된 원문은 source_read로 먼저 확인하세요. 원문이 보존되지 않았거나 최신성·완전성이 부족한 항목만 URL에서 추가 수집하세요. 기존 보고서 본문은 재사용하지 말고 DB 자료와 확인된 원문으로 내용을 구성하세요.`,
       'Codex Documents 또는 Grok Build의 기본 docx 작성 도구로 대화 작업 폴더 reports/에 편집 가능한 Word 파일을 만드세요. 렌더링 후 내용과 레이아웃을 확인하고, 검수 결과와 preparationId를 넣어 publish_artifact로 등록하세요. 완료되면 실제 다운로드 링크를 답하세요.',
       '이 요청은 문서 작성만 수행합니다. 조달 운영 DB의 장비·사업 자료는 변경하거나 apply_research로 반영하지 마세요.',
     ].join('\n');
